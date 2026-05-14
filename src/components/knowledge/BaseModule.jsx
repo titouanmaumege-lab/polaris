@@ -225,7 +225,7 @@ function BlockEditor({ block, onChange, onDelete, onAddBelow, onMoveUp, onMoveDo
   };
 
   const controlBar = (
-    <div style={{ display: "flex", gap: 4, opacity: 0, transition: TR, position: "absolute", right: 0, top: -2 }}
+    <div style={{ display: "flex", gap: 4, opacity: 0.4, transition: TR, position: "absolute", right: 0, top: -2, zIndex: 10, background: C.surface2, borderRadius: 8, padding: "1px 2px" }}
       className="block-controls">
       {!isFirst && <span onClick={onMoveUp} style={{ cursor: "pointer", color: C.muted, fontSize: 12, padding: "2px 5px" }}>↑</span>}
       {!isLast && <span onClick={onMoveDown} style={{ cursor: "pointer", color: C.muted, fontSize: 12, padding: "2px 5px" }}>↓</span>}
@@ -237,7 +237,7 @@ function BlockEditor({ block, onChange, onDelete, onAddBelow, onMoveUp, onMoveDo
   const wrapper = (children) => (
     <div style={{ position: "relative", marginBottom: 4 }}
       onMouseEnter={e => { const c = e.currentTarget.querySelector(".block-controls"); if (c) c.style.opacity = "1"; }}
-      onMouseLeave={e => { const c = e.currentTarget.querySelector(".block-controls"); if (c) c.style.opacity = "0"; }}
+      onMouseLeave={e => { const c = e.currentTarget.querySelector(".block-controls"); if (c) c.style.opacity = "0.4"; }}
     >
       {controlBar}
       {children}
@@ -774,7 +774,7 @@ function PageView({ pageId, userId, onBack, breadcrumb, allPages, onPageNav }) {
 }
 
 // ─── BASE VIEW ────────────────────────────────────────────────────────────────
-function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, onCreateSubBase, allBases }) {
+function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, onCreateSubBase, onArchiveBase, allBases }) {
   const { pages, loading, createPage, archivePage } = useBasePages(base.id, userId);
   const { results, search, clear } = usePageSearch(userId);
   const [searchQ, setSearchQ] = useState("");
@@ -836,6 +836,11 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
           </div>
           <input value={base.name} onChange={e => onBaseUpdate(base.id, { name: e.target.value })}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: C.text, fontSize: 16, fontWeight: 700, fontFamily: "inherit" }} />
+          <button onClick={async () => {
+            if (!window.confirm(`Supprimer "${base.name}" ?`)) return;
+            await onArchiveBase(base.id);
+            onBack();
+          }} style={{ background: "none", border: "none", color: C.red, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Supprimer cette base">🗑</button>
         </div>
         {/* Search */}
         <div style={{ marginTop: 10, position: "relative" }}>
@@ -1105,9 +1110,11 @@ function CreateBaseModal({ onClose, onCreate, parentBase = null }) {
 const LS_RECENT = "lp_base_recent";
 
 function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }) {
-  const { rootBases, childrenOf, loading, createBase } = useKnowledgeBases(userId);
+  const { rootBases, childrenOf, loading, createBase, archiveBase, updateBase } = useKnowledgeBases(userId);
   const [showCreate, setShowCreate] = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [editingId, setEditingId] = useState(null);
+  const [editingName, setEditingName] = useState("");
   const [recent, setRecent] = useState(() => {
     try { return JSON.parse(localStorage.getItem(LS_RECENT) || "[]"); } catch { return []; }
   });
@@ -1117,9 +1124,27 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
     if (base) { setShowCreate(false); onBaseOpen(base); }
   };
 
+  const handleDelete = async (e, base) => {
+    e.stopPropagation();
+    if (!window.confirm(`Supprimer "${base.name}" ?`)) return;
+    await archiveBase(base.id);
+  };
+
+  const startEdit = (e, base) => {
+    e.stopPropagation();
+    setEditingId(base.id);
+    setEditingName(base.name);
+  };
+
+  const commitEdit = async (base) => {
+    if (editingName.trim() && editingName !== base.name) await updateBase(base.id, { name: editingName.trim() });
+    setEditingId(null);
+  };
+
   const renderBaseTree = (base, depth = 0) => {
     const children = childrenOf(base.id);
     const isExpanded = expanded[base.id];
+    const isEditing = editingId === base.id;
     return (
       <div key={base.id}>
         <div
@@ -1130,8 +1155,8 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
             background: C.surface2, cursor: "pointer", transition: TR,
             borderLeft: depth === 0 ? `3px solid ${base.color}` : `2px solid ${base.color}66`,
           }}
-          onMouseEnter={e => e.currentTarget.style.background = C.surface3}
-          onMouseLeave={e => e.currentTarget.style.background = C.surface2}
+          onMouseEnter={e => { e.currentTarget.style.background = C.surface3; const a = e.currentTarget.querySelector(".base-actions"); if (a) a.style.opacity = "1"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = C.surface2; const a = e.currentTarget.querySelector(".base-actions"); if (a) a.style.opacity = "0"; }}
         >
           <span
             onClick={e => { e.stopPropagation(); if (children.length) setExpanded(ex => ({ ...ex, [base.id]: !ex[base.id] })); }}
@@ -1139,13 +1164,27 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
           >
             {children.length ? (isExpanded ? "▼" : "▶") : " "}
           </span>
-          <span onClick={() => onBaseOpen(base)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+          <span onClick={() => !isEditing && onBaseOpen(base)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: depth === 0 ? 20 : 16 }}>{base.emoji}</span>
-            <span style={{ fontSize: depth === 0 ? 14 : 13, fontWeight: depth === 0 ? 600 : 500, color: C.text }}>{base.name}</span>
-            {children.length > 0 && !isExpanded && (
-              <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>{children.length} sous-base{children.length > 1 ? "s" : ""}</span>
+            {isEditing ? (
+              <input autoFocus value={editingName} onChange={e => setEditingName(e.target.value)}
+                onBlur={() => commitEdit(base)}
+                onKeyDown={e => { if (e.key === "Enter") commitEdit(base); if (e.key === "Escape") setEditingId(null); }}
+                onClick={e => e.stopPropagation()}
+                style={{ flex: 1, background: C.surface3, border: `1px solid ${C.borderMid}`, color: C.text, padding: "2px 8px", borderRadius: 6, fontSize: depth === 0 ? 14 : 13, fontFamily: "inherit", outline: "none" }} />
+            ) : (
+              <>
+                <span style={{ fontSize: depth === 0 ? 14 : 13, fontWeight: depth === 0 ? 600 : 500, color: C.text }}>{base.name}</span>
+                {children.length > 0 && !isExpanded && (
+                  <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>{children.length} sous-base{children.length > 1 ? "s" : ""}</span>
+                )}
+              </>
             )}
           </span>
+          <div className="base-actions" style={{ display: "flex", gap: 4, opacity: 0, transition: TR }} onClick={e => e.stopPropagation()}>
+            <span onClick={e => startEdit(e, base)} style={{ fontSize: 11, color: C.muted, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Renommer">✏️</span>
+            <span onClick={e => handleDelete(e, base)} style={{ fontSize: 11, color: C.red, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Supprimer">🗑</span>
+          </div>
         </div>
         {isExpanded && children.map(c => renderBaseTree(c, depth + 1))}
       </div>
@@ -1209,7 +1248,7 @@ export default function BaseModule({ userId }) {
   const [breadcrumb, setBreadcrumb] = useState([]);
   const [showSwitcher, setShowSwitcher] = useState(false);
   const [allPages, setAllPages] = useState([]);
-  const { bases, updateBase, createBase } = useKnowledgeBases(userId);
+  const { bases, updateBase, createBase, archiveBase } = useKnowledgeBases(userId);
 
   useEffect(() => {
     if (!userId) return;
@@ -1293,6 +1332,7 @@ export default function BaseModule({ userId }) {
           onBaseOpen={openBase}
           onBaseUpdate={handleBaseUpdate}
           onCreateSubBase={createBase}
+          onArchiveBase={archiveBase}
           allBases={bases}
         />
       )}
