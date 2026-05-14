@@ -801,8 +801,8 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
       <div key={p.id}>
         <div
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", paddingLeft: 14 + depth * 16, borderRadius: 12, cursor: "pointer", marginBottom: 4, background: C.surface2, transition: TR }}
-          onMouseEnter={e => e.currentTarget.style.background = C.surface3}
-          onMouseLeave={e => e.currentTarget.style.background = C.surface2}
+          onMouseEnter={e => { e.currentTarget.style.background = C.surface3; const a = e.currentTarget.querySelector(".row-actions"); if (a) a.style.opacity = "1"; }}
+          onMouseLeave={e => { e.currentTarget.style.background = C.surface2; const a = e.currentTarget.querySelector(".row-actions"); if (a) a.style.opacity = "0.35"; }}
         >
           <span onClick={() => children.length && setExpandedPages(e => ({ ...e, [p.id]: !e[p.id] }))} style={{ color: C.faint, fontSize: 11, width: 14 }}>
             {children.length ? (expanded ? "▼" : "▶") : " "}
@@ -814,9 +814,8 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             {p.page_type === "source" && <span style={{ fontSize: 10, color: C.blue, background: C.blueBg, padding: "2px 7px", borderRadius: 999 }}>source</span>}
             {children.length > 0 && <span style={{ fontSize: 11, color: C.faint }}>({children.length})</span>}
           </span>
-          <div style={{ display: "flex", gap: 8, opacity: 0, transition: TR }} className="row-actions">
-            <span onClick={() => { setCreating("note"); }} style={{ fontSize: 12, color: C.muted, cursor: "pointer" }} title="Sous-page">+</span>
-            <span onClick={() => archivePage(p.id)} style={{ fontSize: 12, color: C.red, cursor: "pointer" }}>🗑</span>
+          <div style={{ display: "flex", gap: 8, opacity: 0.35, transition: TR }} className="row-actions" onClick={e => e.stopPropagation()}>
+            <span onClick={() => archivePage(p.id)} style={{ fontSize: 13, color: C.red, cursor: "pointer", padding: "2px 4px" }} title="Supprimer">🗑</span>
           </div>
         </div>
         {expanded && children.map(c => renderPageRow(c, depth + 1))}
