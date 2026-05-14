@@ -418,9 +418,9 @@ function BlockEditor({ block, onChange, onDelete, onAddBelow, onMoveUp, onMoveDo
           }} placeholder="URL YouTube (ex: https://youtu.be/...)"
             style={{ width: "100%", background: C.surface3, border: `1px solid ${C.border}`, color: C.text, padding: "10px 12px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
         ) : (
-          <div style={{ position: "relative", paddingBottom: "56.25%", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ borderRadius: 10, overflow: "hidden", height: 220 }}>
             <iframe src={`https://www.youtube.com/embed/${videoId}`}
-              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: "none" }}
+              style={{ width: "100%", height: "100%", border: "none" }}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen />
           </div>
@@ -486,8 +486,13 @@ function BlockEditor({ block, onChange, onDelete, onAddBelow, onMoveUp, onMoveDo
 function PageEditor({ content, onChange, allPages, onPageNav }) {
   const blocks = content && content.length > 0 ? content : [{ id: uid(), type: "paragraph", data: { text: "" } }];
 
+  const TEXT_TYPES = new Set(["paragraph", "heading", "heading2", "heading3", "bullet_list", "numbered_list", "checkbox_list", "quote", "callout", "code"]);
   const updateBlock = (idx, block) => {
-    const nb = [...blocks]; nb[idx] = block; onChange(nb);
+    const nb = [...blocks]; nb[idx] = block;
+    if (idx === nb.length - 1 && !TEXT_TYPES.has(block.type)) {
+      nb.push({ id: uid(), type: "paragraph", data: { text: "" } });
+    }
+    onChange(nb);
   };
   const deleteBlock = (idx) => {
     if (blocks.length === 1) { onChange([{ id: uid(), type: "paragraph", data: { text: "" } }]); return; }
@@ -568,8 +573,18 @@ function BacklinksPanel({ backlinks, onPageNav }) {
 function SourceMetaPanel({ meta, onChange }) {
   const m = meta || { url: "", author: "", source_type: "book", consumed_date: "", status: "todo", rating: null };
   const upd = patch => onChange({ ...m, ...patch });
+  const extractYtId = url => { const r = (url || "").match(/(?:v=|youtu\.be\/|shorts\/)([a-zA-Z0-9_-]{11})/); return r ? r[1] : null; };
+  const ytId = extractYtId(m.url);
   return (
     <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 20 }}>
+      {ytId && (
+        <div style={{ borderRadius: 10, overflow: "hidden", height: 200, marginBottom: 14 }}>
+          <iframe src={`https://www.youtube.com/embed/${ytId}`}
+            style={{ width: "100%", height: "100%", border: "none" }}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen />
+        </div>
+      )}
       <div style={{ display: "grid", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 13, color: C.muted, width: 28 }}>🌐</span>
