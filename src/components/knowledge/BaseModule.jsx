@@ -827,7 +827,7 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             {p.page_type === "source" && <span style={{ fontSize: 10, color: C.blue, background: C.blueBg, padding: "2px 7px", borderRadius: 999 }}>source</span>}
             {children.length > 0 && <span style={{ fontSize: 11, color: C.faint }}>({children.length})</span>}
           </span>
-          {canWrite && <span onClick={e => { e.stopPropagation(); archivePage(p.id); }} style={{ fontSize: 14, color: C.red, cursor: "pointer", padding: "2px 6px", flexShrink: 0 }} title="Supprimer">🗑</span>}
+          {canWrite && <span onClick={e => { e.stopPropagation(); archivePage(p.id); window.dispatchEvent(new CustomEvent("page-archived", { detail: { pageId: p.id } })); }} style={{ fontSize: 14, color: C.red, cursor: "pointer", padding: "2px 6px", flexShrink: 0 }} title="Supprimer">🗑</span>}
         </div>
         {expanded && children.map(c => renderPageRow(c, depth + 1))}
       </div>
@@ -1236,6 +1236,19 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
     try { return JSON.parse(localStorage.getItem(LS_RECENT) || "[]"); } catch { return []; }
   });
 
+  useEffect(() => {
+    const handler = (e) => {
+      const { pageId } = e.detail;
+      setRecent(r => r.filter(x => x.id !== pageId));
+      try {
+        const cur = JSON.parse(localStorage.getItem(LS_RECENT) || "[]");
+        localStorage.setItem(LS_RECENT, JSON.stringify(cur.filter(r => r.id !== pageId)));
+      } catch {}
+    };
+    window.addEventListener("page-archived", handler);
+    return () => window.removeEventListener("page-archived", handler);
+  }, []);
+
   const myRootBases = rootBases.filter(b => b.owner_id === userId);
   // "Bases partagées" = bases d'autres partagées avec moi + mes bases que j'ai partagées
   const sharedBasesMap = new Map();
@@ -1458,6 +1471,7 @@ export default function BaseModule({ userId }) {
 
   const handleArchivePage = async (pageId) => {
     await supabase.from("knowledge_pages").update({ is_archived: true }).eq("id", pageId);
+    window.dispatchEvent(new CustomEvent("page-archived", { detail: { pageId } }));
   };
 
   const handleBaseUpdate = async (id, patch) => {
