@@ -1307,6 +1307,7 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
             ) : (
               <>
                 <span style={{ fontSize: depth === 0 ? 14 : 13, fontWeight: depth === 0 ? 600 : 500, color: C.text }}>{base.name}</span>
+                {base._isShared && <span style={{ fontSize: 10, color: C.accent, opacity: 0.7 }} title="Partagée">👥</span>}
                 {children.length > 0 && !isExpanded && (
                   <span style={{ fontSize: 10, color: C.faint, marginLeft: 4 }}>{children.length} sous-base{children.length > 1 ? "s" : ""}</span>
                 )}
