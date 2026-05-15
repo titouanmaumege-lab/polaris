@@ -1237,7 +1237,11 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
   });
 
   const myRootBases = rootBases.filter(b => b.owner_id === userId);
-  const sharedBases = bases.filter(b => b.owner_id !== userId);
+  // "Bases partagées" = bases d'autres partagées avec moi + mes bases que j'ai partagées
+  const sharedBasesMap = new Map();
+  bases.filter(b => b.owner_id !== userId).forEach(b => sharedBasesMap.set(b.id, b));
+  rootBases.filter(b => b.owner_id === userId && b._isShared).forEach(b => sharedBasesMap.set(b.id, b));
+  const sharedBases = [...sharedBasesMap.values()];
   const newSharedCount = sharedBases.filter(b => !seenIds.has(b.id)).length;
 
   const handleSharedTab = () => {

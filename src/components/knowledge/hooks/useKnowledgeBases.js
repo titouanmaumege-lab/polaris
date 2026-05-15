@@ -13,16 +13,25 @@ export function useKnowledgeBases(userId) {
     ]);
     const memberMap = {};
     (memberships || []).forEach(m => { memberMap[m.base_id] = m.role; });
-    const ownedIds = new Set((ownedData || []).map(b => b.id));
-    const sharedIds = Object.keys(memberMap).filter(id => !ownedIds.has(id));
-    let sharedData = [];
-    if (sharedIds.length > 0) {
-      const { data } = await supabase.from("knowledge_bases").select("*").in("id", sharedIds).eq("is_archived", false);
-      sharedData = data || [];
-    }
+    const ownedIds = [...(ownedData || []).map(b => b.id)];
+    const sharedIds = Object.keys(memberMap).filter(id => !ownedIds.includes(id));
+
+    // Fetch shared bases + which of my owned bases have members, in parallel
+    const [sharedResult, myMembersResult] = await Promise.all([
+      sharedIds.length > 0
+        ? supabase.from("knowledge_bases").select("*").in("id", sharedIds).eq("is_archived", false)
+        : { data: [] },
+      ownedIds.length > 0
+        ? supabase.from("knowledge_base_members").select("base_id").in("base_id", ownedIds)
+        : { data: [] },
+    ]);
+
+    const sharedData = sharedResult.data || [];
+    const sharedOwnedIds = new Set((myMembersResult.data || []).map(m => m.base_id));
+
     const all = [
-      ...(ownedData || []).map(b => ({ ...b, _isOwner: true, _role: "owner" })),
-      ...sharedData.map(b => ({ ...b, _isOwner: false, _role: memberMap[b.id] || "viewer" })),
+      ...(ownedData || []).map(b => ({ ...b, _isOwner: true, _role: "owner", _isShared: sharedOwnedIds.has(b.id) })),
+      ...sharedData.map(b => ({ ...b, _isOwner: false, _role: memberMap[b.id] || "viewer", _isShared: false })),
     ];
     setBases(all);
     setLoading(false);
