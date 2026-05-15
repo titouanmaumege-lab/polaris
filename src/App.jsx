@@ -4432,7 +4432,7 @@ function PersonalisationModal({ onClose, onSave }) {
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App({ session, signOut }) {
-  const [module, setModule]   = useState("dashboard");
+  const [module, setModule]   = useState(()=>getLS("lp_active_module","dashboard"));
   const [logsOpen, setLogsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const [syncStatus, setSyncStatus] = useState(null);
@@ -4459,6 +4459,8 @@ export default function App({ session, signOut }) {
     setPersoKey(k => k + 1);
     setShowPerso(false);
   };
+
+  useEffect(() => { setLS("lp_active_module", module); }, [module]);
 
   useEffect(() => {
     _userId = session?.user?.id ?? null;

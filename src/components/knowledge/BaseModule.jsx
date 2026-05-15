@@ -1445,9 +1445,9 @@ export default function BaseModule({ userId }) {
       .then(({ data }) => setAllPages(data || []));
   }, [userId, view]);
 
-  // Sauvegarde position de navigation
+  // Sauvegarde position de navigation (skip avant que la restauration soit faite)
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !navRestored.current) return;
     let state = { view: "home" };
     if (view === "base" && currentBase) state = { view: "base", baseId: currentBase.id };
     else if (view === "page" && currentPage) state = { view: "page", pageId: currentPage.id };
