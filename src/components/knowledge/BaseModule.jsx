@@ -1236,8 +1236,8 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
     try { return JSON.parse(localStorage.getItem(LS_RECENT) || "[]"); } catch { return []; }
   });
 
-  const myRootBases = rootBases.filter(b => b._isOwner);
-  const sharedBases = bases.filter(b => !b._isOwner);
+  const myRootBases = rootBases.filter(b => b.owner_id === userId);
+  const sharedBases = bases.filter(b => b.owner_id !== userId);
   const newSharedCount = sharedBases.filter(b => !seenIds.has(b.id)).length;
 
   const handleSharedTab = () => {
@@ -1309,13 +1309,13 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
               </>
             )}
           </span>
-          {base._isOwner && (
+          {base.owner_id === userId && (
             <div className="base-actions" style={{ display: "flex", gap: 4, opacity: 0, transition: TR }} onClick={e => e.stopPropagation()}>
               <span onClick={e => startEdit(e, base)} style={{ fontSize: 11, color: C.muted, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Renommer">✏️</span>
               <span onClick={e => handleDelete(e, base)} style={{ fontSize: 11, color: C.red, cursor: "pointer", padding: "2px 6px", borderRadius: 6 }} title="Supprimer">🗑</span>
             </div>
           )}
-          {!base._isOwner && (
+          {base.owner_id !== userId && (
             <span style={{ fontSize: 10, color: C.muted, background: C.surface3, padding: "2px 8px", borderRadius: 999 }}>
               {base._role === "editor" ? "Éditeur" : "Lecture"}
             </span>
