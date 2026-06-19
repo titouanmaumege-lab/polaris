@@ -270,7 +270,7 @@ function CircularProgress({ value, max, size = 52, strokeWidth = 4, color = C.ac
   return (
     <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
       <svg width={size} height={size} style={{ transform: "rotate(-90deg)", display: "block" }}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(139,92,246,0.12)" strokeWidth={strokeWidth} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--c-ring-track)" strokeWidth={strokeWidth} />
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth}
           strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
           style={{ transition: "stroke-dashoffset 0.5s ease" }} />
@@ -304,7 +304,7 @@ const ProgressBar = ({ value, color, height = 6 }) => (
 
 const Select = ({ value, options, onChange, style }) => (
   <select value={value} onChange={e => onChange(e.target.value)} style={{
-    background: C.surface2, border: `1px solid ${C.border}`, color: C.text,
+    background: "var(--c-surface-2)", border: `1px solid var(--c-border)`, color: "var(--c-text)",
     padding: "8px 10px", borderRadius: 10, fontSize: 13, fontFamily: "inherit",
     outline: "none", cursor: "pointer", ...style,
   }}>
@@ -317,7 +317,7 @@ const Input = ({ value, onChange, onKeyDown, placeholder, style, type = "text", 
     value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
     placeholder={placeholder}
     style={{
-      background: C.surface2, border: `1px solid ${C.border}`, color: C.text,
+      background: "var(--c-surface-2)", border: `1px solid var(--c-border)`, color: "var(--c-text)",
       padding: "10px 14px", borderRadius: 12, fontSize: 14, fontFamily: "inherit",
       outline: "none", width: "100%", boxSizing: "border-box",
       minHeight: 44, transition: TR, ...style,
@@ -331,10 +331,10 @@ const Btn = ({ children, onClick, variant = "default", style, disabled }) => (
     fontWeight: 600, transition: TR, border: "none", minHeight: 44,
     opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer",
     ...(variant === "accent"
-      ? { background: GRAD, color: "#fff", boxShadow: GLOW_SM }
+      ? { background: "var(--c-grad)", color: "#fff", boxShadow: "var(--c-glow-sm)" }
       : variant === "ghost"
-      ? { background: "transparent", color: C.accent, border: `1px solid ${C.borderMid}` }
-      : { background: C.surface2, color: C.text, border: `1px solid ${C.border}` }),
+      ? { background: "transparent", color: "var(--c-accent)", border: `1px solid var(--c-border-mid)` }
+      : { background: "var(--c-surface-2)", color: "var(--c-text)", border: `1px solid var(--c-border)` }),
     ...style,
   }}>{children}</button>
 );
@@ -427,22 +427,23 @@ function HabitChip({ habit, status, onToggle, animating }) {
   return (
     <div onClick={onToggle} style={{
       display: "flex", alignItems: "center", gap: 14,
-      padding: "14px 16px", borderRadius: 16, marginBottom: 8,
-      background: done ? "rgba(16,185,129,0.07)" : inv ? "rgba(239,68,68,0.05)" : C.surface2,
-      border: `1px solid ${done ? "rgba(16,185,129,0.25)" : inv ? "rgba(239,68,68,0.2)" : C.border}`,
-      cursor: "pointer", transition: TR, minHeight: 56,
+      padding: "13px 14px", marginBottom: 8, borderRadius: 14,
+      background: done ? "rgba(52,211,153,0.12)" : inv ? "rgba(251,113,133,0.10)" : "var(--c-surface-2)",
+      border: `1px solid ${done ? "rgba(52,211,153,0.35)" : inv ? "rgba(251,113,133,0.30)" : "var(--c-border)"}`,
+      boxShadow: "var(--c-item-shadow)",
+      cursor: "pointer", transition: TR, minHeight: 52,
     }}>
-      <span style={{ fontSize: 22, flexShrink: 0 }}>{habit.emoji}</span>
+      <span style={{ fontSize: 22, flexShrink: 0, opacity: done ? 0.5 : 1 }}>{habit.emoji}</span>
       <span style={{
         flex: 1, fontSize: 15, fontWeight: 500,
-        color: done ? C.muted : inv ? "#ef4444" : C.text,
+        color: done ? "var(--c-muted)" : inv ? "#ef4444" : "var(--c-text)",
         textDecoration: done ? "line-through" : "none",
         transition: TR,
       }}>{habit.name}</span>
       <div className={animating ? "habit-pop" : ""} style={{
         width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
         background: done ? "linear-gradient(135deg,#10b981,#059669)" : inv ? "#ef4444" : "transparent",
-        border: `2px solid ${done ? "#10b981" : inv ? "#ef4444" : C.borderMid}`,
+        border: `2px solid ${done ? "#10b981" : inv ? "#ef4444" : "var(--c-border-mid)"}`,
         display: "flex", alignItems: "center", justifyContent: "center",
         boxShadow: done ? "0 0 12px rgba(16,185,129,0.4)" : inv ? "0 0 12px rgba(239,68,68,0.4)" : "none",
         transition: TR,
@@ -588,33 +589,27 @@ function WeeklyCalendar() {
     return d.toISOString().split("T")[0];
   });
 
-  const DAY_SHORT = ["L","M","M","J","V","S","D"];
+  const DAY_SHORT = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
 
-  // Separate: spanning (multi-day projets) vs point (single-day)
-  const pointEvents = Object.fromEntries(days7.map(ds => [ds, []]));
-  const spanning = [];
-  todos.forEach(t => {
-    if (t.done) return;
-    if (t.gtd === "projet" && t.dateDebut && t.dateFin) {
-      const tS = new Date(t.dateDebut + "T12:00:00");
-      const tE = new Date(t.dateFin + "T12:00:00");
-      let sc = -1, ec = -1;
-      days7.forEach((ds, col) => {
-        const d = new Date(ds + "T12:00:00");
-        if (d >= tS && d <= tE) { if (sc === -1) sc = col; ec = col; }
-      });
-      if (sc !== -1) spanning.push({ todo: t, sc, ec });
-    } else if (t.recurrence?.enabled) {
-      // handled below via getRecurOccurrences
-    } else if (t.dateAssignee && pointEvents[t.dateAssignee] !== undefined) {
-      pointEvents[t.dateAssignee].push(t);
+  // Per-day task lists: projets span every covered day, + single-day + récurrences
+  const dayTasks = Object.fromEntries(days7.map(ds => [ds, []]));
+  todos.forEach(it => {
+    if (it.done) return;
+    if (it.gtd === "projet" && it.dateDebut && it.dateFin) {
+      const s = new Date(it.dateDebut + "T12:00:00"), e = new Date(it.dateFin + "T12:00:00");
+      days7.forEach(ds => { const d = new Date(ds + "T12:00:00"); if (d >= s && d <= e) dayTasks[ds].push(it); });
+    } else if (it.recurrence?.enabled) {
+      // handled below
+    } else if (it.dateAssignee && dayTasks[it.dateAssignee] !== undefined) {
+      dayTasks[it.dateAssignee].push(it);
     }
   });
-  todos.filter(t=>t.recurrence?.enabled&&!t.done).forEach(t => {
-    getRecurOccurrences(t, days7[0], days7[6]).forEach(ds => {
-      if (pointEvents[ds] !== undefined) pointEvents[ds].push(t);
-    });
+  todos.filter(it => it.recurrence?.enabled && !it.done).forEach(it => {
+    getRecurOccurrences(it, days7[0], days7[6]).forEach(ds => { if (dayTasks[ds] !== undefined) dayTasks[ds].push(it); });
   });
+
+  const typeLabel = it => it.gtd === "projet" ? "Projet" : it.gtd === "memo" ? "Mémo" : it.recurrence?.enabled ? "Récurrent" : "Tâche";
+  const colorOf = it => SPHERES[it.sphere]?.c || (it.gtd === "memo" ? "#4F46E5" : it.gtd === "projet" ? "#7C5CFC" : "#0EA0BD");
 
   const wkLabel = offset === 0 ? "Cette semaine"
     : offset === 1 ? "Semaine prochaine"
@@ -626,76 +621,58 @@ function WeeklyCalendar() {
 
   const NavBtn = ({ dir }) => (
     <button onClick={() => setOffset(o => o + dir)} style={{
-      background:"transparent", border:`1px solid ${C.border}`, borderRadius:8,
-      color:C.muted, fontSize:16, cursor:"pointer", padding:"2px 10px", fontFamily:"inherit", lineHeight:1,
+      background:"transparent", border:`1px solid var(--c-border)`, borderRadius:9,
+      color:"var(--c-muted)", fontSize:16, cursor:"pointer", width:34, height:34, fontFamily:"inherit", lineHeight:1,
     }}>{dir < 0 ? "‹" : "›"}</button>
   );
 
-  const pill = (col, name, id) => (
-    <div key={id} onClick={()=>setEditId(id)} style={{
-      fontSize:9, color:col, background:col+"25",
-      borderLeft:`2px solid ${col}`, borderRadius:"0 3px 3px 0",
-      padding:"2px 4px", overflow:"hidden", textOverflow:"ellipsis",
-      whiteSpace:"nowrap", lineHeight:1.4, cursor:"pointer",
-    }} title={name}>{name}</div>
-  );
+  const TaskChip = ({ it, dayKey }) => {
+    const col = colorOf(it);
+    return (
+      <div onClick={()=>setEditId(it.id)} style={{
+        display:"flex", flexDirection:"column", gap:3,
+        padding:"8px 10px", borderRadius:9,
+        background:"var(--c-surface-2)", boxShadow:"var(--c-item-shadow)",
+        border:"1px solid var(--c-border)", borderLeft:`3px solid ${col}`, cursor:"pointer",
+      }} title={it.name}>
+        <span style={{ fontSize:12.5, fontWeight:500, color:"var(--c-text)", lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}</span>
+        <span style={{ fontSize:9, fontWeight:700, color:col, textTransform:"uppercase", letterSpacing:"0.07em" }}>{typeLabel(it)}</span>
+      </div>
+    );
+  };
 
   return (
     <>
-      <div style={{ background:C.surface2, border:`1px solid ${C.border}`, borderRadius:18, padding:"12px 10px", marginBottom:16 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-          <NavBtn dir={-1} />
-          <span style={{ fontSize:11, color:C.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em" }}>{wkLabel}</span>
-          <NavBtn dir={1} />
+      <div style={{ marginBottom:32 }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+          <span style={{ fontSize:11, color:"var(--c-accent)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.16em" }}>{wkLabel}</span>
+          <div style={{ display:"flex", gap:8 }}><NavBtn dir={-1} /><NavBtn dir={1} /></div>
         </div>
 
-        {/* Day headers */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
+        <div className="cal-grid">
           {days7.map((ds, i) => {
             const isToday = ds === today;
             const dn = new Date(ds + "T12:00:00").getDate();
+            const items = dayTasks[ds] || [];
             return (
-              <div key={ds} style={{
-                textAlign:"center", padding:"5px 2px 6px", borderRadius:8,
-                background: isToday ? "rgba(139,92,246,0.13)" : "transparent",
-                border:`1px solid ${isToday ? C.accent+"50" : "transparent"}`,
-              }}>
-                <div style={{ fontSize:9, color:C.faint, textTransform:"uppercase", letterSpacing:"0.04em" }}>{DAY_SHORT[i]}</div>
-                <div style={{ fontSize:15, fontWeight:isToday?700:500, color:isToday?C.accent:C.text, lineHeight:1.3 }}>{dn}</div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Spanning events — CSS grid-column span */}
-        {spanning.length > 0 && (
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3, marginBottom:4 }}>
-            {spanning.map(({ todo, sc, ec }) => {
-              const col = SPHERES[todo.sphere]?.c || C.accent;
-              return (
-                <div key={todo.id} onClick={()=>setEditId(todo.id)} style={{
-                  gridColumn:`${sc+1} / ${ec+2}`,
-                  fontSize:10, fontWeight:500, color:col, background:col+"28",
-                  borderLeft:`3px solid ${col}`, borderRadius:"0 5px 5px 0",
-                  padding:"4px 7px", overflow:"hidden", textOverflow:"ellipsis",
-                  whiteSpace:"nowrap", lineHeight:1.4, cursor:"pointer",
-                }} title={todo.name}>{todo.name}</div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Single-day events per column */}
-        <div style={{ display:"grid", gridTemplateColumns:"repeat(7,1fr)", gap:3 }}>
-          {days7.map(ds => {
-            const items = pointEvents[ds] || [];
-            return (
-              <div key={ds} style={{ display:"flex", flexDirection:"column", gap:2, minHeight:80 }}>
-                {items.slice(0,4).map(item => {
-                  const col = SPHERES[item.sphere]?.c || (item.gtd==="memo" ? C.blue : C.accent);
-                  return pill(col, item.name, item.id);
-                })}
-                {items.length > 4 && <div style={{ fontSize:8, color:C.faint, textAlign:"center" }}>+{items.length-4}</div>}
+              <div key={ds} className="cal-day" style={{ background: isToday ? "var(--c-accent-soft)" : "transparent", borderRadius:14 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:10, color:"var(--c-faint)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:700 }}>{DAY_SHORT[i]}</span>
+                  <span style={{
+                    width:28, height:28, borderRadius:"50%",
+                    display:"inline-flex", alignItems:"center", justifyContent:"center",
+                    fontFamily:"var(--font-display)", fontSize:14, fontWeight:isToday?700:600,
+                    lineHeight:1, fontVariantNumeric:"tabular-nums",
+                    background:isToday?"linear-gradient(135deg,#A855F7,#EC4899)":"transparent",
+                    color:isToday?"#fff":"var(--c-text)",
+                    boxShadow:isToday?"0 0 16px rgba(168,85,247,0.6)":"none",
+                  }}>{dn}</span>
+                </div>
+                <div className="cal-body">
+                  {items.length === 0
+                    ? <span style={{ fontSize:11, color:"var(--c-faint)" }}>—</span>
+                    : items.map((it, k) => <TaskChip key={it.id + "_" + k} it={it} dayKey={ds} />)}
+                </div>
               </div>
             );
           })}
@@ -714,6 +691,27 @@ function WeeklyCalendar() {
 }
 
 function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
+  // ── Lumen Protocol — palette claire locale (scope Dashboard uniquement).
+  // Shadow l'objet `C` global (sombre) sans impacter les autres écrans.
+  const C = {
+    bg:"#0B0714", surface:"#181225", surface2:"#181225", surface3:"#221A36",
+    border:"rgba(168,85,247,0.18)", borderMid:"rgba(168,85,247,0.38)",
+    accent:"#A855F7", accent2:"#EC4899", accentBg:"rgba(168,85,247,0.16)",
+    text:"#F4F2FF", muted:"#9990C0", faint:"#6B6390",
+    green:"#34D399", greenBg:"rgba(52,211,153,0.14)",
+    red:"#FB7185", redBg:"rgba(251,113,133,0.14)",
+    blue:"#60A5FA", blueBg:"rgba(96,165,250,0.14)",
+    purple:"#A855F7", purpleBg:"rgba(168,85,247,0.16)",
+    amber:"#FBBF24", amberBg:"rgba(251,191,36,0.16)",
+    orange:"#FB923C", pink:"#EC4899",
+  };
+  const GRAD = "linear-gradient(135deg,#A855F7,#EC4899)";
+  const GLOW = "0 0 28px rgba(168,85,247,0.45)";
+  const GLOW_SM = "0 0 16px rgba(168,85,247,0.40)";
+  const SHADOW_CARD = "0 2px 16px rgba(0,0,0,0.40)";
+  const ITEM_SH = "0 2px 12px rgba(0,0,0,0.35)";
+  const FONT_D = "var(--font-display)";
+
   const t = todayStr();
   const [habits, setHabits]     = useState(() => getLS("lp_habits", []));
   const [sessions, setSessions]  = useState(() => getLS("lp_workperf", []));
@@ -830,11 +828,11 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
   };
 
   return (
-    <div>
+    <div className="theme-light" style={{ minHeight: "100dvh", fontFamily: "var(--font-body)" }}>
       {/* STICKY HEADER */}
       <div style={{
         position: "sticky", top: 0, zIndex: 20,
-        background: "rgba(13,13,26,0.96)", backdropFilter: "blur(20px)",
+        background: "rgba(11,7,20,0.80)", backdropFilter: "blur(20px)",
         borderBottom: `1px solid ${C.border}`, padding: "14px 16px 10px",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -842,9 +840,9 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
             ? <input autoFocus value={appName} onChange={e=>setAppName(e.target.value)}
                 onBlur={()=>{ setLS("lp_app_name", appName); setEditingName(false); }}
                 onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_app_name", appName); setEditingName(false); }}}
-                style={{ fontSize:15, fontWeight:800, letterSpacing:"0.14em", color:C.accent, textTransform:"uppercase", background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:120, fontFamily:"inherit" }}
+                style={{ fontFamily:FONT_D, fontSize:16, fontWeight:800, letterSpacing:"0.12em", color:C.accent, textTransform:"uppercase", background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:120 }}
               />
-            : <span onClick={()=>setEditingName(true)} style={{ fontSize:15, fontWeight:800, letterSpacing:"0.14em", color:C.accent, textTransform:"uppercase", cursor:"pointer" }} title="Cliquer pour modifier">{appName}</span>
+            : <span onClick={()=>setEditingName(true)} style={{ fontFamily:FONT_D, fontSize:16, fontWeight:800, letterSpacing:"0.12em", color:C.accent, textTransform:"uppercase", cursor:"pointer" }} title="Cliquer pour modifier">{appName}</span>
           }
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>
@@ -865,16 +863,13 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
         </div>
       </div>
 
-      <div style={{ padding: "16px 16px 100px" }}>
+      <div className="dash-wrap">
 
-        {/* HERO CARD */}
-        <div style={{
-          background: "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(99,102,241,0.06))",
-          border: `1px solid rgba(139,92,246,0.3)`, borderLeft: `4px solid ${C.accent}`,
-          borderRadius: 18, padding: "18px 16px", marginBottom: 16,
-        }}>
-          <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10 }}>
-            🎯 Highlight du jour
+        {/* HERO — Highlight + ring (boxless, 2-col desktop) */}
+        <div className="dash-hero">
+        <div>
+          <div style={{ fontSize: 11, color: C.accent, textTransform: "uppercase", letterSpacing: "0.16em", marginBottom: 10, fontWeight: 700 }}>
+            Highlight du jour
           </div>
           {editingHL ? (
             <textarea
@@ -885,34 +880,76 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
               placeholder="La tâche qui a le plus d'impact dans ta vie"
               style={{
                 width: "100%", background: "transparent", border: "none",
-                color: C.text, fontSize: 16, fontWeight: 600, fontFamily: "inherit",
-                resize: "none", outline: "none", lineHeight: 1.45, minHeight: 56,
-                boxSizing: "border-box",
+                color: C.text, fontSize: 27, fontWeight: 700, fontFamily: FONT_D,
+                resize: "none", outline: "none", lineHeight: 1.22, minHeight: 64,
+                boxSizing: "border-box", letterSpacing: "-0.01em",
               }}
             />
           ) : (
-            <div onClick={() => setEditingHL(true)} style={{ cursor: "text", minHeight: 40 }}>
+            <div onClick={() => setEditingHL(true)} style={{ cursor: "text", minHeight: 44 }}>
               {hlText
-                ? <p style={{ fontSize: 16, fontWeight: 700, color: C.text, lineHeight: 1.45 }}>{hlText}</p>
-                : <p style={{ fontSize: 14, color: C.faint, fontStyle: "italic" }}>La tâche qui a le plus d'impact dans ta vie</p>
+                ? <p style={{ fontFamily: FONT_D, fontSize: 27, fontWeight: 700, color: C.text, lineHeight: 1.22, letterSpacing: "-0.01em" }}>{hlText}</p>
+                : <p style={{ fontFamily: FONT_D, fontSize: 27, fontWeight: 700, color: C.faint, lineHeight: 1.22, letterSpacing: "-0.01em" }}>La tâche qui a le plus d'impact dans ta vie</p>
               }
             </div>
           )}
-          <div style={{ fontSize: 11, color: C.faint, marginTop: 8 }}>La seule chose qui compte aujourd'hui</div>
+          <div style={{ fontSize: 12, color: C.faint, marginTop: 8 }}>La seule chose qui compte aujourd'hui</div>
         </div>
+
+        {/* HERO RING + métriques (boxless, signature) */}
+        {(() => {
+          const dayPct = habits.length ? Math.round(doneH / habits.length * 100) : 0;
+          const activeObjCount = ["trimestriel","mensuel","hebdo"].reduce((n,k)=>n+(goals[k]||[]).filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length,0);
+          const RING = 132, SW = 11, RAD = (RING - SW) / 2, CIRC = 2 * Math.PI * RAD;
+          const off = CIRC * (1 - dayPct / 100);
+          const Metric = ({ value, label, color, onClick }) => (
+            <div onClick={onClick} style={{ textAlign: "center", cursor: onClick ? "pointer" : "default", minWidth: 76 }}>
+              <div style={{ fontFamily: FONT_D, fontSize: 26, fontWeight: 700, color: color || C.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 5, fontWeight: 500 }}>{label}</div>
+            </div>
+          );
+          return (
+            <div className="dash-ring" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 22, margin: "26px 0 30px" }}>
+              <Metric value={fmtMin(deepToday)} label="Deep Work" color={C.accent} onClick={() => onNav("workperf")} />
+              <div style={{ position: "relative", width: RING, height: RING, flexShrink: 0 }}>
+                <svg width={RING} height={RING} style={{ transform: "rotate(-90deg)", display: "block" }}>
+                  <defs>
+                    <linearGradient id="dashRing" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#22D3EE" />
+                      <stop offset="55%" stopColor="#A855F7" />
+                      <stop offset="100%" stopColor="#EC4899" />
+                    </linearGradient>
+                  </defs>
+                  <circle cx={RING/2} cy={RING/2} r={RAD} fill="none" stroke={C.surface3} strokeWidth={SW} />
+                  <circle cx={RING/2} cy={RING/2} r={RAD} fill="none" stroke="url(#dashRing)" strokeWidth={SW}
+                    strokeDasharray={CIRC} strokeDashoffset={off} strokeLinecap="round"
+                    style={{ transition: "stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1)", filter: "drop-shadow(0 0 6px rgba(168,85,247,0.7))" }} />
+                </svg>
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                  <div style={{ fontFamily: FONT_D, fontSize: 34, fontWeight: 800, color: C.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{dayPct}<span style={{ fontSize: 18, fontWeight: 600 }}>%</span></div>
+                  <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>du jour</div>
+                </div>
+              </div>
+              <Metric value={activeObjCount} label="Objectifs" color={C.accent2} onClick={() => onNav("objectifs")} />
+            </div>
+          );
+        })()}
+        </div>{/* /dash-hero */}
+
+        <div style={{ height: 1, background: C.border, margin: "0 0 24px" }} />
 
         {/* QUICK ACTIONS */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Action rapide</div>
+          <div style={{ fontSize: 10, color: C.accent, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10, fontWeight: 700 }}>Action rapide</div>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
             {QUICK_BTNS.map(({ key, icon, label }) => (
               <button key={key} onClick={() => handleQuick(key)} style={{
                 flexShrink: 0, display: "flex", alignItems: "center", gap: 6,
-                padding: "8px 14px", borderRadius: 999,
-                background: qAction === key ? GRAD : C.surface2,
-                border: `1px solid ${qAction === key ? "transparent" : C.borderMid}`,
+                padding: "10px 16px", borderRadius: 999, minHeight: 44,
+                background: qAction === key ? GRAD : C.surface3,
+                border: "none",
                 color: qAction === key ? "#fff" : C.accent,
-                fontSize: 13, fontWeight: 500, transition: TR,
+                fontSize: 13, fontWeight: 600, transition: TR,
                 boxShadow: qAction === key ? GLOW_SM : "none",
               }}>
                 <span>{icon}</span><span>{label}</span>
@@ -957,29 +994,23 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
           )}
         </div>
 
-        {/* STATS ROW */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
-          <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-            <CircularProgress value={doneH} max={habits.length || 1} size={52} color={doneH === habits.length && habits.length > 0 ? C.green : C.accent} />
-            <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Habitudes</span>
-          </div>
-          <div onClick={() => onNav("workperf")} style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: "14px 10px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer" }}>
-            <div style={{ fontSize: 22, fontWeight: 700, color: C.purple, lineHeight: 1 }}>{fmtMin(deepToday)}</div>
-            <span style={{ fontSize: 11, color: C.muted, textAlign: "center" }}>Travail total</span>
-          </div>
-        </div>
-
-        {/* WEEKLY CALENDAR */}
+        {/* WEEKLY CALENDAR — pleine largeur */}
         <WeeklyCalendar />
 
-        {/* HABITUDES */}
-        <div id="dash-habits" style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, marginBottom: 16 }}>
-          <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
-            🔥 Habitudes — {fmtDate(t)}
+        {/* HABITUDES (boxless, pleine largeur) */}
+        <div id="dash-habits" style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 11, color: C.accent, textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 }}>Habitudes</span>
+            <span onClick={() => onNav("habitudes")} style={{ fontFamily: FONT_D, fontSize: 13, color: C.muted, cursor: "pointer", fontVariantNumeric: "tabular-nums" }}>{doneH}/{habits.length}</span>
           </div>
+          {habits.length > 0 && (
+            <div style={{ height: 5, borderRadius: 999, background: C.surface3, overflow: "hidden", marginBottom: 14 }}>
+              <div style={{ height: "100%", width: `${habits.length ? doneH / habits.length * 100 : 0}%`, background: GRAD, borderRadius: 999, transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)" }} />
+            </div>
+          )}
           {habits.length === 0
-            ? <p style={{ fontSize: 13, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
-            : habits.map(h => {
+            ? <p style={{ fontSize: 14, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
+            : <div className="habit-grid">{habits.map(h => {
                 const status = (h.dailyStatus||{})[t] ?? null;
                 if (h.multiple) {
                   const isDone = status === 'validated';
@@ -989,33 +1020,33 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                   const hasInvalid = (h.items||[]).some(it=>dayItems[it.id]==='invalidated');
                   const total = (h.items||[]).length;
                   const badgeColor = isDone?C.green:hasInvalid?C.red:C.accent;
-                  const badgeBg = isDone?"rgba(16,185,129,0.18)":hasInvalid?"rgba(239,68,68,0.15)":"rgba(139,92,246,0.12)";
+                  const badgeBg = isDone?"rgba(16,185,129,0.18)":hasInvalid?"rgba(239,68,68,0.15)":C.accentBg;
                   const badgeBorder = isDone?"rgba(16,185,129,0.3)":hasInvalid?"rgba(239,68,68,0.3)":C.border;
                   return (
                     <div key={h.id} style={{marginBottom:8}}>
                       <div onClick={()=>setExpandedHabitId(isExpanded?null:h.id)} style={{
-                        display:"flex",alignItems:"center",gap:14,padding:"14px 16px",
-                        borderRadius:isExpanded?"16px 16px 0 0":16,
-                        background:isDone?"rgba(16,185,129,0.07)":hasInvalid?"rgba(239,68,68,0.07)":C.surface2,
-                        border:`1px solid ${isDone?"rgba(16,185,129,0.25)":hasInvalid?"rgba(239,68,68,0.25)":C.border}`,
-                        cursor:"pointer",transition:TR,minHeight:56,
+                        display:"flex",alignItems:"center",gap:14,padding:"13px 14px",borderRadius:14,
+                        background:isDone?"rgba(52,211,153,0.12)":hasInvalid?"rgba(251,113,133,0.10)":C.surface,
+                        border:`1px solid ${isDone?"rgba(52,211,153,0.35)":hasInvalid?"rgba(251,113,133,0.30)":C.border}`,
+                        boxShadow:ITEM_SH,
+                        cursor:"pointer",transition:TR,minHeight:52,
                       }}>
-                        <span style={{fontSize:22,flexShrink:0}}>{h.emoji}</span>
+                        <span style={{fontSize:22,flexShrink:0,opacity:isDone?0.5:1}}>{h.emoji}</span>
                         <span style={{flex:1,fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none",transition:TR}}>{h.name}</span>
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{padding:"3px 9px",borderRadius:999,fontSize:12,fontWeight:700,background:badgeBg,color:badgeColor,border:`1px solid ${badgeBorder}`}}>{validatedCount}/{total}</div>
-                          <span style={{fontSize:11,color:C.muted,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
+                          <div style={{padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",background:badgeBg,color:badgeColor}}>{validatedCount}/{total}</div>
+                          <span style={{fontSize:11,color:C.faint,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
                         </div>
                       </div>
                       {isExpanded && (
-                        <div style={{background:C.surface2,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"6px 16px 10px"}}>
+                        <div style={{padding:"2px 0 12px 36px"}}>
                           {(h.items||[]).map(item=>{
                             const itemStatus = dayItems[item.id] ?? null;
                             const isVal = itemStatus==='validated';
                             const isInv = itemStatus==='invalidated';
                             return (
-                              <div key={item.id} onClick={()=>toggleHabitItem(h.id,item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",cursor:"pointer",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
-                                <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:isVal?C.green:isInv?C.red:"transparent",border:`2px solid ${isVal?C.green:isInv?C.red:"rgba(139,92,246,0.35)"}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,transition:TR}}>{isVal?"✓":isInv?"✕":null}</div>
+                              <div key={item.id} onClick={()=>toggleHabitItem(h.id,item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",cursor:"pointer",borderBottom:`1px solid ${C.border}`}}>
+                                <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:isVal?C.green:isInv?C.red:"transparent",border:`2px solid ${isVal?C.green:isInv?C.red:C.borderMid}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,transition:TR}}>{isVal?"✓":isInv?"✕":null}</div>
                                 <span style={{fontSize:14,color:isVal?C.muted:isInv?C.red:C.text,textDecoration:isVal?"line-through":"none"}}>{item.name}</span>
                               </div>
                             );
@@ -1026,9 +1057,9 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                   );
                 }
                 return <HabitChip key={h.id} habit={h} status={status} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
-              })
+              })}</div>
           }
-        </div>
+        </div>{/* /habitudes */}
 
         {/* PROJETS EN COURS */}
         {(() => {
@@ -1036,20 +1067,21 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
           const enCours = allTodos.filter(t => t.gtd === "projet" && !t.done && getProjectStatus(t) === "en_cours");
           if (!enCours.length) return null;
           return (
-            <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18, padding: 16, marginBottom: 16 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12 }}>
-                <div style={{ fontSize: 11, color: C.green, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" }}>🟢 Projets en cours</div>
-                <span onClick={() => onNav("todo")} style={{ fontSize: 12, color: C.accent, cursor: "pointer" }}>Voir tout →</span>
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom: 10 }}>
+                <span style={{ fontSize: 11, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em" }}>Projets en cours</span>
+                <span onClick={() => onNav("todo")} style={{ fontSize: 12, color: C.muted, cursor: "pointer", fontWeight: 500 }}>Voir tout →</span>
               </div>
               {enCours.map(p => {
-                const sc = SPHERES[p.sphere]?.c || C.border;
+                const sc = SPHERES[p.sphere]?.c || C.accent;
                 return (
-                  <div key={p.id} onClick={() => onNav("todo")} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 12, marginBottom: 6, background: C.surface3, border: `1px solid ${C.border}`, borderLeft: `3px solid ${sc}`, cursor: "pointer" }}>
+                  <div key={p.id} onClick={() => onNav("todo")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 8, borderRadius: 14, background: C.surface, border: `1px solid ${C.border}`, boxShadow: ITEM_SH, borderLeft: `3px solid ${sc}`, cursor: "pointer", minHeight: 48 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 999, background: sc, flexShrink: 0 }} />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, color: C.text }}>{p.name}</div>
-                      {p.dateFin && <div style={{ fontSize: 11, color: C.muted }}>→ {p.dateFin}</div>}
+                      <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{p.name}</div>
+                      {p.dateFin && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>→ {p.dateFin}</div>}
                     </div>
-                    {p.sphere && <span style={{ fontSize: 10, color: sc }}>{SPHERES[p.sphere]?.label}</span>}
+                    {p.sphere && <span style={{ fontSize: 10, color: sc, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{SPHERES[p.sphere]?.label}</span>}
                   </div>
                 );
               })}

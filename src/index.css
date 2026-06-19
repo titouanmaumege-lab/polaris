@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -27,12 +29,78 @@
   --radius-btn: 12px;
   --radius-pill: 999px;
   --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Fonts (Lumen Protocol design system) */
+  --font-display: 'Geist', system-ui, -apple-system, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Component theme tokens — DARK defaults (used by shared components).
+     Other screens read these and stay identical. `.theme-light` overrides. */
+  --c-surface-2: #1a1830;
+  --c-surface-3: #201e38;
+  --c-border: rgba(139, 92, 246, 0.15);
+  --c-border-mid: rgba(139, 92, 246, 0.4);
+  --c-text: #f1f0ff;
+  --c-muted: #9391b5;
+  --c-faint: #524f72;
+  --c-accent: #8b5cf6;
+  --c-blue: #6366f1;
+  --c-accent-soft: rgba(139, 92, 246, 0.12);
+  --c-ring-track: rgba(139, 92, 246, 0.12);
+  --c-grad: linear-gradient(135deg, #8b5cf6, #6366f1);
+  --c-glow-sm: 0 0 12px rgba(139, 92, 246, 0.2);
+  --c-input-focus: rgba(139, 92, 246, 0.5);
+  --c-item-shadow: none;
+}
+
+/* Cyber Focus — dark neon theme, scoped to wrappers tagged .theme-light */
+.theme-light {
+  --c-surface-2: #181225;
+  --c-surface-3: #221a36;
+  --c-border: rgba(168, 85, 247, 0.18);
+  --c-border-mid: rgba(168, 85, 247, 0.38);
+  --c-text: #f4f2ff;
+  --c-muted: #9990c0;
+  --c-faint: #6b6390;
+  --c-accent: #a855f7;
+  --c-blue: #60a5fa;
+  --c-accent-soft: rgba(168, 85, 247, 0.16);
+  --c-ring-track: rgba(168, 85, 247, 0.14);
+  --c-grad: linear-gradient(135deg, #a855f7, #ec4899);
+  --c-glow-sm: 0 0 16px rgba(168, 85, 247, 0.45);
+  --c-input-focus: rgba(168, 85, 247, 0.6);
+
+  --shadow-card: 0 2px 16px rgba(0, 0, 0, 0.40);
+  --shadow-card-hover: 0 4px 24px rgba(168, 85, 247, 0.25);
+  --shadow-accent: 0 0 28px rgba(168, 85, 247, 0.45);
+  --c-item-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+
+  background-color: #0b0714;
+  background-image:
+    radial-gradient(900px 500px at 80% -5%, rgba(168, 85, 247, 0.18), transparent 60%),
+    radial-gradient(800px 500px at 0% 10%, rgba(236, 72, 153, 0.10), transparent 55%);
+  background-attachment: fixed;
+  color: #f4f2ff;
+  font-family: var(--font-body);
+}
+
+/* Floating card: shadow instead of border (Lumen Protocol) */
+.theme-light .lp-card {
+  box-shadow: var(--shadow-card);
+}
+.theme-light .lp-card-hover {
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.18s cubic-bezier(0.4, 0, 0.2, 1), transform 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.theme-light .lp-card-hover:hover {
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
 }
 
 html, body {
   background: var(--bg-base);
   color: var(--text-primary);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -113,6 +181,51 @@ button:active {
 }
 .habit-pulse { animation: habitPulse 0.3s ease; }
 .habit-shake { animation: habitShake 0.35s ease; }
+
+/* Dashboard layout — mobile single column, desktop 2 columns (Lumen Protocol) */
+.dash-wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 110px; }
+.dash-hero { display: flex; flex-direction: column; gap: 4px; }
+.dash-cols { display: flex; flex-direction: column; }
+.dash-col { display: flex; flex-direction: column; }
+
+@media (min-width: 900px) {
+  .dash-wrap { max-width: none; padding: 40px 48px 120px; }
+  .dash-hero {
+    display: grid; grid-template-columns: 1fr auto; gap: 56px;
+    align-items: center;
+  }
+  .dash-hero .dash-ring { margin: 0 !important; justify-content: flex-end; }
+  .dash-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 56px; align-items: start; }
+}
+
+/* Habits — full width, multi-column on desktop */
+.habit-grid { display: flex; flex-direction: column; }
+@media (min-width: 900px) {
+  .habit-grid { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 56px; }
+}
+@media (min-width: 1400px) {
+  .habit-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Calendar — day-segmented grid (Lumen Protocol) */
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
+.cal-day { padding: 12px 10px; }
+.cal-day + .cal-day { border-left: 1px solid var(--c-border); }
+.cal-body { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; min-height: 130px; }
+@media (min-width: 900px) { .cal-body { min-height: 240px; } }
+@media (max-width: 760px) {
+  .cal-grid { display: flex; overflow-x: auto; gap: 0; scroll-snap-type: x mandatory; }
+  .cal-grid > .cal-day { min-width: 132px; flex-shrink: 0; scroll-snap-align: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 .dashboard-split {
   display: grid;
