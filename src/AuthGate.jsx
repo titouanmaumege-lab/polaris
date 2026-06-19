@@ -15,8 +15,10 @@ export default function AuthGate({ children }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [info, setInfo] = useState("");
   const [migrating, setMigrating] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [recovery, setRecovery] = useState(false);
   const sessionRef = useRef(null);
 
   useEffect(() => {
@@ -24,7 +26,13 @@ export default function AuthGate({ children }) {
       if (session) handleSession(session);
       else setLoading(false);
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        sessionRef.current = session;
+        setRecovery(true);
+        setLoading(false);
+        return;
+      }
       if (session) handleSession(session);
       else { sessionRef.current = null; setSession(null); setLoading(false); }
     });
@@ -92,9 +100,52 @@ export default function AuthGate({ children }) {
     }
   }
 
+  async function handleReset(e) {
+    e.preventDefault();
+    if (cooldown > 0) return;
+    setError(""); setInfo("");
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    if (error) {
+      const sec = error.message.match(/(\d+) seconds?/)?.[1];
+      if (sec) setCooldown(parseInt(sec));
+      else setError(error.message);
+    } else setInfo("Lien de réinitialisation envoyé. Vérifie ton email.");
+  }
+
+  async function handleUpdatePassword(e) {
+    e.preventDefault();
+    setError(""); setInfo("");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) { setError(error.message); return; }
+    setRecovery(false);
+    setPassword("");
+    setInfo("Mot de passe mis à jour. Connecte-toi.");
+    await supabase.auth.signOut();
+  }
+
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg, color: C.muted, fontSize: 14 }}>
       {migrating ? "Migration des données en cours…" : "Chargement…"}
+    </div>
+  );
+
+  if (recovery) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
+      <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
+        <h2 style={{ color: C.text, fontSize: 22, fontWeight: 700, marginBottom: 8, textAlign: "center" }}>Le Plan</h2>
+        <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginBottom: 28 }}>Choisis un nouveau mot de passe</p>
+        <form onSubmit={handleUpdatePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <input
+            type="password" placeholder="Nouveau mot de passe" value={password}
+            onChange={e => setPassword(e.target.value)} required minLength={6}
+            style={inputStyle}
+          />
+          {error && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{error}</p>}
+          <button type="submit" style={btnStyle}>Mettre à jour</button>
+        </form>
+      </div>
     </div>
   );
 
@@ -103,28 +154,37 @@ export default function AuthGate({ children }) {
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
         <h2 style={{ color: C.text, fontSize: 22, fontWeight: 700, marginBottom: 8, textAlign: "center" }}>Le Plan</h2>
         <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginBottom: 28 }}>
-          {mode === "login" ? "Connecte-toi" : "Crée ton compte"}
+          {mode === "login" ? "Connecte-toi" : mode === "signup" ? "Crée ton compte" : "Réinitialise ton mot de passe"}
         </p>
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <form onSubmit={mode === "reset" ? handleReset : handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <input
             type="email" placeholder="Email" value={email}
             onChange={e => setEmail(e.target.value)} required
             style={inputStyle}
           />
-          <input
-            type="password" placeholder="Mot de passe" value={password}
-            onChange={e => setPassword(e.target.value)} required
-            style={inputStyle}
-          />
+          {mode !== "reset" && (
+            <input
+              type="password" placeholder="Mot de passe" value={password}
+              onChange={e => setPassword(e.target.value)} required
+              style={inputStyle}
+            />
+          )}
           {error && <p style={{ color: error.includes("Vérifie") ? C.green : C.red, fontSize: 12, margin: 0 }}>{error}</p>}
+          {info && <p style={{ color: C.green, fontSize: 12, margin: 0 }}>{info}</p>}
           {cooldown > 0 && <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>Patiente {cooldown}s…</p>}
           <button type="submit" disabled={cooldown > 0} style={{ ...btnStyle, opacity: cooldown > 0 ? 0.5 : 1, cursor: cooldown > 0 ? "not-allowed" : "pointer" }}>
-            {cooldown > 0 ? `Patiente ${cooldown}s` : mode === "login" ? "Se connecter" : "Créer le compte"}
+            {cooldown > 0 ? `Patiente ${cooldown}s` : mode === "login" ? "Se connecter" : mode === "signup" ? "Créer le compte" : "Envoyer le lien"}
           </button>
         </form>
-        <p style={{ color: C.muted, fontSize: 12, textAlign: "center", marginTop: 16, cursor: "pointer" }}
-          onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}>
-          {mode === "login" ? "Pas de compte ? Créer un compte" : "Déjà un compte ? Se connecter"}
+        {mode === "login" && (
+          <p style={{ color: C.muted, fontSize: 12, textAlign: "center", marginTop: 16, cursor: "pointer" }}
+            onClick={() => { setMode("reset"); setError(""); setInfo(""); }}>
+            Mot de passe oublié ?
+          </p>
+        )}
+        <p style={{ color: C.muted, fontSize: 12, textAlign: "center", marginTop: mode === "login" ? 8 : 16, cursor: "pointer" }}
+          onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); setInfo(""); }}>
+          {mode === "login" ? "Pas de compte ? Créer un compte" : mode === "signup" ? "Déjà un compte ? Se connecter" : "Retour à la connexion"}
         </p>
       </div>
     </div>
