@@ -1337,10 +1337,10 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                         <div key={o.id} onClick={() => toggleWeekly(o.id)} title="Cliquer pour changer le statut" style={{
                           position: "relative", overflow: "hidden", minHeight: 110, padding: "12px 14px", borderRadius: 15,
                           display: "flex", flexDirection: "column", cursor: "pointer",
-                          background: "transparent", border: `1px solid #38BDF826`,
+                          background: "transparent", border: `1px solid ${o.completed ? C.green + "40" : "#38BDF826"}`,
                         }}>
                           <div style={{ position: "absolute", inset: 0, zIndex: 0, transform: "translateY(10%)", WebkitMaskImage: ggMask, maskImage: ggMask }}>
-                            <HikingArt idKey={o.id} fit="cover" />
+                            <HikingArt idKey={o.id} fit="cover" color={o.completed ? C.green : "#38BDF8"} />
                           </div>
                           <div style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 600, color: C.text, lineHeight: 1.28, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
                           <div style={{ flex: 1 }} />
@@ -1846,8 +1846,8 @@ function ClotureModal({ obj, levelId, onArchive, onClose }) {
 }
 
 // Randonnée (sentier vers le sommet) bleu — visuel des objectifs hebdo, écho aux montagnes du mensuel
-function HikingArt({ idKey, fit = "cover" }) {
-  const c = "#38BDF8";
+function HikingArt({ idKey, fit = "cover", color = "#38BDF8" }) {
+  const c = color;
   const id = `hk-${idKey}`;
   const pa = fit === "cover" ? "xMidYMid slice" : "xMidYMax slice";
   const pine = (x, y, s = 1) => (
