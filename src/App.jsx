@@ -48,6 +48,41 @@ const pct = (start, cur, target) => {
   if (target === start) return cur >= target ? 100 : 0;
   return Math.round(clamp((cur - start) / (target - start) * 100, 0, 100));
 };
+// % d'un Key Result (gère sens croissant ET décroissant)
+const krPct = kr => pct(kr.depart ?? 0, kr.actuelle ?? kr.depart ?? 0, kr.cible ?? 0);
+// % global d'un objectif : moyenne des KR + bonus complétion (jusqu'à +15 si tous finis)
+const KR_BONUS_MAX = 15;
+const krsProgress = krs => {
+  if (!krs || !krs.length) return null;
+  const avg = krs.reduce((s, k) => s + krPct(k), 0) / krs.length;
+  const completedFrac = krs.filter(k => krPct(k) >= 100).length / krs.length;
+  return Math.round(clamp(avg + completedFrac * KR_BONUS_MAX, 0, 100));
+};
+
+// ── Période & clôture des OKR ──
+const MONTHS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+const QUARTERS_FR = [["T1","Jan–Mar"],["T2","Avr–Juin"],["T3","Juil–Sep"],["T4","Oct–Déc"]];
+const periodeTypeForLevel = lvl => lvl === "mensuel" ? "month" : lvl === "trimestriel" ? "quarter" : lvl === "annuel" ? "year" : null;
+const lastDayOfMonth = (y, m) => { const d = new Date(y, m + 1, 0); return `${y}-${String(m + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const computeCloture = periode => {
+  if (!periode) return "";
+  if (periode.type === "month")   return lastDayOfMonth(periode.year, periode.month);
+  if (periode.type === "quarter") return lastDayOfMonth(periode.year, periode.quarter * 3 + 2);
+  if (periode.type === "year")    return `${periode.year}-12-31`;
+  return "";
+};
+const periodeLabel = periode => {
+  if (!periode) return "";
+  if (periode.type === "month")   return `${MONTHS_FR[periode.month]} ${periode.year}`;
+  if (periode.type === "quarter") return `${QUARTERS_FR[periode.quarter][0]} ${periode.year}`;
+  if (periode.type === "year")    return `${periode.year}`;
+  return "";
+};
+const defaultPeriode = lvl => {
+  const t = periodeTypeForLevel(lvl); if (!t) return null;
+  const now = new Date();
+  return { type: t, year: now.getFullYear(), month: now.getMonth(), quarter: Math.floor(now.getMonth() / 3) };
+};
 const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60).padStart(2, "0") : ""}` : m > 0 ? `${m}min` : "—";
 const fmtHM = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
 const formatElapsed = ms => {
@@ -181,7 +216,32 @@ const STATUTS = {
   "Terminé":        { c: C.green,  label: "Terminé" },
   "Échoué":         { c: C.red,    label: "Échoué" },
   "Echoué":         { c: C.red,    label: "Échoué" },
+  // Statuts objectifs (DA 2026)
+  "Ça arrive":      { c: C.faint,  label: "Ça arrive" },
+  "C'est chaud":    { c: C.purple, label: "C'est chaud" },
+  "Atteint":        { c: C.green,  label: "Atteint" },
+  "Abandonné":      { c: C.red,    label: "Abandonné" },
 };
+// Jeu de statuts pour les objectifs (toutes temporalités) — ordre + icône + couleur
+const OBJ_STATUSES = [
+  { k: "Ça arrive",   c: C.faint,  icon: "💤" },
+  { k: "En cours",    c: C.blue,   icon: "🚀" },
+  { k: "C'est chaud", c: C.purple, icon: "🔥" },
+  { k: "Atteint",     c: C.green,  icon: "🏆" },
+  { k: "Échoué",      c: C.red,    icon: "💥" },
+  { k: "Abandonné",   c: C.red,    icon: "🏳️" },
+];
+const OBJ_CLOSED = ["Terminé", "Atteint", "Échoué", "Echoué", "Abandonné"];
+const isObjClosed   = s => OBJ_CLOSED.includes(s);
+const isObjAchieved = s => s === "Atteint" || s === "Terminé";
+// Migration anciens statuts → nouveau jeu
+const STATUS_MIGRATE = {
+  "Dans les blocs":"Ça arrive", "Pas commencé":"Ça arrive",
+  "On-track":"En cours", "On track":"En cours", "Partiel":"En cours",
+  "Off-track":"C'est chaud", "Off track":"C'est chaud", "At-risk":"C'est chaud", "At risk":"C'est chaud",
+  "Terminé":"Atteint", "Echoué":"Échoué",
+};
+const normObjStatus = s => OBJ_STATUSES.find(o => o.k === s) ? s : (STATUS_MIGRATE[s] || "Ça arrive");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DATA
@@ -236,7 +296,7 @@ const LEVELS = [
 ];
 const LEVEL_PARENT = { annuel:"lt", trimestriel:"annuel", mensuel:"trimestriel" };
 const LEVEL_CHILD  = { lt:"annuel", annuel:"trimestriel", trimestriel:"mensuel" };
-const STATUS_OPTIONS_BASE = ["Dans les blocs","En cours","On-track","Off-track","At-risk","Terminé","Échoué"];
+const STATUS_OPTIONS_BASE = OBJ_STATUSES.map(s => s.k);
 
 let WP_TYPES     = _perso0.wpTypes  || _D_WP_TYPES;
 let WP_DOMAINES  = _perso0.domaines || _D_DOMAINES;
@@ -573,11 +633,34 @@ function MonthCalendar() {
 }
 
 function WeeklyCalendar() {
-  const { todos, updateTodo, deleteTodo, toggleDone, toggleSousTache } = useTodos();
+  const { todos, addTodo, updateTodo, deleteTodo, toggleDone, toggleSousTache } = useTodos();
   const today = todayStr();
   const [offset, setOffset] = useState(0);
   const [editId, setEditId] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [addDate, setAddDate] = useState(null);
+  const [expandedSpan, setExpandedSpan] = useState(null);
+  const [toast, setToast] = useState(null); // { id, name }
+  const toastTimer = useRef(null);
   const editItem = editId ? todos.find(t => t.id === editId) : null;
+  const closeModal = () => { setEditId(null); setEditMode(false); };
+  const toggleSub = (todoId, stId) => {
+    const tt = todos.find(x => x.id === todoId); if (!tt) return;
+    updateTodo(todoId, { sousTaches: (tt.sousTaches || []).map(s => s.id === stId ? { ...s, done: !s.done } : s) });
+  };
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
+  const markDone = it => {
+    toggleDone(it.id);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ id: it.id, name: it.name });
+    toastTimer.current = setTimeout(() => setToast(null), 10000);
+  };
+  const undoDone = () => {
+    if (!toast) return;
+    toggleDone(toast.id);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(null);
+  };
 
   const now = new Date();
   const dow = (now.getDay() + 6) % 7;
@@ -588,28 +671,77 @@ function WeeklyCalendar() {
     const d = new Date(monday); d.setDate(monday.getDate() + i);
     return d.toISOString().split("T")[0];
   });
+  const weekStart = days7[0], weekEnd = days7[6];
 
   const DAY_SHORT = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
 
-  // Per-day task lists: projets span every covered day, + single-day + récurrences
-  const dayTasks = Object.fromEntries(days7.map(ds => [ds, []]));
-  todos.forEach(it => {
-    if (it.done) return;
-    if (it.gtd === "projet" && it.dateDebut && it.dateFin) {
-      const s = new Date(it.dateDebut + "T12:00:00"), e = new Date(it.dateFin + "T12:00:00");
-      days7.forEach(ds => { const d = new Date(ds + "T12:00:00"); if (d >= s && d <= e) dayTasks[ds].push(it); });
-    } else if (it.recurrence?.enabled) {
-      // handled below
-    } else if (it.dateAssignee && dayTasks[it.dateAssignee] !== undefined) {
-      dayTasks[it.dateAssignee].push(it);
-    }
+  // ── Clôtures OKR de la semaine (depuis lp_goals) — DA spéciale combinée
+  // Dates locales (évite le décalage UTC de toISOString utilisé par days7)
+  const _pad2 = n => String(n).padStart(2, "0");
+  const days7Local = Array.from({ length: 7 }, (_, i) => { const d = new Date(monday); d.setDate(monday.getDate() + i); return `${d.getFullYear()}-${_pad2(d.getMonth() + 1)}-${_pad2(d.getDate())}`; });
+  const _goals = getLS("lp_goals", {});
+  const closuresByCol = {};
+  ["annuel","trimestriel","mensuel"].forEach(lvl => {
+    (_goals[lvl] || []).forEach(o => {
+      if (o.archived) return;
+      const date = o.dateCloture || computeCloture(o.periode);
+      if (!date) return;
+      const ci = days7Local.indexOf(date);
+      if (ci < 0) return;
+      if (!closuresByCol[ci]) closuresByCol[ci] = { levels: new Set(), items: [] };
+      closuresByCol[ci].levels.add(lvl);
+      closuresByCol[ci].items.push(o);
+    });
   });
-  todos.filter(it => it.recurrence?.enabled && !it.done).forEach(it => {
-    getRecurOccurrences(it, days7[0], days7[6]).forEach(ds => { if (dayTasks[ds] !== undefined) dayTasks[ds].push(it); });
-  });
+  const closureCols = Object.keys(closuresByCol).map(Number);
+  const CLOTURE_DA = {
+    annee:     { ic:"🏁", label:"CLÔTURE ANNÉE",     sub:"Année · Trimestre · Mois", grad:"linear-gradient(100deg,#FBBF24,#F472B6,#A855F7)", c:"#FBBF24" },
+    trimestre: { ic:"🎯", label:"CLÔTURE TRIMESTRE", sub:"Trimestre · Mois",          grad:"linear-gradient(100deg,#A855F7,#10b981)",         c:"#A855F7" },
+    mois:      { ic:"🗻", label:"CLÔTURE MOIS",       sub:"Objectif mensuel",          grad:"linear-gradient(100deg,#F59E0B,#F97316)",         c:"#F59E0B" },
+  };
+  const closureKind = lv => lv.has("annuel") ? "annee" : lv.has("trimestriel") ? "trimestre" : "mois";
 
   const typeLabel = it => it.gtd === "projet" ? "Projet" : it.gtd === "memo" ? "Mémo" : it.recurrence?.enabled ? "Récurrent" : "Tâche";
   const colorOf = it => SPHERES[it.sphere]?.c || (it.gtd === "memo" ? "#4F46E5" : it.gtd === "projet" ? "#7C5CFC" : "#0EA0BD");
+
+  // ── Rubans multi-jours : projets datés (dateDebut→dateFin) qui chevauchent la semaine
+  // (ISO YYYY-MM-DD → comparaison lexicographique sûre)
+  const spanItems = todos
+    .filter(it => it.gtd === "projet" && it.dateDebut && it.dateFin && !it.done)
+    .filter(it => it.dateFin >= weekStart && it.dateDebut <= weekEnd)
+    .map(it => {
+      let startCol = days7.findIndex(ds => ds >= it.dateDebut);   // 0-based, premier jour visible couvert
+      if (startCol < 0) startCol = 0;
+      let endCol = -1;
+      for (let i = 6; i >= 0; i--) { if (days7[i] <= it.dateFin) { endCol = i; break; } }
+      return {
+        it, startCol, endCol,
+        continuesLeft:  it.dateDebut < weekStart,
+        continuesRight: it.dateFin   > weekEnd,
+      };
+    })
+    .filter(s => s.endCol >= s.startCol)
+    .sort((a, b) => a.startCol - b.startCol || b.endCol - a.endCol);
+
+  // packing greedy en lanes (pas de chevauchement horizontal sur une même lane)
+  const lanes = [];
+  spanItems.forEach(s => {
+    let lane = lanes.findIndex(rows => rows.every(r => s.endCol < r.startCol || s.startCol > r.endCol));
+    if (lane < 0) { lanes.push([]); lane = lanes.length - 1; }
+    lanes[lane].push(s);
+    s.lane = lane;
+  });
+  const laneCount = lanes.length;
+
+  // ── Tâches simples par jour : non-projet daté (dateAssignee) + récurrences
+  const dayTasks = Object.fromEntries(days7.map(ds => [ds, []]));
+  todos.forEach(it => {
+    if (it.done || it.gtd === "projet" || it.recurrence?.enabled) return;
+    if (it.dateAssignee && dayTasks[it.dateAssignee] !== undefined) dayTasks[it.dateAssignee].push(it);
+  });
+  todos.filter(it => it.recurrence?.enabled && !it.done).forEach(it => {
+    getRecurOccurrences(it, weekStart, weekEnd).forEach(ds => { if (dayTasks[ds] !== undefined) dayTasks[ds].push(it); });
+  });
 
   const wkLabel = offset === 0 ? "Cette semaine"
     : offset === 1 ? "Semaine prochaine"
@@ -626,18 +758,82 @@ function WeeklyCalendar() {
     }}>{dir < 0 ? "‹" : "›"}</button>
   );
 
-  const TaskChip = ({ it, dayKey }) => {
-    const col = colorOf(it);
+  // ── Ruban multi-jours (cyber neon compact) — projet, avec sous-tâches dépliables
+  const Ribbon = ({ s }) => {
+    const col = colorOf(s.it);
+    const { continuesLeft: cl, continuesRight: cr } = s;
+    const subs = s.it.sousTaches || [];
+    const done = subs.filter(x => x.done).length;
+    const isOpen = expandedSpan === s.it.id;
     return (
-      <div onClick={()=>setEditId(it.id)} style={{
-        display:"flex", flexDirection:"column", gap:3,
-        padding:"8px 10px", borderRadius:9,
-        background:"var(--c-surface-2)", boxShadow:"var(--c-item-shadow)",
-        border:"1px solid var(--c-border)", borderLeft:`3px solid ${col}`, cursor:"pointer",
-      }} title={it.name}>
-        <span style={{ fontSize:12.5, fontWeight:500, color:"var(--c-text)", lineHeight:1.3, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}</span>
-        <span style={{ fontSize:9, fontWeight:700, color:col, textTransform:"uppercase", letterSpacing:"0.07em" }}>{typeLabel(it)}</span>
+      <div
+        onClick={() => setEditId(s.it.id)}
+        title={s.it.name}
+        style={{
+          gridColumn: `${s.startCol + 1} / ${s.endCol + 2}`,
+          gridRow: s.lane + 1,
+          display:"flex", alignItems:"center", gap:6,
+          margin:"0 3px", padding:"0 8px 0 10px", height:26, minWidth:0,
+          fontFamily:"inherit", cursor:"pointer", textAlign:"left",
+          color:"var(--c-text)",
+          background:`linear-gradient(90deg, ${col}33, ${col}1f)`,
+          border:`1px solid ${col}66`,
+          borderLeftWidth: cl ? 0 : 1, borderRightWidth: cr ? 0 : 1,
+          borderTopLeftRadius: cl ? 0 : 8, borderBottomLeftRadius: cl ? 0 : 8,
+          borderTopRightRadius: cr ? 0 : 8, borderBottomRightRadius: cr ? 0 : 8,
+          boxShadow:`inset 3px 0 0 ${cl ? "transparent" : col}, 0 0 12px ${col}33`,
+        }}>
+        {cl && <span style={{ color:col, fontSize:11, marginLeft:-4 }}>‹</span>}
+        <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 6px ${col}`, flexShrink:0 }} />
+        <span style={{ fontSize:11.5, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", flex:1, minWidth:0 }}>{s.it.name}</span>
+        {subs.length > 0 && (
+          <span style={{ fontSize:10, fontWeight:800, color:col, fontVariantNumeric:"tabular-nums", flexShrink:0 }}>{done}/{subs.length}</span>
+        )}
+        <button onClick={e => { e.stopPropagation(); markDone(s.it); }} title="Marquer fait"
+          style={{ flexShrink:0, width:18, height:18, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
+            background:"transparent", border:`1.5px solid ${col}`, color:col, cursor:"pointer", fontSize:9, fontFamily:"inherit", lineHeight:1 }}>✓</button>
+        {subs.length > 0 && (
+          <button onClick={e => { e.stopPropagation(); setExpandedSpan(p => p === s.it.id ? null : s.it.id); }}
+            title="Voir les sous-tâches"
+            style={{ flexShrink:0, width:18, height:18, borderRadius:5, display:"inline-flex", alignItems:"center", justifyContent:"center",
+              background:`${col}33`, border:"none", color:col, cursor:"pointer", fontSize:10, fontFamily:"inherit", transform:isOpen?"rotate(90deg)":"none", transition:"transform 0.15s" }}>▸</button>
+        )}
       </div>
+    );
+  };
+
+  // ── Chip tâche simple (cyber neon compact). Mémo = style "note" dissocié (pointillé + icône).
+  const ICONS = { memo:"📝", waiting:"⏳" };
+  const TaskChip = ({ it }) => {
+    const col = colorOf(it);
+    const isMemo = it.gtd === "memo";
+    const isRecur = it.recurrence?.enabled;
+    const icon = isRecur ? "🔄" : ICONS[it.gtd] || "•";
+    return (
+      <button onClick={e => { e.stopPropagation(); setEditId(it.id); }} title={it.name} style={{
+        display:"flex", flexDirection:"column", gap:4,
+        padding:"7px 9px", borderRadius:10, width:"100%", textAlign:"left",
+        background: isMemo
+          ? `repeating-linear-gradient(135deg, ${col}14, ${col}14 6px, ${col}0a 6px, ${col}0a 12px)`
+          : `linear-gradient(180deg, ${col}1a, var(--c-surface-2))`,
+        border:`1px ${isMemo ? "dashed" : "solid"} ${col}${isMemo ? "66" : "40"}`,
+        cursor:"pointer", fontFamily:"inherit",
+        boxShadow:`0 0 10px ${col}1f`,
+      }}>
+        <span style={{ display:"flex", alignItems:"flex-start", gap:6, minWidth:0 }}>
+          <span style={{ fontSize:11, flexShrink:0, filter:`drop-shadow(0 0 4px ${col}88)`, marginTop:1 }}>{icon}</span>
+          <span style={{ fontSize:12, fontWeight:600, color:"var(--c-text)", lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", flex:1, minWidth:0 }}>{it.name}</span>
+          <span onClick={e => { e.stopPropagation(); markDone(it); }} title="Marquer fait"
+            style={{ flexShrink:0, width:18, height:18, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
+              border:`1.5px solid ${col}`, color:col, cursor:"pointer", fontSize:9, lineHeight:1 }}>✓</span>
+        </span>
+        <span style={{
+          alignSelf:"flex-start", fontSize:8.5, fontWeight:800, color:col,
+          textTransform:"uppercase", letterSpacing:"0.08em",
+          padding:"1px 6px", borderRadius:999, background:`${col}22`,
+          border:`1px ${isMemo ? "dashed" : "solid"} ${col}40`,
+        }}>{typeLabel(it)}</span>
+      </button>
     );
   };
 
@@ -649,42 +845,167 @@ function WeeklyCalendar() {
           <div style={{ display:"flex", gap:8 }}><NavBtn dir={-1} /><NavBtn dir={1} /></div>
         </div>
 
-        <div className="cal-grid">
-          {days7.map((ds, i) => {
-            const isToday = ds === today;
-            const dn = new Date(ds + "T12:00:00").getDate();
-            const items = dayTasks[ds] || [];
-            return (
-              <div key={ds} className="cal-day" style={{ background: isToday ? "var(--c-accent-soft)" : "transparent", borderRadius:14 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <span style={{ fontSize:10, color:"var(--c-faint)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:700 }}>{DAY_SHORT[i]}</span>
-                  <span style={{
-                    width:28, height:28, borderRadius:"50%",
-                    display:"inline-flex", alignItems:"center", justifyContent:"center",
-                    fontFamily:"var(--font-display)", fontSize:14, fontWeight:isToday?700:600,
-                    lineHeight:1, fontVariantNumeric:"tabular-nums",
-                    background:isToday?"linear-gradient(135deg,#A855F7,#EC4899)":"transparent",
-                    color:isToday?"#fff":"var(--c-text)",
-                    boxShadow:isToday?"0 0 16px rgba(168,85,247,0.6)":"none",
-                  }}>{dn}</span>
-                </div>
-                <div className="cal-body">
-                  {items.length === 0
-                    ? <span style={{ fontSize:11, color:"var(--c-faint)" }}>—</span>
-                    : items.map((it, k) => <TaskChip key={it.id + "_" + k} it={it} dayKey={ds} />)}
-                </div>
+        <div className="cal-board-wrap">
+          <div className="cal-board">
+            {/* En-tête jours */}
+            <div className="cal-head">
+              {days7.map((ds, i) => {
+                const isToday = ds === today;
+                const dn = new Date(ds + "T12:00:00").getDate();
+                return (
+                  <div key={ds} className="cal-head-cell" style={{ background: isToday ? "var(--c-accent-soft)" : "transparent" }}>
+                    <span style={{ fontSize:10, color:"var(--c-faint)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:700 }}>{DAY_SHORT[i]}</span>
+                    <span style={{
+                      width:28, height:28, borderRadius:"50%",
+                      display:"inline-flex", alignItems:"center", justifyContent:"center",
+                      fontFamily:"var(--font-display)", fontSize:14, fontWeight:isToday?700:600,
+                      lineHeight:1, fontVariantNumeric:"tabular-nums",
+                      background:isToday?"linear-gradient(135deg,#A855F7,#EC4899)":"transparent",
+                      color:isToday?"#fff":"var(--c-text)",
+                      boxShadow:isToday?"0 0 16px rgba(168,85,247,0.6)":"none",
+                    }}>{dn}</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Lane clôtures OKR — DA spéciale, prend de la place */}
+            {closureCols.length > 0 && (
+              <div className="cal-clotures">
+                {closureCols.map(ci => {
+                  const cell = closuresByCol[ci];
+                  const da = CLOTURE_DA[closureKind(cell.levels)];
+                  return (
+                    <div key={ci} style={{ gridColumn: `${ci + 1} / ${ci + 2}`, margin: "0 3px" }}>
+                      <div style={{
+                        position:"relative", overflow:"hidden", borderRadius:14, padding:"12px 12px 11px", minHeight:92,
+                        display:"flex", flexDirection:"column", justifyContent:"center",
+                        background:`${da.c}22`, border:`1px solid ${da.c}77`, boxShadow:`0 0 22px ${da.c}44`,
+                      }}>
+                        <div style={{ position:"absolute", top:0, left:0, right:0, height:5, background:da.grad }} />
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+                          <span style={{ fontSize:24, lineHeight:1, filter:`drop-shadow(0 0 7px ${da.c}cc)` }}>{da.ic}</span>
+                          <span style={{ fontSize:12, fontWeight:900, letterSpacing:"0.03em", color:da.c, lineHeight:1.1 }}>{da.label}</span>
+                        </div>
+                        <div style={{ fontSize:10, color:"var(--c-muted)", lineHeight:1.2 }}>{da.sub}</div>
+                        <div style={{ fontSize:10, fontWeight:700, color:da.c, marginTop:3 }}>{cell.items.length} OKR{cell.items.length>1?"s":""}</div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            )}
+
+            {/* Lanes rubans multi-jours */}
+            {laneCount > 0 && (
+              <div className="cal-ribbons" style={{ gridTemplateRows:`repeat(${laneCount}, 26px)` }}>
+                {spanItems.map(s => <Ribbon key={s.it.id} s={s} />)}
+              </div>
+            )}
+
+            {/* Panneau sous-tâches d'un ruban déplié */}
+            {expandedSpan && (() => {
+              const proj = todos.find(x => x.id === expandedSpan);
+              const subs = proj?.sousTaches || [];
+              if (!proj) return null;
+              const col = colorOf(proj);
+              const done = subs.filter(s => s.done).length;
+              return (
+                <div className="slide-up" style={{
+                  margin:"2px 3px 8px", padding:"12px 14px", borderRadius:12,
+                  background:"var(--c-surface-2)", border:`1px solid ${col}44`, boxShadow:`0 0 16px ${col}1f`,
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                    <span style={{ width:7, height:7, borderRadius:"50%", background:col, boxShadow:`0 0 6px ${col}`, flexShrink:0 }} />
+                    <span style={{ fontSize:13, fontWeight:700, color:"var(--c-text)", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{proj.name}</span>
+                    <span style={{ fontSize:11, fontWeight:800, color:col, fontVariantNumeric:"tabular-nums" }}>{done}/{subs.length}</span>
+                    <button onClick={() => setExpandedSpan(null)} style={{ background:"none", border:"none", color:"var(--c-muted)", fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+                  </div>
+                  <div style={{ height:4, borderRadius:3, background:"var(--c-surface-3)", overflow:"hidden", marginBottom:10 }}>
+                    <div style={{ height:"100%", width:`${subs.length ? done/subs.length*100 : 0}%`, background:`linear-gradient(90deg, ${col}, ${C.pink})`, borderRadius:3, transition:"width 0.3s", boxShadow:`0 0 8px ${col}66` }} />
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                    {subs.map(st => (
+                      <div key={st.id} onClick={() => toggleSub(proj.id, st.id)} style={{
+                        display:"flex", alignItems:"center", gap:10, padding:"7px 8px", borderRadius:8,
+                        cursor:"pointer", opacity:st.done?0.5:1, background:st.done?"transparent":"var(--c-surface-3)",
+                      }}>
+                        <span style={{ fontSize:15, color:st.done?C.green:col, flexShrink:0 }}>{st.done?"●":"○"}</span>
+                        <span style={{ fontSize:13, color:"var(--c-text)", textDecoration:st.done?"line-through":"none" }}>{st.name}</span>
+                      </div>
+                    ))}
+                    {subs.length === 0 && <span style={{ fontSize:12, color:"var(--c-faint)" }}>Aucune sous-tâche.</span>}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Corps : tâches simples par jour */}
+            <div className="cal-grid">
+              {days7.map(ds => {
+                const isToday = ds === today;
+                const items = dayTasks[ds] || [];
+                return (
+                  <div key={ds} className="cal-day cal-day-add" onClick={() => setAddDate(ds)}
+                    title="Ajouter une tâche ce jour"
+                    style={{ background: isToday ? "var(--c-accent-soft)" : "transparent", cursor:"pointer" }}>
+                    <div className="cal-body">
+                      {items.map((it, k) => <TaskChip key={it.id + "_" + k} it={it} />)}
+                      <span className="cal-add-hint" style={{ fontSize:12, color:"var(--c-faint)", textAlign:"center", padding:"4px 0" }}>+</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 
-      {editItem && (
+      {editItem && !editMode && (
         <TaskSummaryModal
           item={editItem}
-          onClose={() => setEditId(null)}
+          onClose={closeModal}
           onToggleSousTache={(todoId, stId) => toggleSousTache(todoId, stId)}
+          onEdit={() => setEditMode(true)}
         />
+      )}
+      {editItem && editMode && (
+        <EditModal
+          item={editItem}
+          onSave={u => updateTodo(editItem.id, u)}
+          onDelete={id => { deleteTodo(id); closeModal(); }}
+          onToggleDone={id => toggleDone(id)}
+          onClose={() => setEditMode(false)}
+        />
+      )}
+      {addDate && (
+        <DayCreateModal
+          date={addDate}
+          onCreate={obj => { addTodo(obj); setAddDate(null); }}
+          onClose={() => setAddDate(null)}
+        />
+      )}
+
+      {toast && (
+        <div key={toast.id} className="cal-toast" style={{
+          position:"fixed", left:"50%", bottom:24, transform:"translateX(-50%)", zIndex:3000,
+          minWidth:280, maxWidth:"92vw", borderRadius:14, overflow:"hidden",
+          background:"var(--c-surface-2, #1a1830)", border:`1px solid ${C.green}55`,
+          boxShadow:`0 16px 40px rgba(0,0,0,0.5), 0 0 24px ${C.green}33`,
+        }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12, padding:"13px 16px" }}>
+            <span style={{ width:22, height:22, borderRadius:"50%", flexShrink:0, display:"inline-flex", alignItems:"center", justifyContent:"center",
+              background:C.green, color:"#04130d", fontSize:13, fontWeight:900 }}>✓</span>
+            <span style={{ flex:1, minWidth:0, fontSize:13.5, fontWeight:600, color:"var(--c-text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              Tâche faite · <span style={{ color:"var(--c-muted)", fontWeight:500 }}>{toast.name}</span>
+            </span>
+            <button onClick={undoDone} style={{ flexShrink:0, padding:"6px 14px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
+              background:"transparent", border:`1px solid ${C.borderMid}`, color:C.accent, fontSize:12, fontWeight:700 }}>Annuler</button>
+          </div>
+          <div style={{ height:3, background:`${C.green}22` }}>
+            <div className="cal-toast-bar" style={{ height:"100%", background:C.green, boxShadow:`0 0 8px ${C.green}` }} />
+          </div>
+        </div>
       )}
     </>
   );
@@ -717,6 +1038,9 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
   const [sessions, setSessions]  = useState(() => getLS("lp_workperf", []));
   const [todos, setTodos]        = useState(loadTodos);
   const [goals, setGoals]        = useState(() => getLS("lp_goals", NOTION_GOALS));
+  const [weeklyObjs, setWeeklyObjs] = useState(() => getLS("lp_weekly_objectives", []));
+  const [showAddWeek, setShowAddWeek] = useState(false);
+  const [weekText, setWeekText]  = useState("");
   const [highlight, setHighlight]= useState(() => getLS("lp_highlight", {}));
   const [editingHL, setEditingHL]= useState(false);
   const [qAction, setQAction]    = useState(null);
@@ -729,6 +1053,16 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
   const [wpForm, setWpForm]      = useState({ tache: "", temps: "", type: "DEEP", domaine: "BUSINESS", efficience: "💡💡💡" });
   const [todoText, setTodoText]  = useState("");
   const [objText, setObjText]    = useState("");
+  const [editObj, setEditObj]    = useState(null);
+  const saveGoals = d => { setGoals(d); setLS("lp_goals", d); };
+  const curWeekId = getISOWeekId();
+  const saveWeekly = d => { setWeeklyObjs(d); setLS("lp_weekly_objectives", d); };
+  const addWeekly = () => {
+    if (!weekText.trim()) return;
+    saveWeekly([...weeklyObjs, { id: uid(), weekId: curWeekId, title: weekText.trim(), completed: false, missed: false, partial: false, note: "", createdAt: new Date().toISOString() }]);
+    setWeekText(""); setShowAddWeek(false);
+  };
+  const toggleWeekly = id => saveWeekly(weeklyObjs.map(o => o.id === id ? (o.completed ? { ...o, completed: false, partial: true } : o.partial ? { ...o, partial: false, missed: true } : o.missed ? { ...o, missed: false } : { ...o, completed: true }) : o));
 
 
   const hlText = highlight[t] || "";
@@ -788,7 +1122,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
 
   const addObj = () => {
     if (!objText.trim()) return;
-    const obj = { id: uid(), titre: objText.trim(), statut: "Pas commencé", spaces: [], krs: [], avec: "Solo" };
+    const obj = { id: uid(), titre: objText.trim(), statut: "Ça arrive", spaces: [], krs: [], avec: "Solo" };
     const updated = { ...goals, hebdo: [...(goals.hebdo || []), obj] };
     setGoals(updated); setLS("lp_goals", updated); setObjText(""); setQAction(null);
   };
@@ -800,16 +1134,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
     ...(goals.trimestriel || []).map(o => ({ ...o, _level: "Trimestriel", _c: C.green })),
     ...(goals.mensuel || []).map(o => ({ ...o, _level: "Mensuel", _c: C.amber })),
     ...(goals.hebdo || []).map(o => ({ ...o, _level: "Hebdo", _c: C.orange })),
-  ].filter(o => o.statut !== "Terminé" && o.statut !== "Échoué" && o.statut !== "Echoué").slice(0, 3);
-
-  const objPct = obj => {
-    const krs = obj.krs || [];
-    if (krs.length === 0) {
-      const map = { "On-track": 60, "On track": 60, "En cours": 30, "Partiel": 50, "Off-track": 20, "Off track": 20, "At-risk": 10, "At risk": 10, "Terminé": 100 };
-      return map[obj.statut] || 5;
-    }
-    return Math.round(krs.reduce((s, k) => s + pct(k.depart ?? 0, k.actuelle ?? 0, k.cible ?? 0), 0) / krs.length);
-  };
+  ].filter(o => !isObjClosed(o.statut) && !o.archived).slice(0, 3);
 
   const now = new Date();
   const headerDate = now.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
@@ -833,7 +1158,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
       <div style={{
         position: "sticky", top: 0, zIndex: 20,
         background: "rgba(11,7,20,0.80)", backdropFilter: "blur(20px)",
-        borderBottom: `1px solid ${C.border}`, padding: "14px 16px 10px",
+        padding: "14px 16px 10px",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           {editingName
@@ -899,7 +1224,6 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
         {/* HERO RING + métriques (boxless, signature) */}
         {(() => {
           const dayPct = habits.length ? Math.round(doneH / habits.length * 100) : 0;
-          const activeObjCount = ["trimestriel","mensuel","hebdo"].reduce((n,k)=>n+(goals[k]||[]).filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length,0);
           const RING = 132, SW = 11, RAD = (RING - SW) / 2, CIRC = 2 * Math.PI * RAD;
           const off = CIRC * (1 - dayPct / 100);
           const Metric = ({ value, label, color, onClick }) => (
@@ -909,7 +1233,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
             </div>
           );
           return (
-            <div className="dash-ring" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 22, margin: "26px 0 30px" }}>
+            <div className="dash-ring" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 22, margin: "26px 0 10px" }}>
               <Metric value={fmtMin(deepToday)} label="Deep Work" color={C.accent} onClick={() => onNav("workperf")} />
               <div style={{ position: "relative", width: RING, height: RING, flexShrink: 0 }}>
                 <svg width={RING} height={RING} style={{ transform: "rotate(-90deg)", display: "block" }}>
@@ -930,13 +1254,119 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                   <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>du jour</div>
                 </div>
               </div>
-              <Metric value={activeObjCount} label="Objectifs" color={C.accent2} onClick={() => onNav("objectifs")} />
             </div>
           );
         })()}
         </div>{/* /dash-hero */}
 
-        <div style={{ height: 1, background: C.border, margin: "0 0 24px" }} />
+        {/* OBJECTIFS — bloc pleine largeur (3 chronologies + mensuels adaptatifs) */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom: 12 }}>
+            <span style={{ fontSize: 11, color: C.amber, textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 }}>⭐ Objectifs</span>
+            <span onClick={() => onNav("objectifs:mensuel")} style={{ fontSize: 12, color: C.muted, cursor: "pointer" }}>Tout voir →</span>
+          </div>
+
+          {/* Mensuels — pleine largeur, colonnes = nb d'objectifs (1 à 6) */}
+          {(() => {
+            const monthlyObjs = (goals.mensuel || []).filter(o => !isObjClosed(o.statut) && !o.archived);
+            return (
+              <>
+                <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:9 }}>🗻 Mensuels</div>
+                {monthlyObjs.length === 0
+                  ? <div onClick={() => onNav("objectifs:mensuel")} style={{ fontSize:12, color:C.faint, padding:"14px 0", cursor:"pointer" }}>Aucun objectif mensuel · <span style={{ color:C.amber }}>+ Ajouter</span></div>
+                  : (
+                  <div className="home-month-grid" style={{ "--cols": Math.min(monthlyObjs.length, 6) }}>
+                    {monthlyObjs.map(o => {
+                      const p = krsProgress(o.krs || []);
+                      const reached = p !== null && p >= 100;
+                      const snow = reached ? C.green : C.amber;
+                      return (
+                        <div key={o.id} onClick={() => setEditObj(o)} title="Cliquer pour modifier" style={{
+                          position: "relative", overflow: "hidden", minHeight: 158, padding: "13px 15px", borderRadius: 18, display: "flex", flexDirection: "column",
+                          background: "transparent", border: `1px solid ${C.amber}26`, cursor: "pointer",
+                        }}>
+                          {/* Montagne — fondue : fade haut/gauche/droite, bas net (ancré) */}
+                          <div style={{ position: "absolute", inset: 0, zIndex: 0, WebkitMaskImage: "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)", maskImage: "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)" }}>
+                            <LevelArt levelId="mensuel" color={C.amber} reached={reached} idKey={`home-m-${o.id}`} fit="slice" />
+                          </div>
+                          <div style={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 34, textShadow: "0 1px 6px rgba(0,0,0,0.6)" }}>{o.titre}</div>
+                          <div style={{ flex: 1, minHeight: 8 }} />
+                          {p !== null ? (
+                            <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ flex: 1, height: 5, borderRadius: 3, background: "rgba(0,0,0,0.5)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", width: `${p}%`, background: `linear-gradient(90deg, ${C.amber}, ${reached ? C.green : C.orange})`, borderRadius: 3, transition: "width 0.5s", boxShadow: `0 0 8px ${snow}66` }} />
+                              </div>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: snow, fontVariantNumeric: "tabular-nums", textShadow: "0 1px 6px rgba(0,0,0,0.6)" }}>{reached ? "🏔 " : ""}{p}%</span>
+                            </div>
+                          ) : (
+                            <div style={{ position: "relative", zIndex: 1, fontSize: 11, color: C.faint }}>Pas de Key Result</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            );
+          })()}
+
+          {/* Objectifs de la semaine (Weekly review) — DA réduite, pont Golden Gate bleu */}
+          {(() => {
+            const wObjs = weeklyObjs.filter(o => o.weekId === curWeekId);
+            const ggMask = "radial-gradient(135% 150% at 50% 116%, #000 52%, rgba(0,0,0,0) 100%)";
+            const stOf = o => o.completed ? { c: C.green, ic: "✓" } : o.partial ? { c: C.amber, ic: "~" } : o.missed ? { c: C.red, ic: "✕" } : { c: "#38BDF8", ic: "○" };
+            return (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
+                  <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>🌉 Cette semaine</span>
+                  <button onClick={() => setShowAddWeek(s => !s)} title="Ajouter un objectif hebdo" style={{ width: 26, height: 26, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", border: `1px solid ${showAddWeek ? "#38BDF8" : C.border}`, background: showAddWeek ? "#38BDF822" : C.surface3, color: "#38BDF8" }}>{showAddWeek ? "✕" : "+"}</button>
+                </div>
+                {showAddWeek && (
+                  <div className="slide-up" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <Input value={weekText} onChange={setWeekText} onKeyDown={e => e.key === "Enter" && addWeekly()} placeholder="Objectif de la semaine..." autoFocus />
+                    <Btn onClick={addWeekly} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
+                  </div>
+                )}
+                {wObjs.length === 0
+                  ? <div style={{ fontSize: 12, color: C.faint, padding: "8px 0" }}>Aucun objectif cette semaine{showAddWeek ? "." : " · "}{!showAddWeek && <span onClick={() => setShowAddWeek(true)} style={{ color: "#38BDF8", cursor: "pointer" }}>+ Ajouter</span>}</div>
+                  : (
+                  <div className="home-week-grid">
+                    {wObjs.map(o => {
+                      const s = stOf(o);
+                      return (
+                        <div key={o.id} onClick={() => toggleWeekly(o.id)} title="Cliquer pour changer le statut" style={{
+                          position: "relative", overflow: "hidden", minHeight: 84, padding: "10px 12px", borderRadius: 14,
+                          display: "flex", flexDirection: "column", cursor: "pointer",
+                          background: "transparent", border: `1px solid #38BDF826`,
+                        }}>
+                          <div style={{ position: "absolute", inset: 0, zIndex: 0, transform: "translateY(10%)", WebkitMaskImage: ggMask, maskImage: ggMask }}>
+                            <GoldenGateArt idKey={o.id} fit="cover" />
+                          </div>
+                          <div style={{ position: "relative", zIndex: 1, fontSize: 12, fontWeight: 600, color: C.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
+                          <div style={{ flex: 1 }} />
+                          <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: s.c, border: `1.5px solid ${s.c}`, boxShadow: `0 0 6px ${s.c}66` }}>{s.ic}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {editObj && (
+          <ObjectifEditModal
+            obj={editObj} levelId="mensuel" allGoals={goals}
+            onUpdate={u => { saveGoals({ ...goals, mensuel: (goals.mensuel || []).map(o => o.id === u.id ? u : o) }); setEditObj(null); }}
+            onDelete={id => { saveGoals({ ...goals, mensuel: (goals.mensuel || []).filter(o => o.id !== id) }); setEditObj(null); }}
+            onClose={() => setEditObj(null)}
+          />
+        )}
+
+        <div style={{ height: 1, background: C.border, margin: "24px 0" }} />
 
         {/* QUICK ACTIONS */}
         <div style={{ marginBottom: 16 }}>
@@ -1099,46 +1529,66 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function KRCard({ kr, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(String(kr.actuelle ?? kr.depart ?? 0));
-  const p = pct(kr.depart ?? 0, kr.actuelle ?? 0, kr.cible ?? 0);
+  const [d, setD] = useState({ depart: String(kr.depart ?? 0), actuelle: String(kr.actuelle ?? kr.depart ?? 0), cible: String(kr.cible ?? 0) });
+  const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+  // % live : pendant l'édition depuis les champs, sinon depuis le KR enregistré
+  const p = editing
+    ? pct(num(d.depart), num(d.actuelle), num(d.cible))
+    : krPct(kr);
   const lc = p >= 100 ? C.green : p >= 60 ? C.accent : p >= 30 ? C.amber : C.red;
-  const save = () => { const n = parseFloat(val); if (!isNaN(n)) onUpdate({ ...kr, actuelle: n }); setEditing(false); };
+  const startEdit = () => { setD({ depart: String(kr.depart ?? 0), actuelle: String(kr.actuelle ?? kr.depart ?? 0), cible: String(kr.cible ?? 0) }); setEditing(true); };
+  const save = () => { onUpdate({ ...kr, depart: num(d.depart), actuelle: num(d.actuelle), cible: num(d.cible) }); setEditing(false); };
   return (
-    <div style={{ background: C.surface3, borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: `1px solid ${C.border}` }}>
+    <div style={{ background: C.surface3, borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: `1px solid ${editing ? lc + "66" : C.border}` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <span style={{ fontSize: 13, color: C.text, flex: 1 }}>{kr.nom}</span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <span style={{ fontSize: 12, color: lc, fontWeight: 700 }}>{p}%</span>
-          <span onClick={() => setEditing(!editing)} style={{ fontSize: 12, color: C.muted, cursor: "pointer" }}>✎</span>
+          <span style={{ fontSize: 13, color: lc, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{p}%</span>
+          <span onClick={() => editing ? setEditing(false) : startEdit()} style={{ fontSize: 12, color: editing ? C.accent : C.muted, cursor: "pointer" }}>✎</span>
           <span onClick={() => onDelete(kr.id)} style={{ fontSize: 12, color: C.muted, cursor: "pointer" }}>✕</span>
         </div>
       </div>
       <ProgressBar value={p} color={lc} height={5} />
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-        <span style={{ fontSize: 11, color: C.muted }}>Départ : {kr.depart ?? 0}</span>
-        {editing ? (
-          <div style={{ display: "flex", gap: 6 }}>
-            <input value={val} onChange={e => setVal(e.target.value)} onKeyDown={e => e.key==="Enter" && save()}
-              style={{ width: 70, background: C.surface2, border: `1px solid ${C.borderMid}`, color: C.text, padding: "3px 8px", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
-            <button onClick={save} style={{ background: GRAD, color: "#fff", border: "none", padding: "3px 10px", borderRadius: 8, fontSize: 11, cursor: "pointer" }}>OK</button>
+      {editing ? (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+            {[["depart", "Départ"], ["actuelle", "Actuelle"], ["cible", "Cible"]].map(([k, l]) => (
+              <div key={k}>
+                <div style={{ fontSize: 10, color: C.muted, marginBottom: 3 }}>{l}</div>
+                <input type="number" value={d[k]} onChange={e => setD(p2 => ({ ...p2, [k]: e.target.value }))} onKeyDown={e => e.key === "Enter" && save()}
+                  style={{ width: "100%", boxSizing: "border-box", background: C.surface2, border: `1px solid ${C.borderMid}`, color: C.text, padding: "6px 8px", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+              </div>
+            ))}
           </div>
-        ) : (
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button onClick={save} style={{ flex: 1, background: GRAD, color: "#fff", border: "none", padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>OK</button>
+            <button onClick={() => setEditing(false)} style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, padding: "6px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Annuler</button>
+          </div>
+        </>
+      ) : (
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+          <span style={{ fontSize: 11, color: C.muted }}>Départ : {kr.depart ?? 0}</span>
           <span style={{ fontSize: 11, color: C.text, fontWeight: 600 }}>{kr.actuelle ?? kr.depart ?? 0} / {kr.cible ?? 0}</span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose }) {
+function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose, onRequestCloture }) {
   const [titre, setTitre]   = useState(obj.titre||"");
-  const [statut, setStatut] = useState(obj.statut||"Dans les blocs");
+  const [statut, setStatut] = useState(normObjStatus(obj.statut));
   const [spaces, setSpaces] = useState(obj.spaces||[]);
   const [parentId, setParentId] = useState(obj.parentId||"");
   const [krs, setKrs]       = useState(obj.krs||[]);
   const [newKR, setNewKR]   = useState({nom:"",depart:"",actuelle:"",cible:""});
   const [addingKR, setAddingKR] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
+  const ptype = periodeTypeForLevel(levelId);
+  const [periode, setPeriode] = useState(obj.periode || (ptype ? defaultPeriode(levelId) : null));
+  const [dateCloture, setDateCloture] = useState(obj.dateCloture || (ptype ? computeCloture(obj.periode || defaultPeriode(levelId)) : ""));
+  const setPer = patch => { const np = { ...periode, ...patch }; setPeriode(np); setDateCloture(computeCloture(np)); };
+  const yearOpts = (() => { const y = new Date().getFullYear(); return [y-1, y, y+1, y+2]; })();
   const level         = LEVELS.find(l=>l.id===levelId);
   const parentLevelId = LEVEL_PARENT[levelId];
   const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
@@ -1154,7 +1604,7 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
     const kr={id:uid(),nom:newKR.nom.trim(),depart:parseFloat(newKR.depart)||0,actuelle:parseFloat(newKR.actuelle)||parseFloat(newKR.depart)||0,cible:parseFloat(newKR.cible)||0};
     setKrs(ks=>[...ks,kr]); setNewKR({nom:"",depart:"",actuelle:"",cible:""}); setAddingKR(false);
   };
-  const save = () => { onUpdate({...obj,titre:titre.trim(),statut,spaces,parentId:parentId||undefined,krs}); onClose(); };
+  const save = () => { onUpdate({...obj,titre:titre.trim(),statut,spaces,parentId:parentId||undefined,krs,...(ptype?{periode,dateCloture:dateCloture||undefined}:{})}); onClose(); };
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
@@ -1162,12 +1612,74 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
         <input autoFocus value={titre} onChange={e=>setTitre(e.target.value)}
           style={{width:"100%",background:"transparent",border:"none",borderBottom:`2px solid ${C.accent}`,color:C.text,fontSize:17,fontWeight:700,fontFamily:"inherit",outline:"none",padding:"4px 0",boxSizing:"border-box",marginBottom:18}}/>
 
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Statut</div>
-          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-            {STATUS_OPTIONS_BASE.map(s=>(
-              <button key={s} onClick={()=>setStatut(s)} style={{padding:"5px 12px",borderRadius:999,fontSize:12,border:`1px solid ${statut===s?C.accent:C.border}`,background:statut===s?C.accentBg:"transparent",color:statut===s?C.accent:C.muted,fontFamily:"inherit",cursor:"pointer"}}>{s}</button>
-            ))}
+        {/* % global de l'objectif (live, moyenne KR + bonus complétion) */}
+        {krs.length>0&&(()=>{
+          const objP = krsProgress(krs);
+          const oc = objP>=100?C.green:objP>=60?(level?.c||C.accent):objP>=30?C.amber:C.red;
+          const doneKr = krs.filter(k=>krPct(k)>=100).length;
+          return (
+            <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:18,padding:"14px 16px",borderRadius:14,background:`${oc}12`,border:`1px solid ${oc}33`}}>
+              <div style={{fontFamily:"var(--font-display)",fontSize:32,fontWeight:800,color:oc,lineHeight:1,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{objP}<span style={{fontSize:18}}>%</span></div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:11,color:C.muted,marginBottom:6}}>Progression · {krs.length} KR{krs.length>1?"s":""} · {doneKr} fini{doneKr>1?"s":""}</div>
+                <ProgressBar value={objP} color={oc} height={6}/>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Période liée + date de clôture (auto, éditable) — sauf Long Terme */}
+        {ptype&&(
+          <div style={{marginBottom:16,padding:"13px 14px",borderRadius:14,background:C.surface2,border:`1px solid ${C.border}`}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>📅 Période liée</div>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+              {yearOpts.map(y=>(
+                <button key={y} onClick={()=>setPer({year:y})} style={{padding:"5px 12px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${periode.year===y?(level?.c||C.accent):C.border}`,background:periode.year===y?(level?.c||C.accent)+"22":"transparent",color:periode.year===y?(level?.c||C.accent):C.muted,fontWeight:periode.year===y?700:400}}>{y}</button>
+              ))}
+            </div>
+            {ptype==="month"&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+                {MONTHS_FR.map((m,i)=>(
+                  <button key={i} onClick={()=>setPer({month:i})} style={{padding:"7px 4px",borderRadius:9,fontSize:11,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${periode.month===i?(level?.c||C.accent):C.border}`,background:periode.month===i?(level?.c||C.accent)+"22":"transparent",color:periode.month===i?(level?.c||C.accent):C.muted,fontWeight:periode.month===i?700:400}}>{m.slice(0,4)}</button>
+                ))}
+              </div>
+            )}
+            {ptype==="quarter"&&(
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:10}}>
+                {QUARTERS_FR.map(([q,r],i)=>(
+                  <button key={i} onClick={()=>setPer({quarter:i})} style={{padding:"8px 4px",borderRadius:10,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center",border:`1px solid ${periode.quarter===i?(level?.c||C.accent):C.border}`,background:periode.quarter===i?(level?.c||C.accent)+"22":"transparent",color:periode.quarter===i?(level?.c||C.accent):C.muted,fontWeight:periode.quarter===i?700:400}}>{q}<div style={{fontSize:9,color:C.faint,marginTop:1}}>{r}</div></button>
+                ))}
+              </div>
+            )}
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:4}}>Date de clôture (auto, éditable)</div>
+                <input type="date" value={dateCloture} onChange={e=>setDateCloture(e.target.value)} style={{width:"100%",boxSizing:"border-box",background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:8,borderRadius:9,fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+              </div>
+              <div style={{textAlign:"right",fontSize:11,color:C.muted,paddingTop:14}}>{periodeLabel(periode)}</div>
+            </div>
+          </div>
+        )}
+
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:9}}>Statut</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:7}}>
+            {OBJ_STATUSES.map(({k,c,icon})=>{
+              const sel=statut===k;
+              return (
+                <button key={k} onClick={()=>setStatut(k)} style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",gap:5,
+                  padding:"8px 6px",borderRadius:11,fontSize:11.5,fontWeight:sel?700:500,fontFamily:"inherit",cursor:"pointer",
+                  border:`1px solid ${sel?c:C.border}`,
+                  background:sel?`linear-gradient(180deg, ${c}2e, ${c}14)`:"transparent",
+                  color:sel?c:C.muted,
+                  boxShadow:sel?`0 0 14px ${c}33`:"none",transition:TR,
+                }}>
+                  <span style={{fontSize:13,filter:sel?`drop-shadow(0 0 4px ${c}aa)`:"grayscale(0.4) opacity(0.7)"}}>{icon}</span>
+                  <span style={{whiteSpace:"nowrap"}}>{k}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -1181,17 +1693,38 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
           </div>
         </div>
 
-        {parentOptions.length>0&&(
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>↑ Lié à ({parentLevel?.label})</div>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              <button onClick={()=>setParentId("")} style={{textAlign:"left",padding:"8px 12px",borderRadius:10,border:`1px solid ${!parentId?C.accent:C.border}`,background:!parentId?C.accentBg:"transparent",color:!parentId?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>— Aucun</button>
-              {parentOptions.map(p=>(
-                <button key={p.id} onClick={()=>setParentId(p.id)} style={{textAlign:"left",padding:"8px 12px",borderRadius:10,border:`1px solid ${parentId===p.id?C.accent:C.border}`,background:parentId===p.id?C.accentBg:"transparent",color:parentId===p.id?C.accent:C.text,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{p.titre}</button>
-              ))}
+        {parentOptions.length>0&&(()=>{
+          const pc = parentLevel?.c || C.accent;
+          return (
+            <div style={{marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}>
+                <span style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em"}}>Rattaché à l'objectif</span>
+                <span style={{fontSize:10,fontWeight:700,color:pc,padding:"2px 8px",borderRadius:999,background:`${pc}1f`,border:`1px solid ${pc}40`}}>{parentLevel?.icon} {parentLevel?.label}</span>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                <button onClick={()=>setParentId("")} style={{display:"flex",alignItems:"center",gap:10,textAlign:"left",padding:"10px 12px",borderRadius:12,border:`1px ${!parentId?"solid":"dashed"} ${!parentId?pc:C.border}`,background:!parentId?`${pc}14`:"transparent",color:!parentId?pc:C.muted,fontSize:12.5,fontFamily:"inherit",cursor:"pointer"}}>
+                  <span style={{fontSize:15,opacity:0.6}}>∅</span>
+                  <span>Aucun rattachement</span>
+                </button>
+                {parentOptions.map(p=>{
+                  const sel=parentId===p.id;
+                  return (
+                    <button key={p.id} onClick={()=>setParentId(p.id)} style={{
+                      display:"flex",alignItems:"center",gap:11,textAlign:"left",padding:"11px 13px",borderRadius:12,fontFamily:"inherit",cursor:"pointer",
+                      border:`1px solid ${sel?pc:C.border}`,
+                      background:sel?`linear-gradient(110deg, ${pc}24, ${pc}0a)`:C.surface3,
+                      boxShadow:sel?`0 0 16px ${pc}2e`:"none",transition:TR,
+                    }}>
+                      <span style={{width:34,height:34,flexShrink:0,borderRadius:10,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:18,background:`${pc}22`,border:`1px solid ${pc}44`,boxShadow:sel?`0 0 10px ${pc}55`:"none"}}>{parentLevel?.icon}</span>
+                      <span style={{flex:1,minWidth:0,fontSize:12.5,fontWeight:sel?700:500,color:sel?C.text:C.muted,lineHeight:1.3,overflow:"hidden",textOverflow:"ellipsis"}}>{p.titre}</span>
+                      {sel&&<span style={{color:pc,fontSize:15,flexShrink:0}}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {children.length>0&&(
           <div style={{marginBottom:14}}>
@@ -1243,6 +1776,9 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
 
         <div style={{display:"flex",flexDirection:"column",gap:8,marginTop:8}}>
           <Btn onClick={save} variant="accent" style={{width:"100%"}}>Enregistrer</Btn>
+          {onRequestCloture&&(
+            <Btn onClick={()=>{save();onRequestCloture(obj,levelId);}} style={{width:"100%",color:C.amber,border:`1px solid ${C.amber}55`,background:`${C.amber}10`}}>🔒 Clôturer l'OKR</Btn>
+          )}
           {confirmDel
             ?<Btn onClick={()=>{onDelete(obj.id);onClose();}} style={{width:"100%",color:C.red,border:`1px solid ${C.red}44`}}>Confirmer suppression ✕</Btn>
             :<Btn onClick={()=>setConfirmDel(true)} style={{width:"100%",color:C.red,border:`1px solid ${C.red}44`}}>Supprimer</Btn>
@@ -1253,64 +1789,431 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
   );
 }
 
-function ObjectifCard({ obj, levelColor, levelId, allGoals, onOpenEdit }) {
-  const krs = obj.krs||[];
-  const avgPct = krs.length?Math.round(krs.reduce((s,k)=>s+pct(k.depart??0,k.actuelle??0,k.cible??0),0)/krs.length):null;
-  const st = STATUTS[obj.statut]||{c:C.muted};
-  const isDone = obj.statut==="Terminé";
-  const parentLevelId = LEVEL_PARENT[levelId];
-  const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
-  const parentObj     = obj.parentId?(allGoals[parentLevelId]||[]).find(p=>p.id===obj.parentId):null;
-  const childLevelId  = LEVEL_CHILD[levelId];
-  const childCount    = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id).length:0;
+// ── ClotureModal — questions de bilan + archivage de l'OKR
+function ClotureModal({ obj, levelId, onArchive, onClose }) {
+  const lv = LEVELS.find(l => l.id === levelId);
+  const p = krsProgress(obj.krs || []);
+  const reached = p !== null && p >= 100;
+  const [outcome, setOutcome] = useState(isObjAchieved(obj.statut) ? "Atteint" : reached ? "Atteint" : isObjClosed(obj.statut) ? obj.statut : "Atteint");
+  const a0 = obj.clotureAnswers || {};
+  const [why, setWhy]       = useState(a0.why || "");
+  const [learned, setLearned] = useState(a0.learned || "");
+  const [how, setHow]       = useState(a0.how || "");
+  const [failWhy, setFailWhy] = useState(a0.failWhy || "");
+  const failed = outcome === "Échoué" || outcome === "Abandonné";
+  const OUTCOMES = [["Atteint",C.green,"🏆"],["Échoué",C.red,"💥"],["Abandonné",C.red,"🏳️"]];
+  const field = (label, value, onChange, ph) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 500 }}>{label}</div>
+      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={ph} rows={2}
+        style={{ width: "100%", boxSizing: "border-box", background: C.surface2, border: `1px solid ${C.border}`, color: C.text, padding: "9px 12px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
+    </div>
+  );
+  const archive = () => {
+    onArchive(obj.id, levelId, {
+      statut: outcome,
+      clotureAnswers: { why: why.trim(), learned: learned.trim(), how: how.trim(), failWhy: failWhy.trim() },
+      clotureDate: todayStr(),
+      clotureProgress: p,
+    });
+  };
   return (
-    <div onClick={()=>onOpenEdit(obj)} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,marginBottom:10,overflow:"hidden",opacity:isDone?0.5:1,borderLeft:`4px solid ${st.c}`,cursor:"pointer"}}>
-      <div style={{padding:"14px 16px"}}>
-        <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
-          <div style={{flex:1}}>
-            <div style={{fontSize:14,fontWeight:600,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none",marginBottom:8,lineHeight:1.4}}>{obj.titre}</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-              <StatusPill statut={obj.statut}/>
-              {(obj.spaces||[]).map(sp=><SpacePill key={sp} space={sp}/>)}
-              {parentObj&&<Pill label={`↑ ${parentObj.titre.length>22?parentObj.titre.slice(0,22)+"…":parentObj.titre}`} color={parentLevel?.c||C.muted}/>}
-              {childCount>0&&<Pill label={`↓ ${childCount}`} color={levelColor}/>}
-            </div>
-          </div>
-          {avgPct!==null&&<span style={{fontSize:13,fontWeight:700,color:levelColor,flexShrink:0}}>{avgPct}%</span>}
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(5,4,15,0.72)", backdropFilter: "blur(6px)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} className="slide-up" style={{ width: "100%", maxWidth: 480, background: C.surface, borderRadius: 22, border: `1px solid ${C.amber}55`, padding: 22, maxHeight: "90vh", overflowY: "auto", boxShadow: `0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${C.amber}22` }}>
+        <div style={{ fontSize: 10, color: C.amber, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4 }}>🔒 Clôture · {lv?.icon} {lv?.label}</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 16 }}>{obj.titre}</div>
+
+        <div style={{ fontSize: 11, color: C.muted, marginBottom: 8 }}>Résultat final</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          {OUTCOMES.map(([k, c, ic]) => (
+            <button key={k} onClick={() => setOutcome(k)} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, fontSize: 12, fontWeight: outcome === k ? 700 : 500, fontFamily: "inherit", cursor: "pointer", border: `1px solid ${outcome === k ? c : C.border}`, background: outcome === k ? `${c}22` : "transparent", color: outcome === k ? c : C.muted }}>{ic} {k}</button>
+          ))}
         </div>
-        {krs.length>0&&avgPct!==null&&<div style={{marginTop:10}}><ProgressBar value={avgPct} color={levelColor} height={5}/></div>}
+
+        {field("Pourquoi avoir créé cet OKR ?", why, setWhy, "L'intention de départ...")}
+        {field("Qu'as-tu appris de cet OKR ?", learned, setLearned, "Le principal apprentissage...")}
+        {!failed
+          ? field("Grâce à quelle action / habitude principale ?", how, setHow, "Le levier clé de la réussite...")
+          : field("Pourquoi échoué / abandonné ?", failWhy, setFailWhy, "La cause principale...")}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>
+          <Btn onClick={archive} variant="accent" style={{ width: "100%", background: C.amber, color: "#1a1200" }}>🔒 Clôturer & archiver</Btn>
+          <Btn onClick={onClose} variant="ghost" style={{ width: "100%" }}>Annuler</Btn>
+        </div>
       </div>
     </div>
   );
 }
 
-function ObjectifsModule() {
+// Golden Gate (pont suspendu) bleu — visuel des objectifs hebdo
+function GoldenGateArt({ idKey, fit = "cover" }) {
+  const c = "#38BDF8";
+  const id = `gg-${idKey}`;
+  const pa = fit === "cover" ? "xMidYMid slice" : "xMidYMax slice";
+  const cableY = x => x < 84 ? 18 + 54 * ((84 - x) / 84) : x > 216 ? 18 + 54 * ((x - 216) / 84) : 18 + 44 * (1 - Math.pow((x - 150) / 66, 2));
+  return (
+    <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={{ display: "block", width: "100%", height: "100%" }}>
+      <defs><linearGradient id={`${id}-g`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${c}66`} /><stop offset="100%" stopColor={`${c}10`} /></linearGradient></defs>
+      {/* tablier */}
+      <rect x="0" y="84" width="300" height="3.5" fill={`${c}66`} />
+      {/* suspentes */}
+      {Array.from({ length: 24 }).map((_, i) => { const x = 8 + i * 12; const cy = cableY(x); if (cy >= 82) return null; return <line key={i} x1={x} y1={cy} x2={x} y2={84} stroke={`${c}3a`} strokeWidth="0.6" />; })}
+      {/* câble principal */}
+      <path d="M0,72 Q44,40 84,18 Q150,62 216,18 Q256,40 300,72" fill="none" stroke={c} strokeWidth="1.6" />
+      {/* pylônes */}
+      <rect x="80" y="16" width="8" height="71" fill={`url(#${id}-g)`} stroke={`${c}66`} strokeWidth="0.6" />
+      <rect x="212" y="16" width="8" height="71" fill={`url(#${id}-g)`} stroke={`${c}66`} strokeWidth="0.6" />
+      <rect x="80" y="30" width="8" height="2.4" fill={`${c}99`} /><rect x="212" y="30" width="8" height="2.4" fill={`${c}99`} />
+      <circle cx="84" cy="16" r="2.4" fill={c} /><circle cx="216" cy="16" r="2.4" fill={c} />
+    </svg>
+  );
+}
+
+// Art de fond par niveau (basé sur l'émoji du niveau). Bandeau dédié, rien ne passe dessus.
+function LevelArt({ levelId, color, reached, idKey, fit = "slice" }) {
+  const lc = color;
+  const glow = reached ? C.green : color;
+  const id = `${levelId}-${idKey}`;
+  const pa = fit === "meet" ? "xMidYMid meet" : fit === "cover" ? "xMidYMid slice" : "xMidYMax slice";
+  const svg = { display: "block", width: "100%", height: "100%" };
+  const Star = ({ x, y, r }) => <circle cx={x} cy={y} r={r} fill={glow} />;
+
+  if (levelId === "mensuel") return ( // 🗻 montagnes
+    <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={svg}>
+      <defs>
+        <linearGradient id={`mt-${id}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${lc}55`} /><stop offset="100%" stopColor={`${lc}10`} /></linearGradient>
+      </defs>
+      <circle cx="252" cy="26" r="9" fill={`${glow}26`} /><circle cx="252" cy="26" r="5.5" fill={glow} opacity="0.9" />
+      <path d="M0,110 L58,58 L108,80 L160,44 L214,74 L262,52 L300,78 L300,110 Z" fill={`${lc}1a`} />
+      <path d="M0,110 L48,72 L100,40 L150,66 L196,30 L246,64 L300,48 L300,110 Z" fill={`url(#mt-${id})`} stroke={`${lc}40`} strokeWidth="0.7" />
+      <path d="M196,30 L186,46 L206,46 Z" fill={glow} opacity="0.95" />
+      <path d="M100,40 L92,52 L108,52 Z" fill={`${glow}cc`} />
+      <path d="M0,110 L72,82 L138,64 L190,80 L252,60 L300,80 L300,110 Z" fill="rgba(0,0,0,0.34)" />
+    </svg>
+  );
+  if (levelId === "trimestriel") return ( // 🌍 planète
+    <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={svg}>
+      <defs>
+        <radialGradient id={`atm-${id}`} cx="50%" cy="100%" r="70%"><stop offset="55%" stopColor={`${lc}00`} /><stop offset="85%" stopColor={`${glow}26`} /><stop offset="100%" stopColor={`${glow}00`} /></radialGradient>
+        <radialGradient id={`pl-${id}`} cx="38%" cy="34%" r="80%"><stop offset="0%" stopColor={`${lc}40`} /><stop offset="100%" stopColor={`${lc}0d`} /></radialGradient>
+      </defs>
+      <rect x="0" y="0" width="300" height="110" fill={`url(#atm-${id})`} />
+      <Star x="40" y="26" r="1.6" /><Star x="250" y="20" r="2.2" /><Star x="200" y="36" r="1.2" /><Star x="80" y="44" r="1.3" />
+      <circle cx="150" cy="178" r="128" fill={`url(#pl-${id})`} stroke={`${lc}55`} strokeWidth="1" />
+      <path d="M44,92 Q150,74 256,92" fill="none" stroke={`${lc}55`} strokeWidth="0.8" />
+      <path d="M30,108 Q150,86 270,108" fill="none" stroke={`${lc}40`} strokeWidth="0.8" />
+      <path d="M150,52 Q96,98 150,150" fill="none" stroke={`${lc}33`} strokeWidth="0.7" />
+      <path d="M150,52 Q204,98 150,150" fill="none" stroke={`${lc}33`} strokeWidth="0.7" />
+      <ellipse cx="150" cy="96" rx="142" ry="18" fill="none" stroke={`${glow}40`} strokeWidth="0.9" />
+      <circle cx="288" cy="86" r="3" fill={glow} />
+    </svg>
+  );
+  if (levelId === "annuel") return ( // 🌌 galaxie
+    <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={svg}>
+      <defs>
+        <radialGradient id={`neb-${id}`} cx="52%" cy="62%" r="60%"><stop offset="0%" stopColor={`${lc}40`} /><stop offset="100%" stopColor={`${lc}00`} /></radialGradient>
+        <radialGradient id={`core-${id}`} cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#fff" /><stop offset="40%" stopColor={glow} /><stop offset="100%" stopColor={`${glow}00`} /></radialGradient>
+      </defs>
+      <ellipse cx="158" cy="68" rx="150" ry="46" fill={`url(#neb-${id})`} />
+      <path d="M20,74 Q110,30 168,62 Q224,90 296,58" fill="none" stroke={`${lc}66`} strokeWidth="1" />
+      <path d="M16,58 Q120,92 170,64 Q226,40 300,72" fill="none" stroke={`${lc}3a`} strokeWidth="0.9" />
+      <ellipse cx="158" cy="64" rx="16" ry="9" fill={`url(#core-${id})`} />
+      {[[42,40,2],[84,26,1.4],[120,50,1.6],[176,28,2.1],[214,46,1.4],[150,64,1.4],[96,70,1.6],[244,62,1.4],[60,58,1.3],[268,34,1.6],[30,90,1.2]].map(([x,y,r],i)=><Star key={i} x={x} y={y} r={r} />)}
+    </svg>
+  );
+  return ( // 👁️ œil (Long Terme — vision)
+    <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={svg}>
+      <defs>
+        <radialGradient id={`iris-${id}`} cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor={`${glow}`} /><stop offset="55%" stopColor={`${lc}55`} /><stop offset="100%" stopColor={`${lc}14`} /></radialGradient>
+      </defs>
+      <Star x="46" y="30" r="1.5" /><Star x="256" y="30" r="1.5" /><Star x="150" y="14" r="1.3" />
+      <path d="M8,66 Q150,2 292,66 Q150,128 8,66 Z" fill={`${lc}10`} stroke={`${lc}45`} strokeWidth="0.9" />
+      {Array.from({length:14}).map((_,i)=>{const a=(i/14)*Math.PI*2;return <line key={i} x1={150+Math.cos(a)*16} y1={66+Math.sin(a)*16} x2={150+Math.cos(a)*32} y2={66+Math.sin(a)*32} stroke={`${lc}33`} strokeWidth="0.7" />;})}
+      <circle cx="150" cy="66" r="32" fill={`url(#iris-${id})`} stroke={`${lc}66`} strokeWidth="0.9" />
+      <circle cx="150" cy="66" r="12" fill="#05040f" />
+      <circle cx="150" cy="66" r="12" fill="none" stroke={glow} strokeWidth="1" />
+      <circle cx="142" cy="58" r="4" fill={`${glow}cc`} />
+    </svg>
+  );
+}
+
+function ObjectifCard({ obj, levelColor, levelId, allGoals, onOpenEdit }) {
+  const krs = obj.krs||[];
+  const avgPct = krsProgress(krs);
+  const reached = avgPct!==null && avgPct>=100;
+  const isDone = isObjAchieved(obj.statut);
+  const parentLevelId = LEVEL_PARENT[levelId];
+  const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
+  const parentObj     = obj.parentId?(allGoals[parentLevelId]||[]).find(p=>p.id===obj.parentId):null;
+  const childLevelId  = LEVEL_CHILD[levelId];
+  const childCount    = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id).length:0;
+  const accent = isDone ? C.green : levelColor;
+  const doneKr = krs.filter(k=>krPct(k)>=100).length;
+  const isMtn = levelId==="mensuel";
+  const artFit = isMtn ? "slice" : "cover";
+  const artMask = isMtn
+    ? "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)"
+    : "radial-gradient(ellipse 86% 86% at 50% 46%, #000 36%, rgba(0,0,0,0) 88%)";
+  const TS = "0 1px 6px rgba(0,0,0,0.6)";
+  return (
+    <div onClick={()=>onOpenEdit(obj)} style={{
+      position:"relative", overflow:"hidden", borderRadius:18, minHeight:248,
+      display:"flex", flexDirection:"column", cursor:"pointer", opacity:isDone?0.62:1,
+      background:`linear-gradient(180deg, ${levelColor}18, ${C.surface2} 58%)`,
+      border:`1px solid ${levelColor}30`, boxShadow:`0 0 16px ${levelColor}18`,
+    }}>
+      {/* Art en fond pleine carte, fondu (émerge du fond), décalé vers le bas */}
+      <div style={{position:"absolute", inset:0, zIndex:0, transform:"translateY(16%)", WebkitMaskImage:artMask, maskImage:artMask}}>
+        <LevelArt levelId={levelId} color={levelColor} reached={reached} idKey={obj.id} fit={artFit} />
+      </div>
+
+      {/* Contenu par-dessus */}
+      <div style={{position:"relative", zIndex:1, display:"flex", flexDirection:"column", flex:1, padding:"15px 16px 12px"}}>
+        {/* Haut : niveau + % / statut */}
+        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9}}>
+          <span style={{fontSize:17, lineHeight:1, filter:`drop-shadow(0 0 6px ${levelColor}aa)`}}>{LEVELS.find(l=>l.id===levelId)?.icon}</span>
+          {avgPct!==null
+            ? <span style={{fontFamily:"var(--font-display)", fontSize:22, fontWeight:800, color:accent, fontVariantNumeric:"tabular-nums", lineHeight:1, textShadow:TS}}>{reached?"🏔 ":""}{avgPct}<span style={{fontSize:13}}>%</span></span>
+            : <StatusPill statut={obj.statut}/>}
+        </div>
+
+        {/* Titre */}
+        <div style={{fontSize:14.5, fontWeight:700, color:isDone?C.muted:C.text, textDecoration:isDone?"line-through":"none", lineHeight:1.32, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:3, WebkitBoxOrient:"vertical", textShadow:TS}}>{obj.titre}</div>
+
+        <div style={{flex:1, minHeight:36}} />
+
+        {/* Barre de progression */}
+        {avgPct!==null&&(
+          <div style={{height:5, borderRadius:3, background:"rgba(0,0,0,0.5)", overflow:"hidden"}}>
+            <div style={{height:"100%", width:`${avgPct}%`, background:`linear-gradient(90deg, ${levelColor}, ${accent})`, borderRadius:3, boxShadow:`0 0 8px ${accent}66`, transition:"width 0.5s"}}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── LIFE PLAN — arbre horizontal type carte/constellation (tidy-tree, branches courbes néon)
+function LifePlanTree({ goals, onOpenEdit }) {
+  const [showArch, setShowArch] = useState(false);
+  const COLW = 244, NODEW = 196, NODEH = 60, ROWH = 78, HEADH = 44, PADX = 12, PADY = 14;
+  const lvIndex = id => LEVELS.findIndex(l => l.id === id);
+
+  // Layout "tidy tree" : feuilles séquentielles, parents centrés sur leurs enfants
+  const nodeMap = {};
+  let slot = 0;
+  const place = (obj, level) => {
+    if (nodeMap[obj.id]) return nodeMap[obj.id].y;
+    const childLvl = LEVEL_CHILD[level];
+    const children = childLvl ? (goals[childLvl] || []).filter(o => o.parentId === obj.id && !o.archived) : [];
+    let y;
+    if (!children.length) { y = slot; slot += 1; }
+    else { const ys = children.map(c => place(c, childLvl)); y = (Math.min(...ys) + Math.max(...ys)) / 2; }
+    nodeMap[obj.id] = { obj, level, y };
+    return y;
+  };
+  (goals.lt || []).filter(o => !o.archived).forEach(o => place(o, "lt"));
+  ["annuel", "trimestriel", "mensuel"].forEach(lvl => {
+    const pl = LEVEL_PARENT[lvl];
+    (goals[lvl] || []).filter(o => !o.archived && (!o.parentId || !(goals[pl] || []).some(p => p.id === o.parentId))).forEach(o => place(o, lvl));
+  });
+  const archived = ["lt","annuel","trimestriel","mensuel"].flatMap(lvl => (goals[lvl] || []).filter(o => o.archived).map(o => ({ o, lvl })))
+    .sort((a, b) => (b.o.clotureDate || "").localeCompare(a.o.clotureDate || ""));
+  const nodes = Object.values(nodeMap);
+  const empty = nodes.length === 0;
+
+  const nodeLeft = level => lvIndex(level) * COLW + PADX;
+  const nodeTop  = y => HEADH + PADY + y * ROWH;
+  const maxY = nodes.reduce((m, n) => Math.max(m, n.y), 0);
+  const totalW = 4 * COLW;
+  const totalH = HEADH + PADY * 2 + (maxY + 1) * ROWH;
+
+  // Liens parent → enfant (bézier horizontal)
+  const links = [];
+  nodes.forEach(n => {
+    const childLvl = LEVEL_CHILD[n.level];
+    if (!childLvl) return;
+    nodes.filter(m => m.level === childLvl && m.obj.parentId === n.obj.id).forEach(c => {
+      const x1 = nodeLeft(n.level) + NODEW, y1 = nodeTop(n.y) + NODEH / 2;
+      const x2 = nodeLeft(c.level), y2 = nodeTop(c.y) + NODEH / 2;
+      const mx = (x1 + x2) / 2;
+      links.push({ d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`, c: LEVELS.find(l => l.id === n.level)?.c || C.accent });
+    });
+  });
+
+  return (
+    <div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: C.text, letterSpacing: "-0.01em" }}>🌳 Life Plan</div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>Carte de tes objectifs reliés, du Long Terme au Mensuel. {totalW > 700 && "Fais défiler ↔"}</div>
+      </div>
+      {empty
+        ? <div style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "48px 0" }}>Aucun objectif. Crée-en et relie-les via « Rattaché à » entre chronologies.</div>
+        : (
+        <div style={{ overflowX: "auto", overflowY: "hidden", paddingBottom: 8, borderRadius: 18 }}>
+          <div style={{ position: "relative", width: totalW, height: totalH, minWidth: totalW }}>
+            {/* Branches */}
+            <svg width={totalW} height={totalH} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+              <defs>
+                <filter id="lp-glow" x="-30%" y="-30%" width="160%" height="160%">
+                  <feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                </filter>
+              </defs>
+              <g filter="url(#lp-glow)" fill="none">
+                {links.map((l, i) => <path key={`g${i}`} d={l.d} stroke={`${l.c}40`} strokeWidth="4" />)}
+              </g>
+              <g fill="none">
+                {links.map((l, i) => <path key={`c${i}`} d={l.d} stroke={`${l.c}cc`} strokeWidth="1.6" />)}
+              </g>
+            </svg>
+
+            {/* En-têtes colonnes */}
+            {LEVELS.map(l => (
+              <div key={l.id} style={{ position: "absolute", left: nodeLeft(l.id), top: 0, width: NODEW, display: "flex", alignItems: "center", gap: 7 }}>
+                <span style={{ fontSize: 15, filter: `drop-shadow(0 0 5px ${l.c}aa)` }}>{l.icon}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: l.c, textTransform: "uppercase", letterSpacing: "0.08em" }}>{l.label}</span>
+              </div>
+            ))}
+
+            {/* Nœuds */}
+            {nodes.map(n => {
+              const lv = LEVELS.find(l => l.id === n.level);
+              const p = krsProgress(n.obj.krs || []);
+              const reached = p !== null && p >= 100;
+              const st = STATUTS[n.obj.statut] || { c: C.muted };
+              const ac = reached ? C.green : lv.c;
+              const closed = isObjClosed(n.obj.statut);
+              return (
+                <button key={n.obj.id} onClick={() => onOpenEdit(n.obj, n.level)} title={n.obj.titre} style={{
+                  position: "absolute", left: nodeLeft(n.level), top: nodeTop(n.y), width: NODEW, height: NODEH,
+                  display: "flex", alignItems: "center", gap: 9, padding: "0 12px", borderRadius: 14, cursor: "pointer",
+                  fontFamily: "inherit", textAlign: "left", color: C.text, opacity: closed && !reached ? 0.6 : 1,
+                  background: `linear-gradient(110deg, ${lv.c}2a, ${C.surface2} 72%)`, border: `1px solid ${lv.c}5a`, boxShadow: `0 0 16px ${lv.c}22`,
+                }}>
+                  <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 14, background: `${lv.c}26`, border: `1px solid ${lv.c}66`, boxShadow: `0 0 10px ${lv.c}55` }}>{lv.icon}</span>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textDecoration: !reached && closed ? "line-through" : "none" }}>{n.obj.titre}</span>
+                  {p !== null
+                    ? <span style={{ flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 800, color: ac, fontVariantNumeric: "tabular-nums" }}>{reached ? "🏆" : ""}{p}<span style={{ fontSize: 9 }}>%</span></span>
+                    : <span title={n.obj.statut} style={{ flexShrink: 0, width: 10, height: 10, borderRadius: "50%", background: st.c, boxShadow: `0 0 7px ${st.c}` }} />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── ARCHIVE — OKR clôturés (anciens objectifs + key results) */}
+      {archived.length > 0 && (
+        <div style={{ marginTop: 28, borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
+          <button onClick={() => setShowArch(s => !s)} style={{ display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, marginBottom: showArch ? 14 : 0 }}>
+            <span style={{ fontSize: 14, fontWeight: 800, color: C.text }}>📦 Archive</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: C.muted, background: C.surface3, borderRadius: 999, padding: "2px 9px" }}>{archived.length}</span>
+            <span style={{ color: C.muted, fontSize: 12 }}>{showArch ? "▲" : "▼"}</span>
+          </button>
+          {showArch && (
+            <div className="goals-grid">
+              {archived.map(({ o, lvl }) => {
+                const lv = LEVELS.find(l => l.id === lvl);
+                const oc = STATUTS[o.statut] || { c: C.muted };
+                const a = o.clotureAnswers || {};
+                return (
+                  <div key={o.id} onClick={() => onOpenEdit(o, lvl)} style={{ cursor: "pointer", borderRadius: 16, padding: "13px 15px", background: C.surface2, border: `1px solid ${C.border}`, opacity: 0.96 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <span style={{ fontSize: 15 }}>{lv?.icon}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.titre}</span>
+                      <StatusPill statut={o.statut} />
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: C.muted, marginBottom: 8 }}>
+                      <span>{periodeLabel(o.periode) || lv?.label}</span>
+                      {o.clotureProgress != null && <span style={{ color: oc.c, fontWeight: 700 }}>· {o.clotureProgress}%</span>}
+                      {o.clotureDate && <span style={{ marginLeft: "auto", color: C.faint }}>clôturé {o.clotureDate}</span>}
+                    </div>
+                    {(o.krs || []).length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3, marginBottom: a.why || a.learned ? 8 : 0 }}>
+                        {(o.krs || []).map(kr => (
+                          <div key={kr.id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0, background: krPct(kr) >= 100 ? C.green : C.muted }} />
+                            <span style={{ flex: 1, minWidth: 0, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kr.nom}</span>
+                            <span style={{ color: C.faint, fontVariantNumeric: "tabular-nums" }}>{krPct(kr)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {(a.why || a.learned || a.how || a.failWhy) && (
+                      <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 8, display: "flex", flexDirection: "column", gap: 5 }}>
+                        {a.why && <div style={{ fontSize: 11 }}><span style={{ color: C.faint }}>Pourquoi : </span><span style={{ color: C.muted }}>{a.why}</span></div>}
+                        {a.learned && <div style={{ fontSize: 11 }}><span style={{ color: C.faint }}>Appris : </span><span style={{ color: C.muted }}>{a.learned}</span></div>}
+                        {a.how && <div style={{ fontSize: 11 }}><span style={{ color: C.green }}>Levier : </span><span style={{ color: C.muted }}>{a.how}</span></div>}
+                        {a.failWhy && <div style={{ fontSize: 11 }}><span style={{ color: C.red }}>Cause : </span><span style={{ color: C.muted }}>{a.failWhy}</span></div>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const OBJ_MAX_PER_LEVEL = 6;
+function ObjectifsModule({ initialTab = "lt" }) {
   const [goals, setGoals]   = useState(()=>getLS("lp_goals",NOTION_GOALS));
-  const [tab, setTab]       = useState("lt");
+  const [tab, setTab]       = useState(initialTab);
+  useEffect(()=>{ if(initialTab) setTab(initialTab); }, [initialTab]);
   const [newTitre, setNewTitre] = useState("");
   const [newSpaces, setNewSpaces] = useState([]);
   const [newParentId, setNewParentId] = useState("");
   const [editObj, setEditObj]   = useState(null);
+  const [editLevel, setEditLevel] = useState("lt");
+  const [showAdd, setShowAdd]   = useState(false);
+  const [cloture, setCloture]   = useState(null); // { obj, lvl }
+  const [toast, setToast]       = useState(null); // { id, lvl, prev }
+  const toastTimer = useRef(null);
+  const openEdit = (o, lvl) => { setEditObj(o); setEditLevel(lvl); };
   const save = d=>{setGoals(d);setLS("lp_goals",d);};
   const level = LEVELS.find(l=>l.id===tab);
-  const items = goals[tab]||[];
+  const items = (goals[tab]||[]).filter(o=>!o.archived);
   const parentLevelId = LEVEL_PARENT[tab];
   const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
-  const parentOptions = parentLevelId?(goals[parentLevelId]||[]):[];
+  const parentOptions = parentLevelId?(goals[parentLevelId]||[]).filter(o=>!o.archived):[];
+  const atMax = items.length >= OBJ_MAX_PER_LEVEL;
   const add = () => {
-    if(!newTitre.trim()) return;
-    const obj={id:uid(),titre:newTitre.trim(),statut:"Dans les blocs",spaces:newSpaces,krs:[],...(newParentId?{parentId:newParentId}:{})};
-    save({...goals,[tab]:[...items,obj]}); setNewTitre(""); setNewSpaces([]); setNewParentId("");
+    if(!newTitre.trim() || atMax) return;
+    const obj={id:uid(),titre:newTitre.trim(),statut:"Ça arrive",spaces:newSpaces,krs:[],...(newParentId?{parentId:newParentId}:{})};
+    save({...goals,[tab]:[...(goals[tab]||[]),obj]}); setNewTitre(""); setNewSpaces([]); setNewParentId(""); setShowAdd(false);
   };
-  const activeCount = items.filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length;
-  const doneCount   = items.filter(o=>o.statut==="Terminé").length;
+  const activeCount = items.filter(o=>!isObjClosed(o.statut)).length;
+  const doneCount   = items.filter(o=>isObjAchieved(o.statut)).length;
+  useEffect(()=>()=>{ if(toastTimer.current) clearTimeout(toastTimer.current); },[]);
+  const archiveObj = (id, lvl, patch) => {
+    const cur = (goals[lvl]||[]).find(o=>o.id===id);
+    save({...goals,[lvl]:(goals[lvl]||[]).map(o=>o.id===id?{...o,...patch,archived:true}:o)});
+    setCloture(null); setEditObj(null);
+    if(toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ id, lvl, prev: cur });
+    toastTimer.current = setTimeout(()=>setToast(null), 10000);
+  };
+  const undoArchive = () => {
+    if(!toast) return;
+    save({...goals,[toast.lvl]:(goals[toast.lvl]||[]).map(o=>o.id===toast.id?toast.prev:o)});
+    if(toastTimer.current) clearTimeout(toastTimer.current);
+    setToast(null);
+  };
   return (
-    <div>
+    <div className="theme-light" style={{minHeight:"100dvh"}}>
       <PageHeader title="⭐ Objectifs" />
       <div style={{padding:"16px 16px 100px"}}>
         <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
+          {(() => { const lp=tab==="lifeplan"; return (
+            <button onClick={()=>setTab("lifeplan")} style={{flexShrink:0,padding:"8px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${lp?C.accent:C.borderMid}`,background:lp?GRAD:C.surface2,color:lp?"#fff":C.accent,fontWeight:700,display:"flex",alignItems:"center",gap:6,boxShadow:lp?GLOW_SM:"none"}}>
+              <span>🌳</span><span>Life Plan</span>
+            </button>
+          );})()}
           {LEVELS.map(l=>{
-            const cnt=(goals[l.id]||[]).filter(o=>o.statut!=="Terminé"&&o.statut!=="Échoué"&&o.statut!=="Echoué").length;
+            const cnt=(goals[l.id]||[]).filter(o=>!isObjClosed(o.statut)&&!o.archived).length;
             const active=tab===l.id;
             return (
               <button key={l.id} onClick={()=>setTab(l.id)} style={{flexShrink:0,padding:"8px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",border:`1px solid ${active?l.c:C.border}`,background:active?l.c+"18":C.surface2,color:active?l.c:C.muted,fontWeight:active?600:400,display:"flex",alignItems:"center",gap:6}}>
@@ -1321,10 +2224,22 @@ function ObjectifsModule() {
           })}
         </div>
 
-        <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:18,padding:16,marginBottom:20}}>
-          <div style={{fontSize:10,color:C.muted,marginBottom:10,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em"}}>{level.icon} Nouvel objectif {level.label.toLowerCase()}</div>
+        {tab==="lifeplan" ? (
+          <LifePlanTree goals={goals} onOpenEdit={openEdit} />
+        ) : (<>
+        {/* En-tête niveau + crayon d'ajout */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+          <span style={{fontSize:14,fontWeight:700,color:level.c,display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:17,filter:`drop-shadow(0 0 5px ${level.c}aa)`}}>{level.icon}</span>{level.label}
+            <span style={{fontSize:10,fontWeight:700,color:atMax?C.amber:C.faint,fontVariantNumeric:"tabular-nums"}}>{items.length}/{OBJ_MAX_PER_LEVEL}</span>
+          </span>
+          <button onClick={()=>{ if(!atMax) setShowAdd(s=>!s); }} title={atMax?`Maximum ${OBJ_MAX_PER_LEVEL} atteint`:"Ajouter un objectif"} style={{width:38,height:38,borderRadius:12,cursor:atMax?"not-allowed":"pointer",fontFamily:"inherit",fontSize:15,display:"inline-flex",alignItems:"center",justifyContent:"center",border:`1px solid ${showAdd?C.accent:C.borderMid}`,background:showAdd?GRAD:C.surface2,color:atMax?C.faint:showAdd?"#fff":C.accent,opacity:atMax?0.5:1,boxShadow:showAdd?GLOW_SM:"none"}}>{showAdd?"✕":"✏️"}</button>
+        </div>
+        {atMax&&<div style={{fontSize:12,color:C.amber,marginBottom:14}}>⚠️ Maximum {OBJ_MAX_PER_LEVEL} objectifs {level.label.toLowerCase()} par période. Clôture ou supprime-en un pour en ajouter.</div>}
+        {showAdd&&!atMax&&(
+          <div className="slide-up" style={{background:C.surface2,border:`1px solid ${C.borderMid}`,borderRadius:18,padding:16,marginBottom:20}}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
-            <Input value={newTitre} onChange={setNewTitre} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Titre de l'objectif..."/>
+            <Input value={newTitre} onChange={setNewTitre} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Titre de l'objectif..." autoFocus/>
             {parentOptions.length>0&&(
               <div>
                 <div style={{fontSize:10,color:C.muted,marginBottom:6}}>↑ Lié à ({parentLevel?.label})</div>
@@ -1344,7 +2259,8 @@ function ObjectifsModule() {
             </div>
             <Btn onClick={add} variant="accent" style={{width:"100%"}}>+ Ajouter</Btn>
           </div>
-        </div>
+          </div>
+        )}
 
         {items.length>0&&(
           <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
@@ -1354,17 +2270,34 @@ function ObjectifsModule() {
         )}
         {items.length===0
           ?<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucun objectif {level.label.toLowerCase()}.</div>
-          :items.map(obj=><ObjectifCard key={obj.id} obj={obj} levelColor={level.c} levelId={tab} allGoals={goals} onOpenEdit={o=>setEditObj(o)}/>)
+          :<div className="goals-grid">{items.map(obj=><ObjectifCard key={obj.id} obj={obj} levelColor={level.c} levelId={tab} allGoals={goals} onOpenEdit={o=>openEdit(o,tab)}/>)}</div>
         }
+        </>)}
       </div>
 
       {editObj&&(
         <ObjectifEditModal
-          obj={editObj} levelId={tab} allGoals={goals}
-          onUpdate={u=>{save({...goals,[tab]:(goals[tab]||[]).map(o=>o.id===u.id?u:o)});setEditObj(null);}}
-          onDelete={id=>{save({...goals,[tab]:(goals[tab]||[]).filter(o=>o.id!==id)});setEditObj(null);}}
+          obj={editObj} levelId={editLevel} allGoals={goals}
+          onUpdate={u=>{save({...goals,[editLevel]:(goals[editLevel]||[]).map(o=>o.id===u.id?u:o)});setEditObj(null);}}
+          onDelete={id=>{save({...goals,[editLevel]:(goals[editLevel]||[]).filter(o=>o.id!==id)});setEditObj(null);}}
           onClose={()=>setEditObj(null)}
+          onRequestCloture={(o,lvl)=>setCloture({id:o.id,lvl})}
         />
+      )}
+
+      {cloture&&(()=>{ const o=(goals[cloture.lvl]||[]).find(x=>x.id===cloture.id); if(!o) return null; return (
+        <ClotureModal obj={o} levelId={cloture.lvl} onArchive={archiveObj} onClose={()=>setCloture(null)} />
+      );})()}
+
+      {toast&&(
+        <div key={toast.id} className="cal-toast" style={{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",zIndex:3000,minWidth:300,maxWidth:"92vw",borderRadius:14,overflow:"hidden",background:C.surface2,border:`1px solid ${C.amber}55`,boxShadow:`0 16px 40px rgba(0,0,0,0.5), 0 0 24px ${C.amber}33`}}>
+          <div style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px"}}>
+            <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",background:C.amber,color:"#1a1200",fontSize:12,fontWeight:900}}>🔒</span>
+            <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:600,color:C.text}}>OKR archivé · <span style={{color:C.muted,fontWeight:500}}>{toast.prev?.titre}</span></span>
+            <button onClick={undoArchive} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,cursor:"pointer",fontFamily:"inherit",background:"transparent",border:`1px solid ${C.borderMid}`,color:C.amber,fontSize:12,fontWeight:700}}>Annuler</button>
+          </div>
+          <div style={{height:3,background:`${C.amber}22`}}><div className="cal-toast-bar" style={{height:"100%",background:C.amber,boxShadow:`0 0 8px ${C.amber}`}}/></div>
+        </div>
       )}
     </div>
   );
@@ -1475,7 +2408,149 @@ function useTodos() {
 }
 
 // ── TaskSummaryModal ──
-function TaskSummaryModal({ item, onClose, onToggleSousTache }) {
+// ── DayCreateModal — clic sur un jour → choix du type → formulaire complet (date pré-remplie)
+function DayCreateModal({ date, onCreate, onClose }) {
+  const [gtd, setGtd] = useState(null);
+  const [form, setForm] = useState({
+    name:"", sphere:null, matrice:null,
+    dateDebut:date, dateFin:date, dateFinType:"duedate",
+    dateAssignee:date, waitingFor:"", waitingNote:"",
+  });
+  const set = p => setForm(f => ({ ...f, ...p }));
+  const dateLong = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" });
+
+  const TYPES = [
+    ["projet",  "🔴", "Projet",      C.red   ],
+    ["memo",    "📝", "Mémo",        C.blue  ],
+    ["waiting", "⏳", "Waiting For", C.amber ],
+  ];
+  const tc = (TYPES.find(t => t[0] === gtd) || [,,,C.accent])[3];
+
+  const canCreate = !!gtd && form.name.trim() &&
+    (gtd !== "projet"  || (form.sphere && form.matrice && form.dateFin)) &&
+    (gtd !== "waiting" || form.waitingFor.trim());
+
+  const handleCreate = () => {
+    if (!canCreate) return;
+    const u = { name:form.name.trim(), gtd, sphere:form.sphere || undefined };
+    if (gtd === "projet")  Object.assign(u, { matrice:form.matrice, dateDebut:form.dateDebut || undefined, dateFin:form.dateFin, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[] });
+    else if (gtd === "memo")    u.dateAssignee = form.dateAssignee || undefined;
+    else if (gtd === "waiting") Object.assign(u, { waitingFor:form.waitingFor.trim(), waitingNote:form.waitingNote || undefined, dateAssignee:form.dateAssignee || undefined });
+    onCreate(u);
+  };
+
+  const DateField = ({ label, k }) => (
+    <div style={{ flex:1 }}>
+      <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>{label}</div>
+      <input type="date" value={form[k]} onChange={e => set({ [k]:e.target.value })}
+        style={{ width:"100%", background:C.surface2, border:`1px solid ${C.border}`, color:C.text, padding:9, borderRadius:10, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
+    </div>
+  );
+
+  return (
+    <div onClick={onClose} style={{
+      position:"fixed", inset:0, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)",
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000, padding:16,
+    }}>
+      <div onClick={e => e.stopPropagation()} className="slide-up" style={{
+        position:"relative", background:C.surface, border:`1px solid ${tc}55`, borderRadius:22,
+        width:"100%", maxWidth:440, maxHeight:"88vh", overflowY:"auto",
+        boxShadow:`0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${tc}22`,
+      }}>
+        <div style={{ height:4, background:`linear-gradient(90deg, ${tc}, ${tc}00)` }} />
+        <div style={{ padding:22 }}>
+          {/* Header */}
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:18 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:17, fontWeight:700, color:C.text }}>Nouvelle tâche</div>
+              <div style={{ fontSize:12, color:C.accent, fontWeight:600, marginTop:3, textTransform:"capitalize" }}>{dateLong}</div>
+            </div>
+            <button onClick={onClose} title="Fermer" style={{ width:32, height:32, borderRadius:10, flexShrink:0, cursor:"pointer", fontFamily:"inherit", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:14, background:"transparent", border:"none", color:C.muted }}>✕</button>
+          </div>
+
+          {/* Step 1 — type picker */}
+          {!gtd && (
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+              {TYPES.map(([k, ic, l, c]) => (
+                <button key={k} onClick={() => setGtd(k)} style={{
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:8, padding:"20px 10px",
+                  borderRadius:16, border:`1px solid ${c}40`, background:`linear-gradient(180deg, ${c}14, ${C.surface2})`,
+                  color:C.text, fontFamily:"inherit", cursor:"pointer", boxShadow:`0 0 12px ${c}1f`,
+                }}>
+                  <span style={{ fontSize:26 }}>{ic}</span>
+                  <span style={{ fontSize:13, fontWeight:700, color:c }}>{l}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Step 2 — full form */}
+          {gtd && (<>
+            <button onClick={() => setGtd(null)} style={{ display:"inline-flex", alignItems:"center", gap:5, marginBottom:16, background:"transparent", border:"none", color:C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>‹ Changer de type</button>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Nom</div>
+              <Input value={form.name} onChange={v => set({ name:v })} placeholder="Nom de la tâche..." autoFocus />
+            </div>
+
+            <div style={{ marginBottom:14 }}>
+              <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Sphère{gtd === "projet" ? " *" : ""}</div>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                {Object.entries(SPHERES).map(([k, v]) => (
+                  <button key={k} onClick={() => set({ sphere:form.sphere === k ? null : k })} style={{ padding:"6px 12px", borderRadius:999, border:`1px solid ${form.sphere === k ? v.c : C.border}`, background:form.sphere === k ? v.c + "22" : "transparent", color:form.sphere === k ? v.c : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{v.label}</button>
+                ))}
+              </div>
+            </div>
+
+            {gtd === "projet" && (<>
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Matrice *</div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+                  {Object.entries(MATRICES).map(([k, v]) => (
+                    <button key={k} onClick={() => set({ matrice:form.matrice === k ? null : k })} style={{ padding:"10px", borderRadius:12, border:`1px solid ${form.matrice === k ? C.accent : C.border}`, background:form.matrice === k ? C.accentBg : C.surface2, color:form.matrice === k ? C.accent : C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer", textAlign:"center" }}>{v.label}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display:"flex", gap:10, marginBottom:12 }}>
+                <DateField label="Date début" k="dateDebut" />
+                <DateField label="Date fin *" k="dateFin" />
+              </div>
+              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+                {[["deadline","🔴 Deadline"],["duedate","🔵 Due Date"]].map(([k, l]) => (
+                  <button key={k} onClick={() => set({ dateFinType:k })} style={{ flex:1, padding:9, borderRadius:10, border:`1px solid ${form.dateFinType === k ? C.accent : C.border}`, background:form.dateFinType === k ? C.accentBg : "transparent", color:form.dateFinType === k ? C.accent : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{l}</button>
+                ))}
+              </div>
+            </>)}
+
+            {gtd === "memo" && (
+              <div style={{ marginBottom:14 }}>
+                <DateField label="Date assignée *" k="dateAssignee" />
+              </div>
+            )}
+
+            {gtd === "waiting" && (<>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Qui ? *</div>
+                <Input value={form.waitingFor} onChange={v => set({ waitingFor:v })} placeholder="Nom de la personne ou entité..." />
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <DateField label="Date de relance" k="dateAssignee" />
+              </div>
+              <div style={{ marginBottom:14 }}>
+                <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Note (optionnel)</div>
+                <Input value={form.waitingNote} onChange={v => set({ waitingNote:v })} placeholder="Contexte..." />
+              </div>
+            </>)}
+
+            <Btn onClick={handleCreate} variant="accent" disabled={!canCreate} style={{ width:"100%", marginTop:4 }}>Créer la tâche</Btn>
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
   const today = todayStr();
   const goals = getLS("lp_goals", {});
   const mensuelGoals = goals.mensuel || [];
@@ -1484,73 +2559,144 @@ function TaskSummaryModal({ item, onClose, onToggleSousTache }) {
     ? Math.ceil((new Date(item.dateFin + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000)
     : null;
   const subs = item.sousTaches || [];
-  const sc = SPHERES[item.sphere]?.c || C.accent;
   const doneSubs = subs.filter(s => s.done);
+  const pct = subs.length ? Math.round(doneSubs.length / subs.length * 100) : 0;
+
+  const TYPE_META = {
+    projet:  { l:"Projet",   c:C.purple },
+    memo:    { l:"Mémo",     c:C.blue   },
+    waiting: { l:"Waiting",  c:C.amber  },
+    someday: { l:"Someday",  c:C.faint  },
+    inbox:   { l:"Inbox",    c:C.muted  },
+  };
+  const tm = TYPE_META[item.gtd] || { l:"Tâche", c:C.accent };
+  const sc = SPHERES[item.sphere]?.c || tm.c;
+  const statut = item.gtd === "projet" ? PROJ_STATUTS[getProjectStatus(item)] : null;
+  const mat = MATRICES[item.matrice];
+  const recur = item.recurrence?.enabled ? describeRecurrence(item.recurrence) : null;
+  const fmtD = d => d ? new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day:"numeric", month:"short" }) : "—";
+
+  const Pill = ({ c, children }) => (
+    <span style={{ fontSize:10.5, fontWeight:700, padding:"3px 9px", borderRadius:999,
+      color:c, background:`${c}1f`, border:`1px solid ${c}40`, whiteSpace:"nowrap" }}>{children}</span>
+  );
+  const IconBtn = ({ onClick, title, children, danger }) => (
+    <button onClick={onClick} title={title} style={{
+      width:32, height:32, borderRadius:10, flexShrink:0, cursor:"pointer", fontFamily:"inherit",
+      display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:14,
+      background: danger ? "transparent" : C.surface3,
+      border:`1px solid ${danger ? "transparent" : C.border}`, color: C.muted,
+    }}>{children}</button>
+  );
 
   return (
     <div onClick={onClose} style={{
-      position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", display:"flex",
-      alignItems:"center", justifyContent:"center", zIndex:2000, padding:16,
+      position:"fixed", inset:0, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)",
+      display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000, padding:16,
     }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background: C.surface, border: `1px solid ${C.borderMid}`,
-        borderLeft: `4px solid ${sc}`, borderRadius: 20,
-        padding: 24, width: "100%", maxWidth: 380,
+      <div onClick={e => e.stopPropagation()} className="slide-up" style={{
+        position:"relative", background: C.surface, border: `1px solid ${sc}55`,
+        borderRadius: 22, width: "100%", maxWidth: 400, overflow:"hidden",
+        boxShadow:`0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${sc}22`,
       }}>
-        {/* Header */}
-        <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:16 }}>
-          <div style={{ flex:1 }}>
-            <div style={{ fontSize:11, color:sc, fontWeight:600, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>
-              {SPHERES[item.sphere]?.label || "Projet"}
+        {/* Accent glow bar */}
+        <div style={{ height:4, background:`linear-gradient(90deg, ${sc}, ${sc}00)` }} />
+
+        <div style={{ padding:22 }}>
+          {/* Header */}
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:14 }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:9 }}>
+                <Pill c={tm.c}>{tm.l}</Pill>
+                {item.sphere && <Pill c={sc}>{SPHERES[item.sphere]?.label}</Pill>}
+                {statut && <Pill c={statut.c}>{statut.label}</Pill>}
+              </div>
+              <div style={{ fontSize:18, fontWeight:700, color:C.text, lineHeight:1.3, letterSpacing:"-0.01em" }}>{item.name}</div>
             </div>
-            <div style={{ fontSize:17, fontWeight:700, color:C.text, lineHeight:1.3 }}>{item.name}</div>
+            <div style={{ display:"flex", gap:6 }}>
+              <IconBtn onClick={onEdit} title="Modifier">✏️</IconBtn>
+              <IconBtn onClick={onClose} title="Fermer" danger>✕</IconBtn>
+            </div>
           </div>
-          <span onClick={onClose} style={{ fontSize:18, color:C.muted, cursor:"pointer", flexShrink:0 }}>✕</span>
+
+          {/* Secondary chips */}
+          {(mat || recur) && (
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+              {mat && <Pill c={C.muted}>{mat.label}</Pill>}
+              {recur && <Pill c={C.accent}>🔄 {recur}</Pill>}
+            </div>
+          )}
+
+          {/* Time remaining */}
+          {daysLeft !== null && (() => {
+            const urgent = daysLeft < 0 ? C.red : daysLeft <= 3 ? C.amber : C.green;
+            return (
+              <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:14, padding:"12px 16px",
+                borderRadius:14, background:`${urgent}14`, border:`1px solid ${urgent}33` }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:3 }}>Temps restant</div>
+                  <div style={{ fontSize:21, fontWeight:800, color:urgent, fontFamily:"var(--font-display)", lineHeight:1 }}>
+                    {daysLeft < 0 ? `${Math.abs(daysLeft)} j. dépassé` : daysLeft === 0 ? "Aujourd'hui" : `${daysLeft} j.`}
+                  </div>
+                </div>
+                {(item.dateDebut || item.dateFin) && (
+                  <div style={{ textAlign:"right", fontSize:11.5, color:C.faint, lineHeight:1.5, fontVariantNumeric:"tabular-nums" }}>
+                    {item.dateDebut && <div>{fmtD(item.dateDebut)} →</div>}
+                    <div style={{ color:C.muted, fontWeight:600 }}>{fmtD(item.dateFin)}</div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Memo date / waiting */}
+          {item.gtd === "memo" && item.dateAssignee && (
+            <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background:C.surface2, border:`1px solid ${C.border}` }}>
+              <span style={{ fontSize:11, color:C.muted }}>Assigné au </span>
+              <span style={{ fontSize:13, color:C.text, fontWeight:600 }}>{fmtD(item.dateAssignee)}</span>
+            </div>
+          )}
+          {item.gtd === "waiting" && item.waitingFor && (
+            <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background:C.amberBg, border:`1px solid ${C.amber}33` }}>
+              <div style={{ fontSize:11, color:C.muted, marginBottom:2 }}>En attente de</div>
+              <div style={{ fontSize:13, color:C.text, fontWeight:600 }}>{item.waitingFor}</div>
+              {item.waitingNote && <div style={{ fontSize:12, color:C.muted, marginTop:4 }}>{item.waitingNote}</div>}
+            </div>
+          )}
+
+          {/* Linked monthly objective */}
+          {linkedObj && (
+            <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background:C.amberBg, border:`1px solid ${C.amber}33` }}>
+              <div style={{ fontSize:10, color:C.amber, textTransform:"uppercase", letterSpacing:"0.08em", marginBottom:4 }}>⭐ Objectif mensuel</div>
+              <div style={{ fontSize:13, color:C.text, fontWeight:500 }}>{linkedObj.titre || linkedObj.text || linkedObj.name}</div>
+            </div>
+          )}
+
+          {/* Sub-tasks (interactive) */}
+          {subs.length > 0 && (
+            <div>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                <div style={{ fontSize:11, color:C.muted, fontWeight:600 }}>Sous-tâches</div>
+                <div style={{ flex:1, height:5, borderRadius:3, background:C.surface3, overflow:"hidden" }}>
+                  <div style={{ height:"100%", width:`${pct}%`, background:`linear-gradient(90deg, ${sc}, ${C.pink})`, borderRadius:3, transition:"width 0.35s", boxShadow:`0 0 8px ${sc}66` }}/>
+                </div>
+                <span style={{ fontSize:11, color:C.muted, flexShrink:0, fontVariantNumeric:"tabular-nums" }}>{doneSubs.length}/{subs.length}</span>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
+                {subs.map(s => (
+                  <div key={s.id} onClick={() => onToggleSousTache(item.id, s.id)} style={{
+                    display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:10,
+                    cursor:"pointer", opacity: s.done ? 0.5 : 1, background: s.done ? "transparent" : C.surface2,
+                    border:`1px solid ${s.done ? "transparent" : C.border}`,
+                  }}>
+                    <span style={{ fontSize:15, color: s.done ? C.green : C.borderMid, flexShrink:0 }}>{s.done ? "●" : "○"}</span>
+                    <span style={{ fontSize:13, color:C.text, textDecoration: s.done ? "line-through" : "none" }}>{s.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-
-        {/* Days remaining */}
-        {daysLeft !== null && (
-          <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background: daysLeft < 0 ? C.red+"22" : daysLeft <= 3 ? "#f59e0b22" : C.surface2, border:`1px solid ${daysLeft < 0 ? C.red+"44" : daysLeft <= 3 ? "#f59e0b44" : C.border}` }}>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:2 }}>Temps restant</div>
-            <div style={{ fontSize:20, fontWeight:700, color: daysLeft < 0 ? C.red : daysLeft <= 3 ? "#f59e0b" : C.text }}>
-              {daysLeft < 0 ? `${Math.abs(daysLeft)} j. dépassé` : daysLeft === 0 ? "Aujourd'hui" : `${daysLeft} j.`}
-            </div>
-            {item.dateDebut && item.dateFin && (
-              <div style={{ fontSize:11, color:C.faint, marginTop:2 }}>{item.dateDebut} → {item.dateFin}</div>
-            )}
-          </div>
-        )}
-
-        {/* Linked monthly objective */}
-        {linkedObj && (
-          <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background:C.surface2, border:`1px solid ${C.border}` }}>
-            <div style={{ fontSize:11, color:C.muted, marginBottom:4 }}>Objectif mensuel</div>
-            <div style={{ fontSize:13, color:C.text, fontWeight:500 }}>{linkedObj.text || linkedObj.name}</div>
-          </div>
-        )}
-
-        {/* Sub-tasks (interactive) */}
-        {subs.length > 0 && (
-          <div>
-            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
-              <div style={{ fontSize:11, color:C.muted }}>Sous-tâches</div>
-              <div style={{ flex:1, height:3, borderRadius:2, background:"rgba(139,92,246,0.1)" }}>
-                <div style={{ height:"100%", width:`${doneSubs.length/subs.length*100}%`, background:sc, borderRadius:2, transition:"width 0.3s" }}/>
-              </div>
-              <span style={{ fontSize:11, color:C.muted, flexShrink:0 }}>{doneSubs.length}/{subs.length}</span>
-            </div>
-            {subs.map(s => (
-              <div key={s.id} onClick={() => onToggleSousTache(item.id, s.id)} style={{
-                display:"flex", alignItems:"center", gap:10,
-                padding:"8px 4px", borderBottom:`1px solid rgba(139,92,246,0.08)`,
-                cursor:"pointer", opacity: s.done ? 0.55 : 1,
-              }}>
-                <span style={{ fontSize:16, color: s.done ? C.green : C.borderMid, flexShrink:0 }}>{s.done ? "●" : "○"}</span>
-                <span style={{ fontSize:13, color:C.text, textDecoration: s.done ? "line-through" : "none" }}>{s.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -4465,6 +5611,11 @@ function PersonalisationModal({ onClose, onSave }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App({ session, signOut }) {
   const [module, setModule]   = useState(()=>getLS("lp_active_module","dashboard"));
+  const [objTab, setObjTab]   = useState("lt");
+  const navTo = id => {
+    if (typeof id === "string" && id.startsWith("objectifs:")) { setObjTab(id.slice(10)); setModule("objectifs"); return; }
+    setModule(id);
+  };
   const [logsOpen, setLogsOpen] = useState(false);
   const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const [syncStatus, setSyncStatus] = useState(null);
@@ -4560,13 +5711,13 @@ export default function App({ session, signOut }) {
 
   const inner = (
     <div
-      style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"'Inter',system-ui,sans-serif", position:"relative", overflowX:"hidden" }}
+      style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"var(--font-body)", position:"relative", overflowX:"hidden" }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
       <div key={`${module}-${persoKey}`} className="fade-in">
-        {module === "dashboard" && <Dashboard onNav={setModule} onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
-        {module === "objectifs" && <ObjectifsModule />}
+        {module === "dashboard" && <Dashboard onNav={navTo} onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
+        {module === "objectifs" && <ObjectifsModule initialTab={objTab} />}
         {module === "habitudes" && <HabitudesModule />}
         {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}
         {module === "daily"     && <DailyPaperModule />}

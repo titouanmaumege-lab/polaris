@@ -262,6 +262,16 @@ function BlockEditor({ block, onChange, onDelete, onAddBelow, onMoveUp, onMoveDo
     return wrapper(
       <AutoTextarea
         value={block.data.text || ""} onChange={v => onChange({ ...block, data: { ...block.data, text: v } })}
+        onKeyDown={e => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onAddBelow();
+          }
+          if (e.key === "Backspace" && !block.data.text) {
+            e.preventDefault();
+            onChange({ ...block, type: "paragraph", data: { text: "" } });
+          }
+        }}
         placeholder={`Titre ${block.data.level}`}
         style={{ fontSize: sizes[block.data.level] || 18, fontWeight: 700, color: C.text, letterSpacing: "-0.02em" }}
       />

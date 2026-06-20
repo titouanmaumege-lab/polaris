@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
 *, *::before, *::after {
   box-sizing: border-box;
@@ -31,8 +31,8 @@
   --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Fonts (Lumen Protocol design system) */
-  --font-display: 'Geist', system-ui, -apple-system, sans-serif;
-  --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  --font-body: 'Space Grotesk', system-ui, -apple-system, sans-serif;
 
   /* Component theme tokens — DARK defaults (used by shared components).
      Other screens read these and stay identical. `.theme-light` overrides. */
@@ -198,6 +198,41 @@ button:active {
   .dash-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 56px; align-items: start; }
 }
 
+/* Objectifs — grille de cartes compactes (SVG art garde ses proportions) */
+.goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+@media (max-width: 680px) { .goals-grid { grid-template-columns: 1fr; gap: 12px; } }
+
+/* Life Plan — arbre généalogique des objectifs */
+.lp-tree-node { position: relative; }
+.lp-tree-card {
+  display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
+  padding: 10px 13px; margin-top: 10px; border-radius: 13px; border: 1px solid;
+  cursor: pointer; font-family: inherit; color: var(--c-text); transition: transform 0.12s, box-shadow 0.12s;
+}
+.lp-tree-card:hover { transform: translateX(2px); }
+.lp-tree-ic {
+  width: 32px; height: 32px; flex-shrink: 0; border-radius: 9px;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 16px;
+}
+.lp-tree-meta { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.lp-tree-lvl { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; }
+.lp-tree-title { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lp-tree-children {
+  margin-left: 16px; padding-left: 20px; position: relative;
+  border-left: 1.5px solid var(--line, rgba(139,92,246,0.4));
+}
+.lp-tree-children > .lp-tree-node::before {
+  content: ""; position: absolute; left: -20px; top: 32px; width: 18px; height: 1.5px;
+  background: var(--line, rgba(139,92,246,0.4));
+}
+
+/* HOME — bloc objectifs pleine largeur */
+.home-chrono-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.home-month-grid  { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; }
+.home-week-grid   { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+@media (max-width: 680px) { .home-month-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 430px) { .home-month-grid { grid-template-columns: 1fr; } .home-chrono-grid { gap: 8px; } .home-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 /* Habits — full width, multi-column on desktop */
 .habit-grid { display: flex; flex-direction: column; }
 @media (min-width: 900px) {
@@ -208,14 +243,27 @@ button:active {
 }
 
 /* Calendar — day-segmented grid (Lumen Protocol) */
-.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
-.cal-day { padding: 12px 10px; }
+.cal-board { display: flex; flex-direction: column; }
+.cal-head, .cal-ribbons, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
+.cal-head-cell { display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: 14px 14px 0 0; }
+.cal-head-cell + .cal-head-cell { border-left: 1px solid var(--c-border); }
+.cal-ribbons { gap: 4px 0; padding: 8px 0 4px; }
+.cal-clotures { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; padding: 8px 0 6px; }
+.cal-day { padding: 12px 10px; transition: background 0.15s; }
 .cal-day + .cal-day { border-left: 1px solid var(--c-border); }
-.cal-body { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; min-height: 130px; }
+.cal-add-hint { opacity: 0; transition: opacity 0.15s; border-radius: 8px; border: 1px dashed var(--c-border); }
+.cal-toast { animation: calToastIn 0.28s cubic-bezier(0.4,0,0.2,1); }
+@keyframes calToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
+.cal-toast-bar { width: 100%; animation: calToastBar 10s linear forwards; }
+@keyframes calToastBar { from { width: 100%; } to { width: 0%; } }
+@media (prefers-reduced-motion: reduce) { .cal-toast-bar { animation-duration: 10s !important; } }
+.cal-day-add:hover .cal-add-hint { opacity: 1; }
+.cal-day-add:hover { background: rgba(139,92,246,0.06) !important; }
+.cal-body { display: flex; flex-direction: column; gap: 6px; min-height: 130px; }
 @media (min-width: 900px) { .cal-body { min-height: 240px; } }
 @media (max-width: 760px) {
-  .cal-grid { display: flex; overflow-x: auto; gap: 0; scroll-snap-type: x mandatory; }
-  .cal-grid > .cal-day { min-width: 132px; flex-shrink: 0; scroll-snap-align: start; }
+  .cal-board-wrap { overflow-x: auto; scroll-snap-type: x mandatory; }
+  .cal-board { min-width: 760px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
