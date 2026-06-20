@@ -1330,19 +1330,19 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                 {wObjs.length === 0
                   ? <div style={{ fontSize: 12, color: C.faint, padding: "8px 0" }}>Aucun objectif cette semaine{showAddWeek ? "." : " · "}{!showAddWeek && <span onClick={() => setShowAddWeek(true)} style={{ color: "#38BDF8", cursor: "pointer" }}>+ Ajouter</span>}</div>
                   : (
-                  <div className="home-week-grid">
+                  <div className="home-week-grid" style={{ "--cols": Math.min(wObjs.length, 6) }}>
                     {wObjs.map(o => {
                       const s = stOf(o);
                       return (
                         <div key={o.id} onClick={() => toggleWeekly(o.id)} title="Cliquer pour changer le statut" style={{
-                          position: "relative", overflow: "hidden", minHeight: 84, padding: "10px 12px", borderRadius: 14,
+                          position: "relative", overflow: "hidden", minHeight: 110, padding: "12px 14px", borderRadius: 15,
                           display: "flex", flexDirection: "column", cursor: "pointer",
                           background: "transparent", border: `1px solid #38BDF826`,
                         }}>
                           <div style={{ position: "absolute", inset: 0, zIndex: 0, transform: "translateY(10%)", WebkitMaskImage: ggMask, maskImage: ggMask }}>
-                            <GoldenGateArt idKey={o.id} fit="cover" />
+                            <HikingArt idKey={o.id} fit="cover" />
                           </div>
-                          <div style={{ position: "relative", zIndex: 1, fontSize: 12, fontWeight: 600, color: C.text, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
+                          <div style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 600, color: C.text, lineHeight: 1.28, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
                           <div style={{ flex: 1 }} />
                           <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: s.c, border: `1.5px solid ${s.c}`, boxShadow: `0 0 6px ${s.c}66` }}>{s.ic}</span>
@@ -1845,26 +1845,38 @@ function ClotureModal({ obj, levelId, onArchive, onClose }) {
   );
 }
 
-// Golden Gate (pont suspendu) bleu — visuel des objectifs hebdo
-function GoldenGateArt({ idKey, fit = "cover" }) {
+// Randonnée (sentier vers le sommet) bleu — visuel des objectifs hebdo, écho aux montagnes du mensuel
+function HikingArt({ idKey, fit = "cover" }) {
   const c = "#38BDF8";
-  const id = `gg-${idKey}`;
+  const id = `hk-${idKey}`;
   const pa = fit === "cover" ? "xMidYMid slice" : "xMidYMax slice";
-  const cableY = x => x < 84 ? 18 + 54 * ((84 - x) / 84) : x > 216 ? 18 + 54 * ((x - 216) / 84) : 18 + 44 * (1 - Math.pow((x - 150) / 66, 2));
+  const pine = (x, y, s = 1) => (
+    <g>
+      <path d={`M${x},${y} l${-5 * s},${9 * s} l${10 * s},0 Z`} fill={`${c}88`} />
+      <path d={`M${x},${y + 5 * s} l${-6 * s},${9 * s} l${12 * s},0 Z`} fill={`${c}5a`} />
+      <rect x={x - 1} y={y + 13.5 * s} width="2" height={4 * s} fill={`${c}88`} />
+    </g>
+  );
   return (
     <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={{ display: "block", width: "100%", height: "100%" }}>
-      <defs><linearGradient id={`${id}-g`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${c}66`} /><stop offset="100%" stopColor={`${c}10`} /></linearGradient></defs>
-      {/* tablier */}
-      <rect x="0" y="84" width="300" height="3.5" fill={`${c}66`} />
-      {/* suspentes */}
-      {Array.from({ length: 24 }).map((_, i) => { const x = 8 + i * 12; const cy = cableY(x); if (cy >= 82) return null; return <line key={i} x1={x} y1={cy} x2={x} y2={84} stroke={`${c}3a`} strokeWidth="0.6" />; })}
-      {/* câble principal */}
-      <path d="M0,72 Q44,40 84,18 Q150,62 216,18 Q256,40 300,72" fill="none" stroke={c} strokeWidth="1.6" />
-      {/* pylônes */}
-      <rect x="80" y="16" width="8" height="71" fill={`url(#${id}-g)`} stroke={`${c}66`} strokeWidth="0.6" />
-      <rect x="212" y="16" width="8" height="71" fill={`url(#${id}-g)`} stroke={`${c}66`} strokeWidth="0.6" />
-      <rect x="80" y="30" width="8" height="2.4" fill={`${c}99`} /><rect x="212" y="30" width="8" height="2.4" fill={`${c}99`} />
-      <circle cx="84" cy="16" r="2.4" fill={c} /><circle cx="216" cy="16" r="2.4" fill={c} />
+      <defs>
+        <linearGradient id={`${id}-h`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${c}55`} /><stop offset="100%" stopColor={`${c}10`} /></linearGradient>
+      </defs>
+      {/* soleil */}
+      <circle cx="248" cy="28" r="12" fill={`${c}22`} /><circle cx="248" cy="28" r="6.5" fill={c} opacity="0.9" />
+      {/* crête arrière */}
+      <path d="M0,110 L58,64 L108,84 L162,50 L212,80 L262,58 L300,82 L300,110 Z" fill={`${c}18`} />
+      {/* colline avant + sommet */}
+      <path d="M0,110 L72,78 L150,38 L228,76 L300,62 L300,110 Z" fill={`url(#${id}-h)`} stroke={`${c}40`} strokeWidth="0.7" />
+      {/* sommet enneigé */}
+      <path d="M150,38 L142,52 L158,52 Z" fill={c} opacity="0.85" />
+      {/* sentier sinueux vers le sommet */}
+      <path d="M34,110 C66,98 54,84 92,82 C128,80 116,60 150,46" fill="none" stroke={`${c}d0`} strokeWidth="1.7" strokeDasharray="3.2 3.4" strokeLinecap="round" />
+      {/* drapeau au sommet */}
+      <line x1="150" y1="40" x2="150" y2="24" stroke={c} strokeWidth="1.5" />
+      <path d="M150,24 L161,28 L150,32 Z" fill={c} />
+      {/* pins */}
+      {pine(40, 92)}{pine(214, 84, 0.9)}{pine(252, 78, 0.8)}
     </svg>
   );
 }

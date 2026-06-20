@@ -229,8 +229,8 @@ button:active {
 /* HOME — bloc objectifs pleine largeur */
 .home-chrono-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .home-month-grid  { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; }
-.home-week-grid   { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-@media (max-width: 680px) { .home-month-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.home-week-grid   { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 680px) { .home-month-grid, .home-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 430px) { .home-month-grid { grid-template-columns: 1fr; } .home-chrono-grid { gap: 8px; } .home-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* Habits — full width, multi-column on desktop */
