@@ -3,7 +3,8 @@ import { useFinanceAccounts } from "./hooks/useFinanceAccounts";
 import { useFinanceCategories } from "./hooks/useFinanceCategories";
 import { useFinanceTransactions } from "./hooks/useFinanceTransactions";
 import { useFinanceBudgets } from "./hooks/useFinanceBudgets";
-import { useFinanceSubscriptions } from "./hooks/useFinanceSubscriptions";
+import { useFinanceGoals } from "./hooks/useFinanceGoals";
+import { useFinanceRecurring, recurrenceLabel } from "./hooks/useFinanceRecurring";
 
 // ─── Design tokens — DA HOME « Cyber Focus » (.theme-light), repris d'App.jsx ──
 const C = {
@@ -219,6 +220,27 @@ function ProgressBar({ value, color }) {
   );
 }
 
+// Anneau de progression SVG fait main (budgets, objectifs)
+function ProgressRing({ value, size = 64, stroke = 7, color = C.accent, children }) {
+  const pct = Math.max(0, Math.min(100, value));
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const off = circ * (1 - pct / 100);
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)", display: "block" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.surface3} strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+          strokeDasharray={circ} strokeDashoffset={off} strokeLinecap="round"
+          style={{ transition: `stroke-dashoffset ${TR}`, filter: `drop-shadow(0 0 4px ${color}88)` }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // Picker horizontal de chips (comptes / catégories)
 function ChipPicker({ items, value, onChange, getKey = i => i.id, getLabel = i => i.name, getColor = () => C.accent, getIcon }) {
   return (
@@ -245,7 +267,7 @@ function ChipPicker({ items, value, onChange, getKey = i => i.id, getLabel = i =
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMPTE — form sheet
 // ═══════════════════════════════════════════════════════════════════════════════
-function AccountFormSheet({ open, onClose, onSubmit, account }) {
+function AccountFormSheet({ open, onClose, onSubmit, onDelete, account }) {
   const editing = !!account;
   const [name, setName] = useState("");
   const [type, setType] = useState("courant");
@@ -315,6 +337,13 @@ function AccountFormSheet({ open, onClose, onSubmit, account }) {
       <button onClick={submit} disabled={!name.trim()} style={{ ...primaryBtn, opacity: name.trim() ? 1 : 0.5 }}>
         {editing ? "Enregistrer" : "Créer le compte"}
       </button>
+      {editing && (
+        <button onClick={() => {
+          if (window.confirm(`Supprimer « ${account.name} » ? Les transactions liées seront aussi supprimées.`)) { onDelete(account.id); onClose(); }
+        }} style={{ width: "100%", background: "transparent", border: "none", color: FIN.depense.c, padding: 14, fontSize: 14, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>
+          Supprimer le compte
+        </button>
+      )}
     </BottomSheet>
   );
 }
@@ -343,8 +372,11 @@ function AccountCard({ account, onEdit }) {
   );
 }
 
-function AccountsList({ userId, accountsHook, desktop }) {
-  const { accounts, totalBalance, loading, createAccount, updateAccount, archiveAccount } = accountsHook;
+const ACCOUNT_SUBTABS = [["comptes", "Comptes"], ["objectifs", "Objectifs"]];
+
+function AccountsList({ userId, accountsHook, goalsHook, desktop }) {
+  const { accounts, totalBalance, loading, createAccount, updateAccount, deleteAccount } = accountsHook;
+  const [sub, setSub] = useState("comptes");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -356,22 +388,25 @@ function AccountsList({ userId, accountsHook, desktop }) {
 
   return (
     <div>
-      <BalanceHero total={totalBalance} desktop={desktop} sub={`${accounts.length} compte${accounts.length > 1 ? "s" : ""}`} />
+      <SubTabs tabs={ACCOUNT_SUBTABS} value={sub} onChange={setSub} />
 
-      {loading ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24 }}>Chargement…</div> : (
-        <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10 }}>
-          {accounts.length === 0 && <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24, gridColumn: "1 / -1" }}>Aucun compte. Créez-en un pour commencer.</div>}
-          {accounts.map(a => (
-            <AccountCard key={a.id} account={a} onEdit={() => open(a)} />
-          ))}
+      {sub === "comptes" && (
+        <div>
+          <BalanceHero total={totalBalance} desktop={desktop} sub={`${accounts.length} compte${accounts.length > 1 ? "s" : ""}`} />
+          {loading ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24 }}>Chargement…</div> : (
+            <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10 }}>
+              {accounts.length === 0 && <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24, gridColumn: "1 / -1" }}>Aucun compte. Créez-en un pour commencer.</div>}
+              {accounts.map(a => (
+                <AccountCard key={a.id} account={a} onEdit={() => open(a)} />
+              ))}
+            </div>
+          )}
+          <button onClick={() => open()} style={{ ...primaryBtn, marginTop: 16, maxWidth: desktop ? 320 : "none" }}>+ Nouveau compte</button>
+          <AccountFormSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} onDelete={deleteAccount} account={editing} />
         </div>
       )}
 
-      <button onClick={() => open()} style={{ ...primaryBtn, marginTop: 16, maxWidth: desktop ? 320 : "none" }}>+ Nouveau compte</button>
-
-      <AccountFormSheet
-        open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} account={editing}
-      />
+      {sub === "objectifs" && <GoalsTab userId={userId} accounts={accounts} goalsHook={goalsHook} desktop={desktop} />}
     </div>
   );
 }
@@ -638,20 +673,125 @@ function MonthNav({ month, onChange }) {
   );
 }
 
-function TransactionsTab({ userId, month, setMonth, accounts, categoriesHook, openForm, desktop }) {
-  const txHook = useFinanceTransactions(userId, { month });
-  const { transactions, loading } = txHook;
+// Vue calendrier des transactions du mois — clic sur un jour = détail
+const CAL_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
+function TransactionCalendar({ month, transactions, accounts, categories, onRowClick, desktop }) {
+  const [y, m] = month.split("-").map(Number);
+  const pad = n => String(n).padStart(2, "0");
+  const dstr = d => `${y}-${pad(m)}-${pad(d)}`;
+  const startDow = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Lun = 0
+  const nbDays = new Date(y, m, 0).getDate();
+  const today = todayStr();
+
+  const byDate = useMemo(() => {
+    const map = {};
+    transactions.forEach(t => { (map[t.date] = map[t.date] || []).push(t); });
+    return map;
+  }, [transactions]);
+
+  const firstWithTx = Object.keys(byDate).sort()[0];
+  const defaultDay = () => {
+    if (today.startsWith(`${y}-${pad(m)}`)) return today;
+    return firstWithTx || dstr(1);
+  };
+  const [selected, setSelected] = useState(defaultDay());
+  useEffect(() => { setSelected(defaultDay()); /* reset au changement de mois */ }, [month]); // eslint-disable-line
+
+  const dayNet = (ds) => (byDate[ds] || []).reduce((s, t) => s + (t.type === "revenu" ? t.amount : t.type === "depense" ? -t.amount : 0), 0);
+  const selTxs = byDate[selected] || [];
+  const selNet = dayNet(selected);
+
+  const cells = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= nbDays; d++) cells.push(d);
+
+  const calendar = (
+    <Card style={{ padding: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3, marginBottom: 4 }}>
+        {CAL_DAYS.map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 9, color: C.faint, fontWeight: 700 }}>{d}</div>)}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={i} />;
+          const ds = dstr(d);
+          const has = (byDate[ds] || []).length > 0;
+          const net = dayNet(ds);
+          const isSel = ds === selected;
+          const isToday = ds === today;
+          return (
+            <button key={i} onClick={() => setSelected(ds)} style={{
+              height: 38, borderRadius: 9, cursor: "pointer", fontFamily: "inherit", padding: 0,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2,
+              background: isSel ? C.accentBg : "transparent",
+              border: `1px solid ${isSel ? C.accent : isToday ? C.borderMid : "transparent"}`, transition: TR,
+            }}>
+              <span style={{ fontFamily: FONT_D, fontSize: 12, fontWeight: isToday ? 800 : 600, color: isToday ? C.accent : C.text, fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{d}</span>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", background: has ? (net >= 0 ? FIN.revenu.c : FIN.depense.c) : "transparent", boxShadow: has ? `0 0 4px ${net >= 0 ? FIN.revenu.c : FIN.depense.c}` : "none" }} />
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+
+  const detail = (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6, padding: "0 4px" }}>
+        <span style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700 }}>{dayLabel(selected)}</span>
+        {selTxs.length > 0 && <span style={{ fontFamily: FONT_D, fontSize: 13, fontWeight: 700, color: selNet >= 0 ? FIN.revenu.c : FIN.depense.c, fontVariantNumeric: "tabular-nums" }}>{selNet > 0 ? "+" : ""}{fmtEUR(selNet)}</span>}
+      </div>
+      {selTxs.length === 0
+        ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24 }}>Aucune transaction ce jour.</div>
+        : <Card style={{ padding: "4px 12px" }}>
+            {selTxs.map((t, i) => (
+              <div key={t.id} style={{ borderTop: i ? `1px solid ${C.border}` : "none" }}>
+                <TransactionRow tx={t} accounts={accounts} categories={categories} onClick={() => onRowClick(t)} />
+              </div>
+            ))}
+          </Card>}
+    </div>
+  );
+
+  return desktop
+    ? <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 360px) 1fr", gap: 24, alignItems: "start" }}>{calendar}{detail}</div>
+    : <div><div style={{ marginBottom: 16 }}>{calendar}</div>{detail}</div>;
+}
+
+const TX_SUBTABS = [["mois", "Ce mois"], ["depenses", "Dépenses"], ["revenus", "Revenus"], ["recurrent", "Récurrent"]];
+
+function TransactionsTab({ userId, month, setMonth, accounts, categoriesHook, openForm, desktop, recurringHook }) {
+  const [sub, setSub] = useState("mois");
+  const { transactions, loading } = useFinanceTransactions(userId, { month });
   const noAccounts = accounts.length === 0;
+
+  const filtered = sub === "depenses" ? transactions.filter(t => t.type === "depense")
+    : sub === "revenus" ? transactions.filter(t => t.type === "revenu") : transactions;
+  const monthNet = filtered.reduce((s, t) => s + (t.type === "revenu" ? t.amount : t.type === "depense" ? -t.amount : 0), 0);
+
   return (
     <div>
-      <MonthNav month={month} onChange={setMonth} />
-      <button onClick={() => openForm()} disabled={noAccounts}
-        title={noAccounts ? "Créez d'abord un compte" : "Nouvelle transaction"}
-        style={{ ...primaryBtn, maxWidth: desktop ? 360 : "none", marginBottom: 16, opacity: noAccounts ? 0.5 : 1, cursor: noAccounts ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-        <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Nouvelle transaction
-      </button>
-      {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div>
-        : <TransactionList transactions={transactions} accounts={accounts} categories={categoriesHook.categories} onRowClick={openForm} desktop={desktop} />}
+      <SubTabs tabs={TX_SUBTABS} value={sub} onChange={setSub} />
+
+      {(sub === "mois" || sub === "depenses" || sub === "revenus") && (
+        <>
+          <MonthNav month={month} onChange={setMonth} />
+          <button onClick={() => openForm()} disabled={noAccounts}
+            title={noAccounts ? "Créez d'abord un compte" : "Nouvelle transaction"}
+            style={{ ...primaryBtn, maxWidth: desktop ? 360 : "none", marginBottom: 12, opacity: noAccounts ? 0.5 : 1, cursor: noAccounts ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Nouvelle transaction
+          </button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, padding: "0 4px" }}>
+            <span style={{ fontFamily: FONT_D, fontSize: 15, fontWeight: 700, color: C.text }}>{monthLabel(month)}</span>
+            <span style={{ fontFamily: FONT_D, fontSize: 14, fontWeight: 700, color: monthNet >= 0 ? FIN.revenu.c : FIN.depense.c, fontVariantNumeric: "tabular-nums" }}>{monthNet > 0 ? "+" : ""}{fmtEUR(monthNet)}</span>
+          </div>
+          {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div>
+            : sub === "mois"
+              ? <TransactionCalendar month={month} transactions={transactions} accounts={accounts} categories={categoriesHook.categories} onRowClick={openForm} desktop={desktop} />
+              : <TransactionList transactions={filtered} accounts={accounts} categories={categoriesHook.categories} onRowClick={openForm} desktop={desktop} />}
+        </>
+      )}
+
+      {sub === "recurrent" && <RecurringList accounts={accounts} categoriesHook={categoriesHook} recurringHook={recurringHook} desktop={desktop} />}
     </div>
   );
 }
@@ -714,7 +854,10 @@ function BudgetFormSheet({ open, onClose, onSubmit, onDelete, budget, categories
   );
 }
 
+const BUDGET_SUBTABS = [["mois", "Ce mois"], ["budgets", "Budgets"], ["categories", "Catégories"]];
+
 function BudgetsTab({ userId, categoriesHook, desktop }) {
+  const [sub, setSub] = useState("mois");
   const { budgets, loading, upsertBudget, deleteBudget } = useFinanceBudgets(userId);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -725,16 +868,26 @@ function BudgetsTab({ userId, categoriesHook, desktop }) {
 
   return (
     <div>
-      {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div> : (
-        <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10, alignItems: "start" }}>
-          {budgets.length === 0 && <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24, gridColumn: "1 / -1" }}>Aucun budget défini.</div>}
-          {budgets.map(b => (
-            <BudgetRow key={b.id} budget={b} category={cats.find(c => c.id === b.category_id)} onEdit={() => open(b)} />
-          ))}
+      <SubTabs tabs={BUDGET_SUBTABS} value={sub} onChange={setSub} />
+
+      {sub === "mois" && <BudgetMonthTab userId={userId} categoriesHook={categoriesHook} desktop={desktop} />}
+
+      {sub === "budgets" && (
+        <div>
+          {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div> : (
+            <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10, alignItems: "start" }}>
+              {budgets.length === 0 && <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24, gridColumn: "1 / -1" }}>Aucun budget défini.</div>}
+              {budgets.map(b => (
+                <BudgetRow key={b.id} budget={b} category={cats.find(c => c.id === b.category_id)} onEdit={() => open(b)} />
+              ))}
+            </div>
+          )}
+          <button onClick={() => open()} style={{ ...primaryBtn, marginTop: 16, maxWidth: desktop ? 320 : "none" }}>+ Nouveau budget</button>
+          <BudgetFormSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} onDelete={deleteBudget} budget={editing} categories={cats} />
         </div>
       )}
-      <button onClick={() => open()} style={{ ...primaryBtn, marginTop: 16, maxWidth: desktop ? 320 : "none" }}>+ Nouveau budget</button>
-      <BudgetFormSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} onDelete={deleteBudget} budget={editing} categories={cats} />
+
+      {sub === "categories" && <CategoriesTab categoriesHook={categoriesHook} desktop={desktop} />}
     </div>
   );
 }
@@ -744,82 +897,165 @@ function BudgetsTab({ userId, categoriesHook, desktop }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 const SUB_ICONS = ["🔁", "📺", "🎵", "🎮", "☁️", "📱", "📰", "🏋️", "🚗", "🍿", "💡", "🌐"];
 
-function SubscriptionFormSheet({ open, onClose, onSubmit, onDelete, subscription, accounts, categoriesHook }) {
-  const editing = !!subscription;
-  const [name, setName] = useState("");
+const FREQ_OPTS = [["jour", "Jour"], ["semaine", "Semaine"], ["mois", "Mois"], ["annee", "Année"]];
+const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const MONTHS_SHORT = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+
+// Sheet récurrent — config complète (sert au Récurrent + Abonnements pré-réglé)
+function RecurringFormSheet({ open, onClose, onSubmit, onDelete, recurring, accounts, categoriesHook, forceSubscription = false }) {
+  const editing = !!recurring;
+  const [label, setLabel] = useState("");
+  const [type, setType] = useState("depense");
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState(null);
+  const [transferTo, setTransferTo] = useState(null);
   const [categoryId, setCategoryId] = useState(null);
-  const [billingDay, setBillingDay] = useState("");
-  const [icon, setIcon] = useState(SUB_ICONS[0]);
+  const [freq, setFreq] = useState("mois");
+  const [interval, setIntervalV] = useState("1");
+  const [dayOfMonth, setDayOfMonth] = useState("");
+  const [weekday, setWeekday] = useState(0);
+  const [monthOfYear, setMonthOfYear] = useState(1);
+  const [nextOcc, setNextOcc] = useState(todayStr());
+  const [isSub, setIsSub] = useState(false);
   const [active, setActive] = useState(true);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setName(subscription?.name ?? "");
-    setAmount(subscription ? String(subscription.amount) : "");
-    setAccountId(subscription?.account_id ?? accounts[0]?.id ?? null);
-    setCategoryId(subscription?.category_id ?? null);
-    setBillingDay(subscription?.billing_day ? String(subscription.billing_day) : "");
-    setIcon(subscription?.icon ?? SUB_ICONS[0]);
-    setActive(subscription?.active ?? true);
-  }, [open, subscription, accounts]);
+    setLabel(recurring?.label ?? "");
+    setType(recurring?.type ?? "depense");
+    setAmount(recurring ? String(recurring.amount) : "");
+    setAccountId(recurring?.account_id ?? accounts[0]?.id ?? null);
+    setTransferTo(recurring?.transfer_account_id ?? null);
+    setCategoryId(recurring?.category_id ?? null);
+    setFreq(recurring?.freq ?? "mois");
+    setIntervalV(recurring ? String(recurring.interval) : "1");
+    setDayOfMonth(recurring?.day_of_month ? String(recurring.day_of_month) : "");
+    setWeekday(recurring?.weekday ?? 0);
+    setMonthOfYear(recurring?.month_of_year ?? 1);
+    setNextOcc(recurring?.next_occurrence ?? todayStr());
+    setIsSub(forceSubscription || recurring?.is_subscription || false);
+    setActive(recurring?.active ?? true);
+  }, [open, recurring, accounts, forceSubscription]);
 
-  // Abonnement = dépense récurrente → catégories de type dépense (base partagée)
-  const cats = categoriesHook.byKind("depense");
+  const cats = categoriesHook.byKind(type === "revenu" ? "revenu" : "depense");
   const amt = parseAmount(amount);
-  const valid = name.trim() && amt > 0;
+  const valid = label.trim() && amt > 0 && accountId && nextOcc && (type !== "transfert" || (transferTo && transferTo !== accountId));
   const submit = () => {
     if (!valid) return;
-    const bd = parseInt(billingDay, 10);
+    const dm = parseInt(dayOfMonth, 10);
     onSubmit({
-      name: name.trim(), amount: amt, account_id: accountId, category_id: categoryId, icon, active,
-      billing_day: bd >= 1 && bd <= 31 ? bd : null,
+      label: label.trim(), type, amount: amt, account_id: accountId,
+      transfer_account_id: type === "transfert" ? transferTo : null,
+      category_id: type === "transfert" ? null : categoryId,
+      is_subscription: isSub, freq, interval: Math.max(1, parseInt(interval, 10) || 1),
+      day_of_month: (freq === "mois" || freq === "annee") && dm >= 1 && dm <= 31 ? dm : null,
+      weekday: freq === "semaine" ? weekday : null,
+      month_of_year: freq === "annee" ? monthOfYear : null,
+      next_occurrence: nextOcc, active,
     });
     onClose();
   };
 
   return (
-    <BottomSheet open={open} onClose={onClose} title={editing ? "Modifier l'abonnement" : "Nouvel abonnement"}>
-      <label style={labelStyle}>Nom</label>
-      <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Netflix, Spotify…" style={{ ...sheetInput, marginBottom: 16 }} />
-
-      <label style={labelStyle}>Montant mensuel</label>
-      <input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00 €" style={{ ...sheetInput, marginBottom: 16 }} />
-
-      <label style={labelStyle}>Compte lié</label>
-      <div style={{ marginBottom: 16 }}>
-        {accounts.length === 0
-          ? <div style={{ fontSize: 13, color: C.muted }}>Aucun compte — créez-en un.</div>
-          : <ChipPicker items={accounts} value={accountId} onChange={setAccountId}
-              getLabel={a => a.name} getColor={a => a.color || C.accent} getIcon={a => a.icon || "💳"} />}
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-        <span style={{ ...labelStyle, marginBottom: 0 }}>Catégorie</span>
-        <button type="button" onClick={() => setCatManagerOpen(true)} style={{ background: "none", border: "none", color: C.accent, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>+ Nouvelle</button>
-      </div>
-      <div style={{ marginBottom: 16 }}>
-        <ChipPicker items={[{ id: null, name: "Aucune", icon: "∅" }, ...cats]} value={categoryId} onChange={setCategoryId}
-          getLabel={c => c.name} getColor={c => c.color || C.accent} getIcon={c => c.icon || "🏷️"} />
-      </div>
-
-      <label style={labelStyle}>Jour de prélèvement (optionnel)</label>
-      <input value={billingDay} onChange={e => setBillingDay(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="ex. 5" style={{ ...sheetInput, marginBottom: 16 }} />
-
-      <label style={labelStyle}>Icône</label>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        {SUB_ICONS.map(i => (
-          <button key={i} type="button" onClick={() => setIcon(i)} style={{
-            width: 44, height: 44, borderRadius: 12, fontSize: 20, cursor: "pointer",
-            background: icon === i ? C.accentBg : C.surface3, border: `1px solid ${icon === i ? C.accent : C.border}`,
-          }}>{i}</button>
+    <BottomSheet open={open} onClose={onClose} title={editing ? "Modifier" : forceSubscription ? "Nouvel abonnement" : "Nouveau récurrent"}>
+      <div style={{ display: "flex", gap: 6, background: C.surface2, padding: 4, borderRadius: 14, marginBottom: 16 }}>
+        {["depense", "revenu", "transfert"].map(t => (
+          <button key={t} type="button" onClick={() => setType(t)} style={{
+            flex: 1, minHeight: 40, borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600,
+            background: type === t ? FIN[t].c : "transparent", color: type === t ? "#fff" : C.muted, border: "none",
+          }}>{FIN[t].label}</button>
         ))}
       </div>
 
+      <label style={labelStyle}>Nom</label>
+      <input autoFocus value={label} onChange={e => setLabel(e.target.value)} placeholder="Netflix, Loyer, Salaire…" style={{ ...sheetInput, marginBottom: 16 }} />
+
+      <label style={labelStyle}>Montant</label>
+      <input value={amount} onChange={e => setAmount(e.target.value)} inputMode="decimal" placeholder="0,00 €" style={{ ...sheetInput, marginBottom: 16 }} />
+
+      <label style={labelStyle}>{type === "transfert" ? "Depuis le compte" : "Compte"}</label>
+      <div style={{ marginBottom: 16 }}>
+        <ChipPicker items={accounts} value={accountId} onChange={setAccountId} getLabel={a => a.name} getColor={a => a.color || C.accent} getIcon={a => a.icon || "💳"} />
+      </div>
+
+      {type === "transfert" && (
+        <>
+          <label style={labelStyle}>Vers le compte</label>
+          <div style={{ marginBottom: 16 }}>
+            <ChipPicker items={accounts.filter(a => a.id !== accountId)} value={transferTo} onChange={setTransferTo} getLabel={a => a.name} getColor={a => a.color || C.accent} getIcon={a => a.icon || "💳"} />
+          </div>
+        </>
+      )}
+
+      {type !== "transfert" && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ ...labelStyle, marginBottom: 0 }}>Catégorie</span>
+            <button type="button" onClick={() => setCatManagerOpen(true)} style={{ background: "none", border: "none", color: C.accent, fontSize: 13, cursor: "pointer", fontFamily: "inherit", fontWeight: 600 }}>+ Nouvelle</button>
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <ChipPicker items={[{ id: null, name: "Aucune", icon: "∅" }, ...cats]} value={categoryId} onChange={setCategoryId} getLabel={c => c.name} getColor={c => c.color || C.accent} getIcon={c => c.icon || "🏷️"} />
+          </div>
+        </>
+      )}
+
+      <label style={labelStyle}>Fréquence</label>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {FREQ_OPTS.map(([id, lbl]) => (
+          <button key={id} type="button" onClick={() => setFreq(id)} style={{
+            flex: 1, minHeight: 42, borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 600,
+            background: freq === id ? C.accentBg : C.surface3, border: `1px solid ${freq === id ? C.accent : C.border}`, color: freq === id ? C.text : C.muted,
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span style={{ fontSize: 13, color: C.muted }}>Tous les</span>
+        <input value={interval} onChange={e => setIntervalV(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" style={{ ...sheetInput, width: 64, textAlign: "center", marginBottom: 0 }} />
+        <span style={{ fontSize: 13, color: C.muted }}>{FREQ_OPTS.find(f => f[0] === freq)[1].toLowerCase()}(s)</span>
+      </div>
+
+      {(freq === "mois" || freq === "annee") && (
+        <>
+          <label style={labelStyle}>Jour du mois</label>
+          <input value={dayOfMonth} onChange={e => setDayOfMonth(e.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" placeholder="ex. 5" style={{ ...sheetInput, marginBottom: 16 }} />
+        </>
+      )}
+      {freq === "semaine" && (
+        <>
+          <label style={labelStyle}>Jour de la semaine</label>
+          <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
+            {WEEKDAYS.map((d, i) => (
+              <button key={d} type="button" onClick={() => setWeekday(i)} style={{ flex: 1, minWidth: 40, minHeight: 40, borderRadius: 10, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, background: weekday === i ? C.accentBg : C.surface3, border: `1px solid ${weekday === i ? C.accent : C.border}`, color: weekday === i ? C.text : C.muted }}>{d}</button>
+            ))}
+          </div>
+        </>
+      )}
+      {freq === "annee" && (
+        <>
+          <label style={labelStyle}>Mois</label>
+          <div style={{ display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" }}>
+            {MONTHS_SHORT.map((m, i) => (
+              <button key={m} type="button" onClick={() => setMonthOfYear(i + 1)} style={{ minWidth: 44, minHeight: 38, borderRadius: 9, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 600, background: monthOfYear === i + 1 ? C.accentBg : C.surface3, border: `1px solid ${monthOfYear === i + 1 ? C.accent : C.border}`, color: monthOfYear === i + 1 ? C.text : C.muted }}>{m}</button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <label style={labelStyle}>Prochaine échéance</label>
+      <input type="date" value={nextOcc} onChange={e => setNextOcc(e.target.value)} style={{ ...sheetInput, marginBottom: 16, colorScheme: "dark" }} />
+
+      {!forceSubscription && (
+        <div onClick={() => setIsSub(s => !s)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 12, background: C.surface3, border: `1px solid ${C.border}`, cursor: "pointer", marginBottom: 12 }}>
+          <span style={{ fontSize: 14, color: C.text }}>Abonnement (validation manuelle)</span>
+          <div style={{ width: 44, height: 26, borderRadius: 999, background: isSub ? C.accent : C.surface, transition: TR, position: "relative", flexShrink: 0 }}>
+            <div style={{ position: "absolute", top: 3, left: isSub ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: TR }} />
+          </div>
+        </div>
+      )}
       <div onClick={() => setActive(a => !a)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", borderRadius: 12, background: C.surface3, border: `1px solid ${C.border}`, cursor: "pointer", marginBottom: 22 }}>
-        <span style={{ fontSize: 14, color: C.text }}>Actif (compté dans le total)</span>
+        <span style={{ fontSize: 14, color: C.text }}>Actif</span>
         <div style={{ width: 44, height: 26, borderRadius: 999, background: active ? C.accent : C.surface, transition: TR, position: "relative", flexShrink: 0 }}>
           <div style={{ position: "absolute", top: 3, left: active ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: TR }} />
         </div>
@@ -827,77 +1063,75 @@ function SubscriptionFormSheet({ open, onClose, onSubmit, onDelete, subscription
 
       <button onClick={submit} disabled={!valid} style={{ ...primaryBtn, opacity: valid ? 1 : 0.5 }}>{editing ? "Enregistrer" : "Ajouter"}</button>
       {editing && (
-        <button onClick={() => { onDelete(subscription.id); onClose(); }} style={{ width: "100%", background: "transparent", border: "none", color: FIN.depense.c, padding: 14, fontSize: 14, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>Supprimer</button>
+        <button onClick={() => { onDelete(recurring.id); onClose(); }} style={{ width: "100%", background: "transparent", border: "none", color: FIN.depense.c, padding: 14, fontSize: 14, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>Supprimer</button>
       )}
 
-      <CategoryManagerSheet open={catManagerOpen} onClose={() => setCatManagerOpen(false)} categoriesHook={categoriesHook} initialKind="depense" />
+      <CategoryManagerSheet open={catManagerOpen} onClose={() => setCatManagerOpen(false)} categoriesHook={categoriesHook} initialKind={type === "revenu" ? "revenu" : "depense"} />
     </BottomSheet>
   );
 }
 
-function SubscriptionsBlock({ userId, accounts, categoriesHook }) {
-  const { subscriptions, monthlyTotal, loading, createSubscription, updateSubscription, deleteSubscription, toggleValidation } = useFinanceSubscriptions(userId);
+// Abonnements (Aperçu) — récurrents is_subscription, validation manuelle, reset le 1er
+function SubscriptionsBlock({ userId, accounts, categoriesHook, recurringHook }) {
+  const { recurring, paidByRecurring, loading, createRecurring, updateRecurring, deleteRecurring, toggleSubscriptionPaid } = recurringHook;
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [flash, setFlash] = useState(null); // id en cours d'animation de validation
-  const curMonth = monthKey(); // mois RÉEL courant — reset auto le 1er
+  const [flash, setFlash] = useState(null);
 
+  const subs = recurring.filter(r => r.is_subscription);
   const open = (s = null) => { setEditing(s); setSheetOpen(true); };
-  const submit = async (data) => { if (editing) await updateSubscription(editing.id, data); else await createSubscription(data); };
+  const submit = async (data) => { if (editing) await updateRecurring(editing.id, data); else await createRecurring({ ...data, is_subscription: true }); };
   const validate = async (e, s) => {
     e.stopPropagation();
-    const becameValid = await toggleValidation(s, curMonth);
-    if (becameValid) { setFlash(s.id); setTimeout(() => setFlash(f => (f === s.id ? null : f)), 800); }
+    const ok = await toggleSubscriptionPaid(s);
+    if (ok) { setFlash(s.id); setTimeout(() => setFlash(f => (f === s.id ? null : f)), 800); }
   };
 
-  const activeSubs = subscriptions.filter(s => s.active);
-  const validatedCount = activeSubs.filter(s => s.last_paid_month === curMonth).length;
-  const validatedAmount = activeSubs.filter(s => s.last_paid_month === curMonth).reduce((sum, s) => sum + s.amount, 0);
+  const activeSubs = subs.filter(s => s.active);
+  const monthlyTotal = activeSubs.reduce((sum, s) => sum + s.monthly_cost, 0);
+  const paidCount = activeSubs.filter(s => paidByRecurring[s.id]).length;
+  const paidAmount = activeSubs.filter(s => paidByRecurring[s.id]).reduce((sum, s) => sum + s.amount, 0);
 
   return (
     <div>
       <Eyebrow color={C.pink} action={<span style={{ fontFamily: FONT_D, fontSize: 14, fontWeight: 700, color: C.pink, fontVariantNumeric: "tabular-nums" }}>{fmtEUR(monthlyTotal)}/mois</span>}>🔁 Abonnements</Eyebrow>
       {activeSubs.length > 0 && (
         <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, marginTop: -4 }}>
-          <span style={{ color: C.green, fontWeight: 600 }}>{validatedCount}/{activeSubs.length} passés</span> · {fmtEUR(validatedAmount)} déduits ce mois-ci
+          <span style={{ color: C.green, fontWeight: 600 }}>{paidCount}/{activeSubs.length} passés</span> · {fmtEUR(paidAmount)} déduits ce mois-ci
         </div>
       )}
       {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 16 }}>Chargement…</div> : (
-        <Card style={{ padding: subscriptions.length ? "4px 12px" : 16 }}>
-          {subscriptions.length === 0
+        <Card style={{ padding: subs.length ? "4px 12px" : 16 }}>
+          {subs.length === 0
             ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 8 }}>Aucun abonnement.</div>
-            : subscriptions.map((s, i) => {
+            : subs.map((s, i) => {
                 const acc = accounts.find(a => a.id === s.account_id);
                 const cat = categoriesHook.categories.find(c => c.id === s.category_id);
-                const validated = s.last_paid_month === curMonth;
-                const noAcc = !s.account_id;
+                const paid = !!paidByRecurring[s.id];
                 return (
                   <div key={s.id} onClick={() => open(s)} style={{
                     display: "flex", alignItems: "center", gap: 12, padding: "11px 4px", cursor: "pointer",
                     borderTop: i ? `1px solid ${C.border}` : "none", opacity: s.active ? 1 : 0.5,
-                    background: validated ? FIN.revenu.bg : "transparent", borderRadius: 10, transition: TR,
+                    background: paid ? FIN.revenu.bg : "transparent", borderRadius: 10, transition: TR,
                   }}>
-                    <div style={{ width: 38, height: 38, borderRadius: 11, background: C.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{s.icon || "🔁"}</div>
+                    <div style={{ width: 38, height: 38, borderRadius: 11, background: C.accentBg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>{cat?.icon || "🔁"}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}{!s.active && " · inactif"}</div>
-                      <div style={{ fontSize: 12, color: validated ? C.green : C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {validated ? "✓ Passé sur le compte" : `${cat ? `${cat.icon || "🏷️"} ${cat.name} · ` : ""}${acc?.name || "Sans compte"}${s.billing_day ? ` · le ${s.billing_day}` : ""}`}
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}{!s.active && " · inactif"}</div>
+                      <div style={{ fontSize: 12, color: paid ? C.green : C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {paid ? "✓ Passé sur le compte" : `${cat ? `${cat.name} · ` : ""}${acc?.name || "Sans compte"}`}
                       </div>
                     </div>
-                    <div style={{ fontFamily: FONT_D, fontSize: 15, fontWeight: 700, color: validated ? C.green : C.text, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{fmtEUR(s.amount)}</div>
-                    <button
-                      onClick={(e) => validate(e, s)}
-                      disabled={noAcc} title={noAcc ? "Lier un compte d'abord" : validated ? "Annuler la validation" : "Valider le prélèvement"}
-                      className={flash === s.id ? "habit-pop" : ""}
+                    <div style={{ fontFamily: FONT_D, fontSize: 15, fontWeight: 700, color: paid ? C.green : C.text, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{fmtEUR(s.amount)}</div>
+                    <button onClick={(e) => validate(e, s)}
+                      title={paid ? "Annuler" : "Valider le prélèvement"} className={flash === s.id ? "habit-pop" : ""}
                       style={{
-                        width: 30, height: 30, borderRadius: "50%", flexShrink: 0, cursor: noAcc ? "not-allowed" : "pointer",
+                        width: 30, height: 30, borderRadius: "50%", flexShrink: 0, cursor: "pointer",
                         display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-                        background: validated ? "linear-gradient(135deg,#34D399,#10b981)" : "transparent",
-                        border: `2px solid ${validated ? "#34D399" : noAcc ? C.faint : C.borderMid}`,
-                        boxShadow: validated ? "0 0 12px rgba(52,211,153,0.5)" : "none", transition: TR,
-                        opacity: noAcc ? 0.4 : 1,
+                        background: paid ? "linear-gradient(135deg,#34D399,#10b981)" : "transparent",
+                        border: `2px solid ${paid ? "#34D399" : C.borderMid}`,
+                        boxShadow: paid ? "0 0 12px rgba(52,211,153,0.5)" : "none", transition: TR,
                       }}>
-                      {validated && <span style={{ color: "#fff", fontSize: 15, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+                      {paid && <span style={{ color: "#fff", fontSize: 15, fontWeight: 700, lineHeight: 1 }}>✓</span>}
                     </button>
                   </div>
                 );
@@ -905,7 +1139,52 @@ function SubscriptionsBlock({ userId, accounts, categoriesHook }) {
         </Card>
       )}
       <button onClick={() => open()} style={{ width: "100%", background: C.surface3, border: `1px solid ${C.border}`, color: C.accent, borderRadius: 12, padding: 12, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginTop: 10, minHeight: 44 }}>+ Nouvel abonnement</button>
-      <SubscriptionFormSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} onDelete={deleteSubscription} subscription={editing} accounts={accounts} categoriesHook={categoriesHook} />
+      <RecurringFormSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} onDelete={deleteRecurring} recurring={editing} accounts={accounts} categoriesHook={categoriesHook} forceSubscription />
+    </div>
+  );
+}
+
+// Liste des récurrents (onglet Transactions › Récurrent)
+function RecurringList({ accounts, categoriesHook, recurringHook, desktop }) {
+  const { recurring, loading, createRecurring, updateRecurring, deleteRecurring, toggleActive } = recurringHook;
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const open = (r = null) => { setEditing(r); setSheetOpen(true); };
+  const submit = async (data) => { if (editing) await updateRecurring(editing.id, data); else await createRecurring(data); };
+
+  return (
+    <div>
+      <button onClick={() => open()} style={{ ...primaryBtn, maxWidth: desktop ? 360 : "none", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Nouveau récurrent
+      </button>
+      {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div>
+        : recurring.length === 0 ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24 }}>Aucune opération récurrente.</div>
+        : <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10, alignItems: "start" }}>
+            {recurring.map(r => {
+              const acc = accounts.find(a => a.id === r.account_id);
+              const f = FIN[r.type];
+              return (
+                <Card key={r.id} style={{ padding: "12px 14px", opacity: r.active ? 1 : 0.5 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div onClick={() => open(r)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.text, display: "flex", alignItems: "center", gap: 8 }}>
+                        {r.is_subscription && <span style={{ fontSize: 11 }}>🔁</span>}{r.label}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{recurrenceLabel(r)} · prochaine {r.next_occurrence} · {acc?.name || "—"}</div>
+                    </div>
+                    <div style={{ fontFamily: FONT_D, fontSize: 15, fontWeight: 700, color: f.c, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{f.sign === "→" ? "" : f.sign}{fmtEUR(r.amount)}</div>
+                    <button onClick={() => toggleActive(r)} title={r.active ? "Désactiver" : "Activer"} style={{
+                      width: 40, height: 24, borderRadius: 999, flexShrink: 0, cursor: "pointer", padding: 0,
+                      background: r.active ? C.accent : C.surface, border: `1px solid ${C.border}`, position: "relative",
+                    }}>
+                      <div style={{ position: "absolute", top: 2, left: r.active ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: TR }} />
+                    </button>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>}
+      <RecurringFormSheet open={sheetOpen} onClose={() => setSheetOpen(false)} onSubmit={submit} onDelete={deleteRecurring} recurring={editing} accounts={accounts} categoriesHook={categoriesHook} />
     </div>
   );
 }
@@ -939,7 +1218,7 @@ function AccountsBalanceBlock({ accounts, onNav }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // APERÇU
 // ═══════════════════════════════════════════════════════════════════════════════
-function FinanceOverview({ userId, month, setMonth, totalBalance, accounts, categoriesHook, openForm, desktop, onNav }) {
+function FinanceOverview({ userId, month, setMonth, totalBalance, accounts, categoriesHook, recurringHook, openForm, desktop, onNav }) {
   const { transactions, loading } = useFinanceTransactions(userId, { month });
   const kpis = useMemo(() => {
     let dep = 0, rev = 0;
@@ -984,7 +1263,7 @@ function FinanceOverview({ userId, month, setMonth, totalBalance, accounts, cate
   );
 
   const accountsBlock = <AccountsBalanceBlock accounts={accounts} onNav={() => onNav?.("comptes")} />;
-  const subsBlock = <SubscriptionsBlock userId={userId} accounts={accounts} categoriesHook={categoriesHook} />;
+  const subsBlock = <SubscriptionsBlock userId={userId} accounts={accounts} categoriesHook={categoriesHook} recurringHook={recurringHook} />;
 
   const noAccounts = accounts.length === 0;
 
@@ -1013,6 +1292,235 @@ function FinanceOverview({ userId, month, setMonth, totalBalance, accounts, cate
   );
 }
 
+// Sous-onglets internes (pills secondaires)
+function SubTabs({ tabs, value, onChange }) {
+  return (
+    <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 16, paddingBottom: 2 }}>
+      {tabs.map(([id, label]) => {
+        const active = value === id;
+        return (
+          <button key={id} onClick={() => onChange(id)} style={{
+            flexShrink: 0, padding: "7px 14px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit",
+            fontSize: 12.5, fontWeight: active ? 700 : 500, border: `1px solid ${active ? C.accent : C.border}`,
+            background: active ? C.accentBg : "transparent", color: active ? C.text : C.muted, transition: TR,
+          }}>{label}</button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// OBJECTIFS D'ÉPARGNE
+// ═══════════════════════════════════════════════════════════════════════════════
+function GoalFormSheet({ open, onClose, onSubmit, onDelete, goal, accounts }) {
+  const editing = !!goal;
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState("");
+  const [current, setCurrent] = useState("");
+  const [accountId, setAccountId] = useState(null);
+  const [deadline, setDeadline] = useState("");
+  const [icon, setIcon] = useState("🎯");
+
+  useEffect(() => {
+    if (!open) return;
+    setName(goal?.name ?? "");
+    setTarget(goal ? String(goal.target_amount) : "");
+    setCurrent(goal ? String(goal.current_amount) : "");
+    setAccountId(goal?.account_id ?? null);
+    setDeadline(goal?.deadline ?? "");
+    setIcon(goal?.icon ?? "🎯");
+  }, [open, goal]);
+
+  const tgt = parseAmount(target);
+  const valid = name.trim() && tgt > 0;
+  const submit = () => {
+    if (!valid) return;
+    onSubmit({ name: name.trim(), target_amount: tgt, current_amount: accountId ? 0 : parseAmount(current || "0"), account_id: accountId, deadline: deadline || null, icon });
+    onClose();
+  };
+
+  return (
+    <BottomSheet open={open} onClose={onClose} title={editing ? "Modifier l'objectif" : "Nouvel objectif"}>
+      <label style={labelStyle}>Nom</label>
+      <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="Apport, Voyage…" style={{ ...sheetInput, marginBottom: 16 }} />
+      <label style={labelStyle}>Montant cible</label>
+      <input value={target} onChange={e => setTarget(e.target.value)} inputMode="decimal" placeholder="0,00 €" style={{ ...sheetInput, marginBottom: 16 }} />
+      <label style={labelStyle}>Compte suivi (optionnel — sinon manuel)</label>
+      <div style={{ marginBottom: 16 }}>
+        <ChipPicker items={[{ id: null, name: "Manuel", icon: "✋" }, ...accounts]} value={accountId} onChange={setAccountId} getLabel={a => a.name} getColor={a => a.color || C.accent} getIcon={a => a.icon || "💳"} />
+      </div>
+      {!accountId && (
+        <>
+          <label style={labelStyle}>Déjà épargné</label>
+          <input value={current} onChange={e => setCurrent(e.target.value)} inputMode="decimal" placeholder="0,00 €" style={{ ...sheetInput, marginBottom: 16 }} />
+        </>
+      )}
+      <label style={labelStyle}>Échéance (optionnel)</label>
+      <input type="date" value={deadline} onChange={e => setDeadline(e.target.value)} style={{ ...sheetInput, marginBottom: 16, colorScheme: "dark" }} />
+      <label style={labelStyle}>Icône</label>
+      <div style={{ marginBottom: 22 }}><EmojiPicker value={icon} onChange={setIcon} /></div>
+      <button onClick={submit} disabled={!valid} style={{ ...primaryBtn, opacity: valid ? 1 : 0.5 }}>{editing ? "Enregistrer" : "Créer"}</button>
+      {editing && <button onClick={() => { onDelete(goal.id); onClose(); }} style={{ width: "100%", background: "transparent", border: "none", color: FIN.depense.c, padding: 14, fontSize: 14, cursor: "pointer", fontFamily: "inherit", marginTop: 4 }}>Supprimer</button>}
+    </BottomSheet>
+  );
+}
+
+function ContributeSheet({ open, onClose, onSubmit, goal }) {
+  const [amount, setAmount] = useState("");
+  useEffect(() => { if (open) setAmount(""); }, [open]);
+  const amt = parseAmount(amount);
+  return (
+    <BottomSheet open={open} onClose={onClose} title={`Contribuer · ${goal?.name ?? ""}`}>
+      <label style={labelStyle}>Montant (négatif pour retirer)</label>
+      <input autoFocus value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9,.-]/g, ""))} inputMode="decimal" placeholder="0,00 €" style={{ ...sheetInput, marginBottom: 22 }} />
+      <button onClick={() => { if (amt !== 0) { onSubmit(amt); onClose(); } }} disabled={amt === 0} style={{ ...primaryBtn, opacity: amt === 0 ? 0.5 : 1 }}>Valider</button>
+    </BottomSheet>
+  );
+}
+
+function GoalsTab({ userId, accounts, goalsHook, desktop }) {
+  const { goals, loading, createGoal, updateGoal, contribute, archiveGoal } = goalsHook;
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [contribGoal, setContribGoal] = useState(null);
+  const open = (g = null) => { setEditing(g); setFormOpen(true); };
+  const submit = async (data) => { if (editing) await updateGoal(editing.id, data); else await createGoal(data); };
+
+  // current effectif : compte lié → solde du compte, sinon current_amount
+  const effCurrent = (g) => g.account_id ? (accounts.find(a => a.id === g.account_id)?.balance ?? 0) : g.current_amount;
+
+  return (
+    <div>
+      <button onClick={() => open()} style={{ ...primaryBtn, maxWidth: desktop ? 360 : "none", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Nouvel objectif
+      </button>
+      {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div>
+        : goals.length === 0 ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24 }}>Aucun objectif.</div>
+        : <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10, alignItems: "start" }}>
+            {goals.map(g => {
+              const cur = effCurrent(g);
+              const pct = g.target_amount > 0 ? Math.round((cur / g.target_amount) * 100) : 0;
+              const done = pct >= 100;
+              const rest = Math.max(0, g.target_amount - cur);
+              return (
+                <Card key={g.id}>
+                  <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+                    <ProgressRing value={pct} color={done ? C.green : C.accent} size={64}>
+                      <span style={{ fontFamily: FONT_D, fontSize: 14, fontWeight: 700, color: done ? C.green : C.text }}>{pct}%</span>
+                    </ProgressRing>
+                    <div onClick={() => open(g)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: C.text, display: "flex", alignItems: "center", gap: 6 }}><span>{g.icon || "🎯"}</span>{g.name}</div>
+                      <div style={{ fontFamily: FONT_D, fontSize: 15, fontWeight: 700, color: C.text, fontVariantNumeric: "tabular-nums", marginTop: 3 }}>{fmtEUR(cur)} <span style={{ fontSize: 12, color: C.muted, fontWeight: 500 }}>/ {fmtEUR(g.target_amount)}</span></div>
+                      <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{done ? "Atteint 🎉" : `Reste ${fmtEUR(rest)}`}{g.deadline ? ` · ${g.deadline}` : ""}{g.account_id ? " · suivi compte" : ""}</div>
+                    </div>
+                  </div>
+                  {!g.account_id && (
+                    <button onClick={() => setContribGoal(g)} style={{ width: "100%", background: C.surface3, border: `1px solid ${C.border}`, color: C.accent, borderRadius: 10, padding: 9, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", marginTop: 12, minHeight: 40 }}>+ Contribuer</button>
+                  )}
+                </Card>
+              );
+            })}
+          </div>}
+      <GoalFormSheet open={formOpen} onClose={() => setFormOpen(false)} onSubmit={submit} onDelete={archiveGoal} goal={editing} accounts={accounts} />
+      <ContributeSheet open={!!contribGoal} onClose={() => setContribGoal(null)} goal={contribGoal} onSubmit={(amt) => contribute(contribGoal, amt)} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// INVESTISSEMENTS
+// ═══════════════════════════════════════════════════════════════════════════════
+function InvestTab({ desktop }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: desktop ? "80px 24px" : "60px 24px" }}>
+      <div style={{ fontSize: 56, marginBottom: 16 }}>📈</div>
+      <div style={{ fontFamily: FONT_D, fontSize: 24, fontWeight: 800, color: C.text, marginBottom: 8 }}>Investissements</div>
+      <div style={{ display: "inline-block", fontSize: 12, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: "0.16em", background: C.accentBg, border: `1px solid ${C.borderMid}`, borderRadius: 999, padding: "6px 16px", marginBottom: 14 }}>À venir</div>
+      <div style={{ fontSize: 14, color: C.muted, maxWidth: 360, lineHeight: 1.5 }}>Le suivi de portefeuille (actions, ETF, crypto) arrive bientôt.</div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BUDGETS — Ce mois (balance + anneaux) & Catégories
+// ═══════════════════════════════════════════════════════════════════════════════
+function BudgetMonthTab({ userId, categoriesHook, desktop }) {
+  const { budgets, loading } = useFinanceBudgets(userId);
+  const catBudgets = budgets.filter(b => b.category_id);
+  const total = catBudgets.reduce((s, b) => s + b.amount, 0);
+  const spent = catBudgets.reduce((s, b) => s + (b.spent || 0), 0);
+  const rest = total - spent;
+  const restCol = rest >= 0 ? FIN.revenu.c : FIN.depense.c;
+
+  return (
+    <div>
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", fontWeight: 700, marginBottom: 8 }}>Balance budgétaire</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          {[["Budget", total, C.text], ["Dépensé", spent, FIN.depense.c], ["Reste", rest, restCol]].map(([l, v, c]) => (
+            <div key={l} style={{ textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600 }}>{l}</div>
+              <div style={{ fontFamily: FONT_D, fontSize: 16, fontWeight: 700, color: c, fontVariantNumeric: "tabular-nums", marginTop: 4 }}>{l === "Reste" && rest > 0 ? "+" : ""}{fmtEUR(v)}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      {loading ? <div style={{ color: C.muted, textAlign: "center", padding: 24 }}>Chargement…</div>
+        : catBudgets.length === 0 ? <div style={{ color: C.muted, fontSize: 14, textAlign: "center", padding: 24 }}>Aucun budget catégorie. Définis-en dans « Budgets ».</div>
+        : <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(2, 1fr)" : "1fr", gap: 10 }}>
+            {catBudgets.map(b => {
+              const cat = categoriesHook.categories.find(c => c.id === b.category_id);
+              const pct = b.amount > 0 ? Math.round((b.spent / b.amount) * 100) : 0;
+              const over = b.spent > b.amount;
+              return (
+                <Card key={b.id} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <ProgressRing value={pct} color={over ? FIN.depense.c : C.accent} size={58}>
+                    <span style={{ fontFamily: FONT_D, fontSize: 12, fontWeight: 700, color: over ? FIN.depense.c : C.text }}>{pct}%</span>
+                  </ProgressRing>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{cat?.icon || "🏷️"} {cat?.name || "—"}</div>
+                    <div style={{ fontFamily: FONT_D, fontSize: 13, color: over ? FIN.depense.c : C.muted, fontVariantNumeric: "tabular-nums", marginTop: 3 }}>{fmtEUR(b.spent)} / {fmtEUR(b.amount)}</div>
+                    {over && <div style={{ fontSize: 11, color: FIN.depense.c, marginTop: 2 }}>Dépassé de {fmtEUR(b.spent - b.amount)}</div>}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>}
+    </div>
+  );
+}
+
+function CategoriesTab({ categoriesHook, desktop }) {
+  const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState("depense");
+  return (
+    <div>
+      <button onClick={() => setOpen(true)} style={{ ...primaryBtn, maxWidth: desktop ? 360 : "none", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+        <span style={{ fontSize: 20, lineHeight: 1 }}>+</span> Gérer les catégories
+      </button>
+      {["depense", "revenu"].map(k => {
+        const list = categoriesHook.byKind(k);
+        return (
+          <div key={k} style={{ marginBottom: 16 }}>
+            <Eyebrow color={k === "depense" ? FIN.depense.c : FIN.revenu.c}>{k === "depense" ? "Dépenses" : "Revenus"}</Eyebrow>
+            {list.length === 0 ? <div style={{ color: C.muted, fontSize: 13, padding: "4px 2px" }}>Aucune.</div>
+              : <div style={{ display: "grid", gridTemplateColumns: desktop ? "repeat(3, 1fr)" : "repeat(2, 1fr)", gap: 8 }}>
+                  {list.map(c => (
+                    <div key={c.id} onClick={() => { setKind(k); setOpen(true); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 12, background: C.surface2, border: `1px solid ${C.border}`, cursor: "pointer" }}>
+                      <span style={{ fontSize: 18 }}>{c.icon || "🏷️"}</span>
+                      <span style={{ fontSize: 13, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                    </div>
+                  ))}
+                </div>}
+          </div>
+        );
+      })}
+      <CategoryManagerSheet open={open} onClose={() => setOpen(false)} categoriesHook={categoriesHook} initialKind={kind} />
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MODULE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1021,6 +1529,7 @@ const SUB_TABS = [
   { id: "transactions", label: "Transactions" },
   { id: "budgets",      label: "Budgets" },
   { id: "comptes",      label: "Comptes" },
+  { id: "invest",       label: "Invest." },
 ];
 
 export default function FinancesModule({ userId }) {
@@ -1032,8 +1541,14 @@ export default function FinancesModule({ userId }) {
 
   const accountsHook = useFinanceAccounts(userId);
   const categoriesHook = useFinanceCategories(userId);
+  const goalsHook = useFinanceGoals(userId);
+  const recurringHook = useFinanceRecurring(userId);
   // Hook transactions "global" pour create/update (sans filtre de mois on garde léger via mois courant)
   const txMutations = useFinanceTransactions(userId, { month, limit: 1 });
+
+  // Génération idempotente des récurrents échus à l'ouverture du module
+  const { runRecurringCatchup } = recurringHook;
+  useEffect(() => { runRecurringCatchup(); }, [runRecurringCatchup]);
 
   const openForm = (tx = null) => { setEditingTx(tx); setFormOpen(true); };
   const submitTx = async (data) => {
@@ -1071,14 +1586,16 @@ export default function FinancesModule({ userId }) {
         {sub === "apercu" && (
           <FinanceOverview userId={userId} month={month} setMonth={setMonth} desktop={desktop}
             totalBalance={accountsHook.totalBalance} accounts={accountsHook.accounts}
-            categoriesHook={categoriesHook} openForm={openForm} onNav={setSub} />
+            categoriesHook={categoriesHook} recurringHook={recurringHook} openForm={openForm} onNav={setSub} />
         )}
         {sub === "transactions" && (
           <TransactionsTab userId={userId} month={month} setMonth={setMonth} desktop={desktop}
-            accounts={accountsHook.accounts} categoriesHook={categoriesHook} openForm={openForm} />
+            accounts={accountsHook.accounts} categoriesHook={categoriesHook} openForm={openForm}
+            recurringHook={recurringHook} />
         )}
         {sub === "budgets" && <BudgetsTab userId={userId} categoriesHook={categoriesHook} desktop={desktop} />}
-        {sub === "comptes" && <AccountsList userId={userId} accountsHook={accountsHook} desktop={desktop} />}
+        {sub === "comptes" && <AccountsList userId={userId} accountsHook={accountsHook} goalsHook={goalsHook} desktop={desktop} />}
+        {sub === "invest" && <InvestTab desktop={desktop} />}
       </div>
 
       <TransactionFormSheet

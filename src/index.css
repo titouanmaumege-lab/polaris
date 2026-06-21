@@ -185,15 +185,17 @@ button:active {
 /* Dashboard layout — mobile single column, desktop 2 columns (Lumen Protocol) */
 .dash-wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 110px; }
 .dash-hero { display: flex; flex-direction: column; gap: 4px; }
+.dash-quick { margin: 16px 0; }
 .dash-cols { display: flex; flex-direction: column; }
 .dash-col { display: flex; flex-direction: column; }
 
 @media (min-width: 900px) {
   .dash-wrap { max-width: none; padding: 40px 48px 120px; }
   .dash-hero {
-    display: grid; grid-template-columns: 1fr auto; gap: 56px;
+    display: grid; grid-template-columns: 1fr auto auto; gap: 40px;
     align-items: center;
   }
+  .dash-quick { margin: 0; }
   .dash-hero .dash-ring { margin: 0 !important; justify-content: flex-end; }
   .dash-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 56px; align-items: start; }
 }

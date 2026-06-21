@@ -9,16 +9,16 @@ import {
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
-// ─── Design tokens (copie du design system App.jsx) ───────────────────────────
+// ─── Design tokens — DA Cyber Focus (theme-light), aligné HOME/Finances ───────
 const C = {
-  bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830", surface3: "#201e38",
-  border: "rgba(139,92,246,0.15)", borderMid: "rgba(139,92,246,0.4)",
-  accent: "#8b5cf6", accent2: "#6366f1", accentBg: "rgba(139,92,246,0.12)",
-  text: "#f1f0ff", muted: "#9391b5", faint: "#524f72",
-  green: "#10b981", red: "#ef4444", blue: "#6366f1",
-  amber: "#f59e0b", orange: "#f97316",
+  bg: "#0B0714", surface: "#181225", surface2: "#181225", surface3: "#221A36",
+  border: "rgba(168,85,247,0.18)", borderMid: "rgba(168,85,247,0.38)",
+  accent: "#A855F7", accent2: "#EC4899", accentBg: "rgba(168,85,247,0.16)",
+  text: "#F4F2FF", muted: "#9990C0", faint: "#6B6390",
+  green: "#34D399", red: "#FB7185", blue: "#60A5FA",
+  amber: "#FBBF24", orange: "#FB923C",
 };
-const GRAD = "linear-gradient(135deg, #8b5cf6, #6366f1)";
+const GRAD = "linear-gradient(135deg,#A855F7,#EC4899)";
 const TR = "0.18s cubic-bezier(0.4,0,0.2,1)";
 const CALLOUT_C = { info: "#3b82f6", warning: "#f59e0b", success: "#10b981", danger: "#ef4444" };
 const SOURCE_TYPES = ["book", "video", "article", "podcast", "course", "other"];
@@ -1369,11 +1369,16 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
 
   return (
     <div>
-      <div style={{ position: "sticky", top: 0, zIndex: 100, background: C.bg, borderBottom: `1px solid ${C.border}`, padding: "10px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: C.text, flex: 1 }}>Base</span>
-          <button onClick={onOpenSwitcher} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>🔍</button>
-          <button onClick={onOpenGraph} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
+      <div style={{ padding: "22px 16px 8px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 10, color: C.accent, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 700, marginBottom: 4 }}>Second cerveau</div>
+            <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, color: C.text, letterSpacing: "-0.02em", lineHeight: 1 }}>Base</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onOpenSwitcher} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>🔍</button>
+            <button onClick={onOpenGraph} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
+          </div>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
           {tabBtn("Mes bases", "mine")}
@@ -1535,7 +1540,7 @@ export default function BaseModule({ userId }) {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div className="theme-light" style={{ minHeight: "100dvh", color: C.text, fontFamily: "var(--font-body)" }}>
       {view === "home" && (
         <BaseHome
           userId={userId}

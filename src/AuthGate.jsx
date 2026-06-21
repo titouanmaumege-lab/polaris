@@ -33,19 +33,22 @@ export default function AuthGate({ children }) {
         setLoading(false);
         return;
       }
-      if (session) handleSession(session);
-      else { sessionRef.current = null; setSession(null); setLoading(false); }
+      if (session) {
+        // Token refresh / focus : même utilisateur déjà chargé → ne PAS recharger
+        // (sinon écran de chargement + remount → retour à la page d'accueil).
+        if (sessionRef.current?.user?.id === session.user.id) {
+          sessionRef.current = session;
+          return;
+        }
+        handleSession(session);
+      } else { sessionRef.current = null; setSession(null); setLoading(false); }
     });
 
-    // Re-sync from Supabase when tab becomes visible (cross-device sync)
+    // Re-sync silencieux depuis Supabase au retour d'onglet (sans reload, on reste en place).
     const onVisible = () => {
       if (document.visibilityState === "visible" && sessionRef.current) {
         loadUserData(sessionRef.current.user.id).then(data => {
-          if (!data) return;
-          const before = localStorage.getItem("lp_habits");
-          hydrateLocalStorage(data);
-          // If remote data differs from local, reload so React re-reads localStorage
-          if (localStorage.getItem("lp_habits") !== before) window.location.reload();
+          if (data) hydrateLocalStorage(data);
         }).catch(() => {});
       }
     };

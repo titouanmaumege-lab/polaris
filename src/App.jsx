@@ -1161,41 +1161,35 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
 
   return (
     <div className="theme-light" style={{ minHeight: "100dvh", fontFamily: "var(--font-body)" }}>
-      {/* STICKY HEADER */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 20,
-        background: "rgba(11,7,20,0.80)", backdropFilter: "blur(20px)",
-        padding: "14px 16px 10px",
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          {editingName
-            ? <input autoFocus value={appName} onChange={e=>setAppName(e.target.value)}
-                onBlur={()=>{ setLS("lp_app_name", appName); setEditingName(false); }}
-                onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_app_name", appName); setEditingName(false); }}}
-                style={{ fontFamily:FONT_D, fontSize:16, fontWeight:800, letterSpacing:"0.12em", color:C.accent, textTransform:"uppercase", background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:120 }}
-              />
-            : <span onClick={()=>setEditingName(true)} style={{ fontFamily:FONT_D, fontSize:16, fontWeight:800, letterSpacing:"0.12em", color:C.accent, textTransform:"uppercase", cursor:"pointer" }} title="Cliquer pour modifier">{appName}</span>
-          }
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>
-            <div onClick={onOpenLogs} style={{ display:"flex", flexDirection:"column", gap:4, cursor:"pointer", padding:"4px 6px" }}>
-              {[0,1,2].map(i=><div key={i} style={{width:18,height:2,background:C.muted,borderRadius:2}}/>)}
-            </div>
-          </div>
-        </div>
-        <div style={{ marginTop: 8 }}>
+      {/* HEADER — transparent, eyebrow mantra + gros titre (aucun ruban) */}
+      <div style={{ padding: "22px 16px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
           {editingMantra
             ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}
                 onBlur={()=>{ setLS("lp_mantra", mantra); setEditingMantra(false); }}
                 onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_mantra", mantra); setEditingMantra(false); }}}
-                style={{ fontSize:11, color:C.accent, background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:200, fontFamily:"inherit" }}
+                style={{ fontSize:10, color:C.accent, textTransform:"uppercase", letterSpacing:"0.18em", fontWeight:700, background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:220, fontFamily:"inherit" }}
               />
-            : <span onClick={()=>setEditingMantra(true)} style={{ fontSize:11, color:C.accent, border:`1px solid ${C.borderMid}`, borderRadius:999, padding:"3px 12px", cursor:"pointer" }} title="Cliquer pour modifier">✦ {mantra}</span>
+            : <div onClick={()=>setEditingMantra(true)} style={{ fontSize:10, color:C.accent, textTransform:"uppercase", letterSpacing:"0.18em", fontWeight:700, marginBottom:4, cursor:"pointer" }} title="Cliquer pour modifier">✦ {mantra}</div>
           }
+          {editingName
+            ? <input autoFocus value={appName} onChange={e=>setAppName(e.target.value)}
+                onBlur={()=>{ setLS("lp_app_name", appName); setEditingName(false); }}
+                onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_app_name", appName); setEditingName(false); }}}
+                style={{ fontFamily:FONT_D, fontSize:26, fontWeight:800, letterSpacing:"-0.02em", color:C.text, background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:200 }}
+              />
+            : <div onClick={()=>setEditingName(true)} style={{ fontFamily:FONT_D, fontSize:26, fontWeight:800, letterSpacing:"-0.02em", color:C.text, lineHeight:1, cursor:"pointer" }} title="Cliquer pour modifier">{appName}</div>
+          }
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, paddingTop: 2 }}>
+          <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>
+          <div onClick={onOpenLogs} style={{ display:"flex", flexDirection:"column", gap:4, cursor:"pointer", padding:"4px 6px" }}>
+            {[0,1,2].map(i=><div key={i} style={{width:18,height:2,background:C.muted,borderRadius:2}}/>)}
+          </div>
         </div>
       </div>
 
-      <div className="dash-wrap">
+      <div className="dash-wrap" style={{ paddingTop: 8 }}>
 
         {/* HERO — Highlight + ring (boxless, 2-col desktop) */}
         <div className="dash-hero">
@@ -1226,6 +1220,59 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
             </div>
           )}
           <div style={{ fontSize: 12, color: C.faint, marginTop: 8 }}>La seule chose qui compte aujourd'hui</div>
+        </div>
+
+        {/* QUICK ACTIONS — colonne centrale, entre Highlight et l'anneau */}
+        <div className="dash-quick">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {QUICK_BTNS.map(({ key, icon, label }) => (
+              <button key={key} onClick={() => handleQuick(key)} style={{
+                flexShrink: 0, display: "flex", alignItems: "center", gap: 6,
+                padding: "10px 16px", borderRadius: 999, minHeight: 44,
+                background: qAction === key ? GRAD : C.surface3, border: "none",
+                color: qAction === key ? "#fff" : C.accent,
+                fontSize: 13, fontWeight: 600, transition: TR, fontFamily: "inherit",
+                boxShadow: qAction === key ? GLOW_SM : "none",
+              }}>
+                <span>{icon}</span><span>{label}</span>
+              </button>
+            ))}
+          </div>
+          {qAction === "session_log" && (
+            <div className="slide-up" style={{ marginTop: 10, background: C.surface2, border: `1px solid ${C.borderMid}`, borderRadius: 16, padding: 14 }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                <Input value={wpForm.tache} onChange={v => setWpForm(f => ({...f, tache:v}))} placeholder="Tâche..." style={{ flex: 1 }} />
+                <input type="number" min="1" placeholder="min" value={wpForm.temps} onChange={e => setWpForm(f => ({...f, temps:e.target.value}))}
+                  style={{ width: 68, background: C.surface3, border: `1px solid ${C.border}`, color: C.text, padding: "10px 8px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+              </div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {WP_TYPES.map(tp => (
+                  <button key={tp} onClick={() => setWpForm(f=>({...f,type:tp}))} style={{
+                    padding: "5px 12px", borderRadius: 999, fontSize: 12, border: `1px solid ${wpForm.type===tp ? WP_TYPE_C[tp] : C.border}`,
+                    background: wpForm.type===tp ? WP_TYPE_C[tp]+"20" : "transparent", color: wpForm.type===tp ? WP_TYPE_C[tp] : C.muted,
+                  }}>{tp}</button>
+                ))}
+                <Select value={wpForm.domaine} options={WP_DOMAINES} onChange={v => setWpForm(f=>({...f,domaine:v}))} style={{ fontSize: 12 }} />
+              </div>
+              <Btn onClick={addSession} variant="accent" style={{ width: "100%" }}>+ Enregistrer la session</Btn>
+            </div>
+          )}
+          {qAction === "todo" && (
+            <div className="slide-up" style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Input value={todoText} onChange={setTodoText} onKeyDown={e => e.key==="Enter" && addTodo()} placeholder="Nouvelle tâche..." />
+                <Btn onClick={addTodo} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
+              </div>
+            </div>
+          )}
+          {qAction === "objectif" && (
+            <div className="slide-up" style={{ marginTop: 10 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Input value={objText} onChange={setObjText} onKeyDown={e => e.key==="Enter" && addObj()} placeholder="Objectif hebdo..." />
+                <Btn onClick={addObj} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* HERO RING + métriques (boxless, signature) */}
@@ -1275,7 +1322,8 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
 
           {/* Mensuels — pleine largeur, colonnes = nb d'objectifs (1 à 6) */}
           {(() => {
-            const monthlyObjs = (goals.mensuel || []).filter(o => !isObjClosed(o.statut) && !o.archived);
+            const monthlyObjs = (goals.mensuel || []).filter(o => !o.archived);
+            // Couleur DA : terminé (Atteint ou 100%) → vert, échoué/abandonné → rouge, sinon jaune
             return (
               <>
                 <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:9 }}>🗻 Mensuels</div>
@@ -1285,28 +1333,30 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                   <div className="home-month-grid" style={{ "--cols": Math.min(monthlyObjs.length, 6) }}>
                     {monthlyObjs.map(o => {
                       const p = krsProgress(o.krs || []);
-                      const reached = p !== null && p >= 100;
-                      const snow = reached ? C.green : C.amber;
+                      const failedStatus = o.statut === "Échoué" || o.statut === "Echoué" || o.statut === "Abandonné";
+                      const achieved = isObjAchieved(o.statut) || (p !== null && p >= 100); // terminé = 100%
+                      const failed = failedStatus && !achieved;
+                      const col = achieved ? C.green : failed ? C.red : C.amber;
                       return (
                         <div key={o.id} onClick={() => setEditObj(o)} title="Cliquer pour modifier" style={{
                           position: "relative", overflow: "hidden", minHeight: 158, padding: "13px 15px", borderRadius: 18, display: "flex", flexDirection: "column",
-                          background: "transparent", border: `1px solid ${C.amber}26`, cursor: "pointer",
+                          background: "transparent", border: `1px solid ${col}33`, cursor: "pointer",
                         }}>
                           {/* Montagne — fondue : fade haut/gauche/droite, bas net (ancré) */}
                           <div style={{ position: "absolute", inset: 0, zIndex: 0, WebkitMaskImage: "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)", maskImage: "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)" }}>
-                            <LevelArt levelId="mensuel" color={C.amber} reached={reached} idKey={`home-m-${o.id}`} fit="slice" />
+                            <LevelArt levelId="mensuel" color={col} reached={achieved} idKey={`home-m-${o.id}`} fit="slice" />
                           </div>
-                          <div style={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 34, textShadow: "0 1px 6px rgba(0,0,0,0.6)" }}>{o.titre}</div>
+                          <div style={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 34, textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: failed ? "line-through" : "none" }}>{o.titre}</div>
                           <div style={{ flex: 1, minHeight: 8 }} />
                           {p !== null ? (
                             <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ flex: 1, height: 5, borderRadius: 3, background: "rgba(0,0,0,0.5)", overflow: "hidden" }}>
-                                <div style={{ height: "100%", width: `${p}%`, background: `linear-gradient(90deg, ${C.amber}, ${reached ? C.green : C.orange})`, borderRadius: 3, transition: "width 0.5s", boxShadow: `0 0 8px ${snow}66` }} />
+                                <div style={{ height: "100%", width: `${p}%`, background: col, borderRadius: 3, transition: "width 0.5s", boxShadow: `0 0 8px ${col}66` }} />
                               </div>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: snow, fontVariantNumeric: "tabular-nums", textShadow: "0 1px 6px rgba(0,0,0,0.6)" }}>{reached ? "🏔 " : ""}{p}%</span>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: col, fontVariantNumeric: "tabular-nums", textShadow: "0 1px 6px rgba(0,0,0,0.6)" }}>{achieved ? "🏔 " : failed ? "✕ " : ""}{p}%</span>
                             </div>
                           ) : (
-                            <div style={{ position: "relative", zIndex: 1, fontSize: 11, color: C.faint }}>Pas de Key Result</div>
+                            <div style={{ position: "relative", zIndex: 1, fontSize: 11, fontWeight:700, color: col }}>{achieved ? "🏔 Atteint" : failed ? "Échoué" : "En cours"}</div>
                           )}
                         </div>
                       );
@@ -1321,7 +1371,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
           {(() => {
             const wObjs = weeklyObjs.filter(o => o.weekId === curWeekId);
             const ggMask = "radial-gradient(135% 150% at 50% 116%, #000 52%, rgba(0,0,0,0) 100%)";
-            const stOf = o => o.completed ? { c: C.green, ic: "✓" } : o.partial ? { c: C.amber, ic: "~" } : o.missed ? { c: C.red, ic: "✕" } : { c: "#38BDF8", ic: "○" };
+            const stOf = o => o.completed ? { c: C.green, ic: "✓" } : o.missed ? { c: C.red, ic: "✕" } : o.partial ? { c: "#38BDF8", ic: "~" } : { c: "#38BDF8", ic: "○" };
             return (
               <div style={{ marginTop: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
@@ -1345,10 +1395,10 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                         <div key={o.id} onClick={() => { if (!editing) toggleWeekly(o.id); }} title={editing ? undefined : "Cliquer pour changer le statut"} style={{
                           position: "relative", overflow: "hidden", minHeight: 110, padding: "12px 14px", borderRadius: 15,
                           display: "flex", flexDirection: "column", cursor: editing ? "default" : "pointer",
-                          background: "transparent", border: `1px solid ${o.completed ? C.green + "40" : "#38BDF826"}`,
+                          background: "transparent", border: `1px solid ${s.c}33`,
                         }}>
-                          <div style={{ position: "absolute", inset: 0, zIndex: 0, transform: "translateY(10%)", WebkitMaskImage: ggMask, maskImage: ggMask }}>
-                            <HikingArt idKey={o.id} fit="cover" color={o.completed ? C.green : "#38BDF8"} />
+                          <div style={{ position: "absolute", inset: 0, zIndex: 0, opacity: 0.95 }}>
+                            <HikingArt idKey={o.id} fit="cover" color={s.c} />
                           </div>
                           {editing ? (
                             <input autoFocus value={editWeekText} onClick={e => e.stopPropagation()}
@@ -1386,62 +1436,6 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
         )}
 
         <div style={{ height: 1, background: C.border, margin: "24px 0" }} />
-
-        {/* QUICK ACTIONS */}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 10, color: C.accent, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 10, fontWeight: 700 }}>Action rapide</div>
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4 }}>
-            {QUICK_BTNS.map(({ key, icon, label }) => (
-              <button key={key} onClick={() => handleQuick(key)} style={{
-                flexShrink: 0, display: "flex", alignItems: "center", gap: 6,
-                padding: "10px 16px", borderRadius: 999, minHeight: 44,
-                background: qAction === key ? GRAD : C.surface3,
-                border: "none",
-                color: qAction === key ? "#fff" : C.accent,
-                fontSize: 13, fontWeight: 600, transition: TR,
-                boxShadow: qAction === key ? GLOW_SM : "none",
-              }}>
-                <span>{icon}</span><span>{label}</span>
-              </button>
-            ))}
-          </div>
-
-          {qAction === "session_log" && (
-            <div className="slide-up" style={{ marginTop: 10, background: C.surface2, border: `1px solid ${C.borderMid}`, borderRadius: 16, padding: 14 }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <Input value={wpForm.tache} onChange={v => setWpForm(f => ({...f, tache:v}))} placeholder="Tâche..." style={{ flex: 1 }} />
-                <input type="number" min="1" placeholder="min" value={wpForm.temps} onChange={e => setWpForm(f => ({...f, temps:e.target.value}))}
-                  style={{ width: 68, background: C.surface3, border: `1px solid ${C.border}`, color: C.text, padding: "10px 8px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                {WP_TYPES.map(tp => (
-                  <button key={tp} onClick={() => setWpForm(f=>({...f,type:tp}))} style={{
-                    padding: "5px 12px", borderRadius: 999, fontSize: 12, border: `1px solid ${wpForm.type===tp ? WP_TYPE_C[tp] : C.border}`,
-                    background: wpForm.type===tp ? WP_TYPE_C[tp]+"20" : "transparent", color: wpForm.type===tp ? WP_TYPE_C[tp] : C.muted,
-                  }}>{tp}</button>
-                ))}
-                <Select value={wpForm.domaine} options={WP_DOMAINES} onChange={v => setWpForm(f=>({...f,domaine:v}))} style={{ fontSize: 12 }} />
-              </div>
-              <Btn onClick={addSession} variant="accent" style={{ width: "100%" }}>+ Enregistrer la session</Btn>
-            </div>
-          )}
-          {qAction === "todo" && (
-            <div className="slide-up" style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Input value={todoText} onChange={setTodoText} onKeyDown={e => e.key==="Enter" && addTodo()} placeholder="Nouvelle tâche..." />
-                <Btn onClick={addTodo} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
-              </div>
-            </div>
-          )}
-          {qAction === "objectif" && (
-            <div className="slide-up" style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Input value={objText} onChange={setObjText} onKeyDown={e => e.key==="Enter" && addObj()} placeholder="Objectif hebdo..." />
-                <Btn onClick={addObj} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* WEEKLY CALENDAR — pleine largeur */}
         <WeeklyCalendar />
@@ -1868,34 +1862,35 @@ function ClotureModal({ obj, levelId, onArchive, onClose }) {
 function HikingArt({ idKey, fit = "cover", color = "#38BDF8" }) {
   const c = color;
   const id = `hk-${idKey}`;
-  const pa = fit === "cover" ? "xMidYMid slice" : "xMidYMax slice";
+  const pa = fit === "contain" ? "xMidYMid meet" : "xMidYMid slice";
   const pine = (x, y, s = 1) => (
     <g>
-      <path d={`M${x},${y} l${-5 * s},${9 * s} l${10 * s},0 Z`} fill={`${c}88`} />
-      <path d={`M${x},${y + 5 * s} l${-6 * s},${9 * s} l${12 * s},0 Z`} fill={`${c}5a`} />
-      <rect x={x - 1} y={y + 13.5 * s} width="2" height={4 * s} fill={`${c}88`} />
+      <path d={`M${x},${y} l${-6 * s},${11 * s} l${12 * s},0 Z`} fill={`${c}88`} />
+      <path d={`M${x},${y + 6 * s} l${-7.5 * s},${11 * s} l${15 * s},0 Z`} fill={`${c}5a`} />
+      <rect x={x - 1.2} y={y + 16 * s} width="2.4" height={5 * s} fill={`${c}88`} />
     </g>
   );
+  // viewBox large 480x150, scène ancrée en bas, drapeau ~33% (survit au cover-crop)
   return (
-    <svg viewBox="0 0 300 110" preserveAspectRatio={pa} style={{ display: "block", width: "100%", height: "100%" }}>
+    <svg viewBox="0 0 480 150" preserveAspectRatio={pa} style={{ display: "block", width: "100%", height: "100%" }}>
       <defs>
-        <linearGradient id={`${id}-h`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${c}55`} /><stop offset="100%" stopColor={`${c}10`} /></linearGradient>
+        <linearGradient id={`${id}-h`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${c}66`} /><stop offset="100%" stopColor={`${c}12`} /></linearGradient>
       </defs>
       {/* soleil */}
-      <circle cx="248" cy="28" r="12" fill={`${c}22`} /><circle cx="248" cy="28" r="6.5" fill={c} opacity="0.9" />
+      <circle cx="410" cy="50" r="15" fill={`${c}22`} /><circle cx="410" cy="50" r="8" fill={c} opacity="0.9" />
       {/* crête arrière */}
-      <path d="M0,110 L58,64 L108,84 L162,50 L212,80 L262,58 L300,82 L300,110 Z" fill={`${c}18`} />
-      {/* colline avant + sommet */}
-      <path d="M0,110 L72,78 L150,38 L228,76 L300,62 L300,110 Z" fill={`url(#${id}-h)`} stroke={`${c}40`} strokeWidth="0.7" />
+      <path d="M0,150 L90,100 L170,120 L260,86 L350,116 L420,96 L480,118 L480,150 Z" fill={`${c}1c`} />
+      {/* colline avant + sommet central */}
+      <path d="M0,150 L120,116 L240,70 L360,112 L480,100 L480,150 Z" fill={`url(#${id}-h)`} stroke={`${c}44`} strokeWidth="0.9" />
       {/* sommet enneigé */}
-      <path d="M150,38 L142,52 L158,52 Z" fill={c} opacity="0.85" />
+      <path d="M240,70 L231,86 L249,86 Z" fill={c} opacity="0.9" />
       {/* sentier sinueux vers le sommet */}
-      <path d="M34,110 C66,98 54,84 92,82 C128,80 116,60 150,46" fill="none" stroke={`${c}d0`} strokeWidth="1.7" strokeDasharray="3.2 3.4" strokeLinecap="round" />
-      {/* drapeau au sommet */}
-      <line x1="150" y1="40" x2="150" y2="24" stroke={c} strokeWidth="1.5" />
-      <path d="M150,24 L161,28 L150,32 Z" fill={c} />
+      <path d="M55,150 C110,134 92,116 150,112 C205,108 188,86 240,74" fill="none" stroke={`${c}d0`} strokeWidth="2.4" strokeDasharray="4.5 4.8" strokeLinecap="round" />
+      {/* drapeau */}
+      <line x1="240" y1="72" x2="240" y2="50" stroke={c} strokeWidth="2" />
+      <path d="M240,50 L256,55.5 L240,61 Z" fill={c} />
       {/* pins */}
-      {pine(40, 92)}{pine(214, 84, 0.9)}{pine(252, 78, 0.8)}
+      {pine(64, 132)}{pine(352, 118, 0.95)}{pine(408, 110, 0.85)}
     </svg>
   );
 }
@@ -2235,8 +2230,8 @@ function ObjectifsModule({ initialTab = "lt" }) {
   };
   return (
     <div className="theme-light" style={{minHeight:"100dvh"}}>
-      <PageHeader title="⭐ Objectifs" />
-      <div style={{padding:"16px 16px 100px"}}>
+      <CFHeader eyebrow="Vision &amp; cap" title="Objectifs" />
+      <div style={{padding:"4px 16px 100px"}}>
         <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
           {(() => { const lp=tab==="lifeplan"; return (
             <button onClick={()=>setTab("lifeplan")} style={{flexShrink:0,padding:"8px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${lp?C.accent:C.borderMid}`,background:lp?GRAD:C.surface2,color:lp?"#fff":C.accent,fontWeight:700,display:"flex",alignItems:"center",gap:6,boxShadow:lp?GLOW_SM:"none"}}>
@@ -3161,6 +3156,7 @@ function RecurrenceToggle({ value, onChange }) {
 
 // ── TodoModule ──
 function TodoModule() {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,getDoneItems,getByGTD} = useTodos();
   const [tab, setTab]               = useState("tout");
   const [showCapture, setShowCapture]= useState(false);
@@ -3178,6 +3174,8 @@ function TodoModule() {
   const [doneSphere, setDoneSphere] = useState("all");
   const [toast, setToast]           = useState(null);
   const [toutFilter, setToutFilter] = useState("all");
+  const [projCalMonth, setProjCalMonth] = useState(todayStr().slice(0,7));
+  const [projCalSel, setProjCalSel] = useState(todayStr());
 
   const today = todayStr();
 
@@ -3256,16 +3254,16 @@ function TodoModule() {
     {id:"memo",      label:"Mémo",       cnt:memos.length, urgent:memosUrgentCnt>0},
     {id:"someday",   label:"Someday",    cnt:somedayItems.length},
     {id:"recurrent", label:"🔄 Récurr.", cnt:recurringItems.length},
-    {id:"fait",      label:"Fait",       cnt:null},
+    {id:"fait",      label:"✅ Fait",    cnt:null},
   ];
 
   return (
-    <div>
-      <PageHeader title="✅ Todo" action={<button onClick={()=>openCapture(tab)} style={{background:GRAD,border:"none",borderRadius:999,color:"#fff",fontSize:22,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",boxShadow:GLOW_SM,fontFamily:"inherit",lineHeight:1}}>+</button>}/>
+    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+      <CFHeader eyebrow="Get Things Done" title="Todo" />
 
 
       {/* Tab bar */}
-      <div style={{position:"sticky",top:57,zIndex:10,background:"rgba(13,13,26,0.96)",backdropFilter:"blur(20px)",borderBottom:`1px solid ${C.border}`,padding:"10px 16px"}}>
+      <div style={{padding:"4px 16px 10px"}}>
         <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:2}}>
           {TABS.map(({id,label,cnt,urgent})=>{
             const isActive=tab===id;
@@ -3477,45 +3475,70 @@ function TodoModule() {
         )}
 
         {/* ── FAIT ── */}
-        {tab==="fait"&&(
-          <div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:8,paddingBottom:4}}>
-              {[["week","Cette semaine"],["month","Ce mois"],["prev_month","Mois préc."],["all","Tout"]].map(([k,l])=>(
-                <button key={k} onClick={()=>setDonePeriod(k)} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${donePeriod===k?C.accent:C.border}`,background:donePeriod===k?C.accentBg:"transparent",color:donePeriod===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:8,paddingBottom:4}}>
-              {[["all","Tous"],["projet","Projets"],["memo","Mémos"],["waiting","Waiting"],["someday","Someday"]].map(([k,l])=>(
-                <button key={k} onClick={()=>setDoneGTD(k)} style={{flexShrink:0,padding:"5px 10px",borderRadius:999,border:`1px solid ${doneGTD===k?C.accent:C.border}`,background:doneGTD===k?C.accentBg:"transparent",color:doneGTD===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:4}}>
-              {[["all","Toutes",C.accent],...Object.entries(SPHERES).map(([k,v])=>[k,v.label,v.c])].map(([k,l,c])=>(
-                <button key={k} onClick={()=>setDoneSphere(k)} style={{flexShrink:0,padding:"5px 10px",borderRadius:999,border:`1px solid ${doneSphere===k?c:C.border}`,background:doneSphere===k?c+"22":"transparent",color:doneSphere===k?c:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-            <div style={{fontSize:12,color:C.faint,marginBottom:12}}>{doneItems.length} tâche{doneItems.length!==1?"s":""} accomplie{doneItems.length!==1?"s":""}</div>
-            {doneItems.length===0
-              ? <div style={{fontSize:13,color:C.faint,textAlign:"center",padding:"32px 0"}}>Aucune tâche accomplie sur cette période.</div>
-              : doneItems.map(item=>{
-                  const sc=SPHERES[item.sphere]?.c||C.border;
-                  return (
-                    <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${sc}`,opacity:0.65}}>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:13,color:C.muted,textDecoration:"line-through"}}>{item.name}</div>
-                        <div style={{display:"flex",gap:8,marginTop:4,flexWrap:"wrap"}}>
-                          <span style={{fontSize:10,color:C.green,fontWeight:600}}>✓ Fait</span>
-                          {item.doneAt&&<span style={{fontSize:10,color:C.faint}}>{item.doneAt.slice(0,10)}</span>}
-                          {item.sphere&&<span style={{fontSize:10,color:sc}}>{SPHERES[item.sphere]?.label}</span>}
+        {tab==="fait"&&(()=>{
+          const pad=n=>String(n).padStart(2,"0");
+          const [cy,cm]=projCalMonth.split("-").map(Number);
+          const dstr=d=>`${cy}-${pad(cm)}-${pad(d)}`;
+          const startDow=(new Date(cy,cm-1,1).getDay()+6)%7;
+          const nb=new Date(cy,cm,0).getDate();
+          const doneProj=todos.filter(t=>t.done&&t.doneAt&&(doneGTD==="all"||t.gtd===doneGTD));
+          const byDate={}; doneProj.forEach(p=>{const d=p.doneAt.slice(0,10);(byDate[d]=byDate[d]||[]).push(p);});
+          const shift=delta=>{const d=new Date(cy,cm-1+delta,1);setProjCalMonth(`${d.getFullYear()}-${pad(d.getMonth()+1)}`);};
+          const monthTotal=doneProj.filter(p=>p.doneAt.slice(0,7)===projCalMonth).length;
+          const selList=byDate[projCalSel]||[];
+          const cells=[]; for(let i=0;i<startDow;i++)cells.push(null); for(let d=1;d<=nb;d++)cells.push(d);
+          const DL=["L","M","M","J","V","S","D"];
+          const TYPES=[["all","Tous"],["projet","Projets"],["memo","Mémos"],["waiting","Waiting"],["someday","Someday"],["inbox","Tâches"]];
+          return (
+            <div>
+              <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:14,paddingBottom:4}}>
+                {TYPES.map(([k,l])=>(
+                  <button key={k} onClick={()=>setDoneGTD(k)} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,border:`1px solid ${doneGTD===k?C.accent:C.border}`,background:doneGTD===k?C.accentBg:"transparent",color:doneGTD===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",fontWeight:doneGTD===k?600:400}}>{l}</button>
+                ))}
+              </div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:8}}>
+                <button onClick={()=>shift(-1)} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:16}}>‹</button>
+                <span style={{fontFamily:FONT_D,fontSize:15,fontWeight:700,color:C.text,minWidth:130,textAlign:"center"}}>{MONTH_FR[cm-1]} {cy}</span>
+                <button onClick={()=>shift(1)} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:16}}>›</button>
+              </div>
+              <div style={{fontSize:12,color:C.muted,textAlign:"center",marginBottom:14}}><span style={{color:C.green,fontWeight:600}}>{monthTotal}</span> accomplie{monthTotal>1?"s":""} ce mois</div>
+              <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 2px 12px rgba(0,0,0,0.35)",padding:10,marginBottom:16}}>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3,marginBottom:4}}>
+                  {DL.map((d,i)=><div key={i} style={{textAlign:"center",fontSize:9,color:C.faint,fontWeight:700}}>{d}</div>)}
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+                  {cells.map((d,i)=>{
+                    if(!d) return <div key={i}/>;
+                    const ds=dstr(d); const has=(byDate[ds]||[]).length>0; const isSel=ds===projCalSel; const isToday=ds===today;
+                    return (
+                      <button key={i} onClick={()=>setProjCalSel(ds)} style={{height:38,borderRadius:9,cursor:"pointer",fontFamily:"inherit",padding:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:2,background:isSel?C.accentBg:"transparent",border:`1px solid ${isSel?C.accent:isToday?C.borderMid:"transparent"}`,transition:TR}}>
+                        <span style={{fontFamily:FONT_D,fontSize:12,fontWeight:isToday?800:600,color:isToday?C.accent:C.text,fontVariantNumeric:"tabular-nums",lineHeight:1}}>{d}</span>
+                        <span style={{width:5,height:5,borderRadius:"50%",background:has?C.green:"transparent",boxShadow:has?`0 0 5px ${C.green}`:"none"}}/>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{fontSize:11,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",fontWeight:700,marginBottom:8,padding:"0 4px"}}>{fmtDate(projCalSel)}</div>
+              {selList.length===0
+                ? <div style={{fontSize:13,color:C.faint,textAlign:"center",padding:"24px 0"}}>Rien d'accompli ce jour.</div>
+                : selList.map(p=>{
+                    const sc=SPHERES[p.sphere]?.c||C.border;
+                    return (
+                      <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${sc}`}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,color:C.text,fontWeight:600}}>{p.name}</div>
+                          {p.sphere&&<span style={{fontSize:10,color:sc}}>{SPHERES[p.sphere]?.label}</span>}
                         </div>
+                        <Btn onClick={()=>{restoreTodo(p.id);showToast("Projet restauré.");}} variant="ghost" style={{fontSize:11,padding:"5px 10px",color:C.muted,flexShrink:0}}>↩</Btn>
                       </div>
-                      <Btn onClick={()=>{restoreTodo(item.id);showToast("Tâche restaurée.");}} variant="ghost" style={{fontSize:11,padding:"5px 10px",color:C.muted,flexShrink:0}}>↩</Btn>
-                    </div>
-                  );
-                })
-            }
-          </div>
-        )}
+                    );
+                  })
+              }
+            </div>
+          );
+        })()}
+
       </div>
 
 
@@ -3602,6 +3625,7 @@ function EmojiInput({ value, onSave }) {
 // HABITUDES
 // ─────────────────────────────────────────────────────────────────────────────
 function HabitudesModule() {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [view, setView]     = useState("today");
   const [newName, setNewName]  = useState("");
@@ -3677,10 +3701,24 @@ function HabitudesModule() {
   const done=habits.filter(h=>habitValidated(h,t)).length;
   const VIEWS=[["today","Aujourd'hui"],["week","Semaine"],["mois","Mois"],["manage","Gérer"]];
 
+  const dayPct = habits.length ? Math.round(done/habits.length*100) : 0;
+  const RING=44, RSW=4, RR=(RING-RSW)/2, RC=2*Math.PI*RR;
   return (
-    <div>
-      <PageHeader title="🔥 Habitudes" />
-      <div style={{ padding:"16px 16px 100px" }}>
+    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+      <CFHeader eyebrow="Discipline" title="Habitudes"
+        action={
+          <div style={{position:"relative",width:RING,height:RING,flexShrink:0}}>
+            <svg width={RING} height={RING} style={{transform:"rotate(-90deg)",display:"block"}}>
+              <circle cx={RING/2} cy={RING/2} r={RR} fill="none" stroke={C.surface3} strokeWidth={RSW} />
+              <circle cx={RING/2} cy={RING/2} r={RR} fill="none" stroke={dayPct>=100?C.green:C.accent} strokeWidth={RSW}
+                strokeDasharray={RC} strokeDashoffset={RC*(1-dayPct/100)} strokeLinecap="round"
+                style={{transition:"stroke-dashoffset 0.5s cubic-bezier(0.4,0,0.2,1)",filter:`drop-shadow(0 0 4px ${dayPct>=100?C.green:C.accent})`}} />
+            </svg>
+            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:FONT_D,fontSize:12,fontWeight:800,color:dayPct>=100?C.green:C.text,fontVariantNumeric:"tabular-nums"}}>{dayPct}</div>
+          </div>
+        }
+      />
+      <div style={{ padding:"4px 16px 100px" }}>
         {/* View tabs */}
         <div style={{ display:"flex", gap:6, marginBottom:20, overflowX:"auto", paddingBottom:4 }}>
           {VIEWS.map(([id,label]) => {
@@ -4142,6 +4180,7 @@ function SessionLogForm({ onClose }) {
 }
 
 function WPReview({ sessions, onDelete, onEdit }) {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [expanded, setExpanded] = useState({});
   const toggle = d => setExpanded(e => ({...e,[d]:!e[d]}));
 
@@ -4203,7 +4242,39 @@ function WPReview({ sessions, onDelete, onEdit }) {
   );
 }
 
+// ── Tokens DA Cyber Focus (theme-light) — partagés par les modules reskinnés ──
+const CF = {
+  bg:"#0B0714", surface:"#181225", surface2:"#181225", surface3:"#221A36",
+  border:"rgba(168,85,247,0.18)", borderMid:"rgba(168,85,247,0.38)",
+  accent:"#A855F7", accent2:"#EC4899", accentBg:"rgba(168,85,247,0.16)",
+  text:"#F4F2FF", muted:"#9990C0", faint:"#6B6390",
+  green:"#34D399", greenBg:"rgba(52,211,153,0.14)",
+  red:"#FB7185", redBg:"rgba(251,113,133,0.14)",
+  blue:"#60A5FA", blueBg:"rgba(96,165,250,0.14)",
+  purple:"#A855F7", purpleBg:"rgba(168,85,247,0.16)",
+  amber:"#FBBF24", amberBg:"rgba(251,191,36,0.16)",
+  orange:"#FB923C", pink:"#EC4899", cyan:"#22D3EE",
+};
+const CF_GRAD = "linear-gradient(135deg,#A855F7,#EC4899)";
+const CF_GLOW = "0 0 28px rgba(168,85,247,0.45)";
+const CF_GLOW_SM = "0 0 16px rgba(168,85,247,0.40)";
+const CF_FONT = "var(--font-display)";
+
+// En-tête réutilisable nouvelle DA — transparent, fondu dans le fond commun (aucun ruban)
+function CFHeader({ eyebrow, title, action }) {
+  return (
+    <div style={{ padding:"22px 16px 12px", display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12 }}>
+      <div>
+        {eyebrow && <div style={{ fontSize:10, color:CF.accent, textTransform:"uppercase", letterSpacing:"0.18em", fontWeight:700, marginBottom:4 }}>{eyebrow}</div>}
+        <div style={{ fontFamily:CF_FONT, fontSize:26, fontWeight:800, color:CF.text, letterSpacing:"-0.02em", lineHeight:1 }}>{title}</div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
 function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [sessions, setSessions] = useState(() => getLS("lp_workperf", []));
   const [view, setView] = useState("today");
   const [form, setForm] = useState({ tache:"",temps:"",type:"DEEP",domaine:"BUSINESS",efficience:"💡💡💡" });
@@ -4227,28 +4298,45 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
   const deepToday=todaySessions.filter(s=>s.type==="DEEP").reduce((a,s)=>a+s.temps,0);
   const weekTotal=weekSessions.reduce((a,s)=>a+s.temps,0);
   return (
-    <div>
-      <PageHeader title="⏱️️ WorkPerf"
-        action={<button onClick={()=>setShowChoice(true)} style={{background:GRAD,color:"#fff",border:"none",padding:"7px 16px",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer",boxShadow:GLOW_SM}}>+ Session</button>}
-      />
+    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+      <CFHeader eyebrow="Deep Work" title="WorkPerf" action={<button onClick={()=>setShowChoice(true)} style={{background:GRAD,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:GLOW_SM,fontFamily:"inherit",minHeight:44}}>+ Session</button>}/>
       {showChoice && <SessionChoiceModal onClose={()=>setShowChoice(false)} onLive={()=>{setShowChoice(false);setShowLive(true);}} onLog={()=>{setShowChoice(false);setShowForm(true);}} />}
       {showLive && <LiveStartForm onClose={()=>setShowLive(false)} onLaunch={(name,cat)=>{onSessionStart({name,category:cat,startTime:Date.now()});}} />}
       <div style={{padding:"16px 16px 100px"}}>
-        {/* KPIs */}
-        {view==="today" && (
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:16}}>
-            {[
-              {val:fmtMin(totalToday)||"—",label:"Total auj.",c:C.accent},
-              {val:fmtMin(deepToday)||"—",label:"DEEP auj.",c:C.purple},
-              {val:fmtMin(weekTotal)||"—",label:"Semaine",c:C.blue},
-            ].map(({val,label,c})=>(
-              <div key={label} style={{background:C.surface2,border:`1px solid ${C.border}`,borderTop:`2px solid ${c}`,borderRadius:16,padding:"14px 10px",textAlign:"center"}}>
-                <div style={{fontSize:20,fontWeight:700,color:c,lineHeight:1}}>{val}</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:5}}>{label}</div>
+        {/* HERO focus — boxless, anneau dégradé (qualité Deep) */}
+        {view==="today" && (()=>{
+          const deepShare = totalToday>0 ? Math.round(deepToday/totalToday*100) : 0;
+          const RING=148, SW=12, R=(RING-SW)/2, CIRC=2*Math.PI*R, off=CIRC*(1-deepShare/100);
+          const Metric = ({value,label,color}) => (
+            <div style={{textAlign:"center",minWidth:74}}>
+              <div style={{fontFamily:FONT_D,fontSize:22,fontWeight:800,color:color||C.text,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{value}</div>
+              <div style={{fontSize:10,color:C.muted,marginTop:6,textTransform:"uppercase",letterSpacing:"0.08em",fontWeight:600}}>{label}</div>
+            </div>
+          );
+          return (
+            <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,margin:"10px 0 30px",flexWrap:"wrap"}}>
+              <Metric value={fmtMin(totalToday)||"—"} label="Total auj." color={C.accent} />
+              <div style={{position:"relative",width:RING,height:RING,flexShrink:0}}>
+                <svg width={RING} height={RING} style={{transform:"rotate(-90deg)",display:"block"}}>
+                  <defs>
+                    <linearGradient id="wpRing" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#22D3EE"/><stop offset="55%" stopColor="#A855F7"/><stop offset="100%" stopColor="#EC4899"/>
+                    </linearGradient>
+                  </defs>
+                  <circle cx={RING/2} cy={RING/2} r={R} fill="none" stroke={C.surface3} strokeWidth={SW}/>
+                  <circle cx={RING/2} cy={RING/2} r={R} fill="none" stroke="url(#wpRing)" strokeWidth={SW}
+                    strokeDasharray={CIRC} strokeDashoffset={off} strokeLinecap="round"
+                    style={{transition:"stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1)",filter:"drop-shadow(0 0 6px rgba(168,85,247,0.7))"}}/>
+                </svg>
+                <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+                  <div style={{fontFamily:FONT_D,fontSize:36,fontWeight:800,color:C.text,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{deepShare}<span style={{fontSize:18,fontWeight:600}}>%</span></div>
+                  <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginTop:4,fontWeight:700}}>Deep</div>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+              <Metric value={fmtMin(weekTotal)||"—"} label="Semaine" color={C.blue} />
+            </div>
+          );
+        })()}
 
         {/* Inline add form */}
         {showForm && (
@@ -4297,6 +4385,7 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
 }
 
 function WPCard({ s, onDelete, onEdit }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({});
   const tc = WP_TYPE_C[s.type] || C.muted;
@@ -4354,18 +4443,19 @@ function WPCard({ s, onDelete, onEdit }) {
   }
 
   return (
-    <div style={{display:"flex",alignItems:"center",gap:12,padding:"12px 16px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${tc}`}}>
-      <div style={{flex:1}}>
-        <div style={{fontSize:14,fontWeight:500,color:C.text}}>{s.tache}</div>
-        <div style={{display:"flex",gap:8,marginTop:4}}>
-          <span style={{fontSize:11,color:tc,fontWeight:600}}>{s.type}</span>
+    <div style={{display:"flex",alignItems:"center",gap:12,padding:"13px 6px",borderBottom:`1px solid ${C.border}`}}>
+      <div style={{width:8,height:8,borderRadius:"50%",background:tc,boxShadow:`0 0 8px ${tc}`,flexShrink:0}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:14,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.tache}</div>
+        <div style={{display:"flex",gap:8,marginTop:3}}>
+          <span style={{fontSize:11,color:tc,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em"}}>{s.type}</span>
           <span style={{fontSize:11,color:C.muted}}>{s.domaine}</span>
           <span style={{fontSize:11,color:C.muted}}>{s.efficience}</span>
         </div>
       </div>
       <div style={{textAlign:"right",flexShrink:0}}>
-        <div style={{fontSize:16,fontWeight:700,color:C.accent}}>{fmtMin(s.temps)}</div>
-        <div style={{display:"flex",gap:10,justifyContent:"flex-end",marginTop:2}}>
+        <div style={{fontFamily:FONT_D,fontSize:17,fontWeight:800,color:C.text,fontVariantNumeric:"tabular-nums"}}>{fmtMin(s.temps)}</div>
+        <div style={{display:"flex",gap:12,justifyContent:"flex-end",marginTop:2}}>
           <span onClick={startEdit} style={{fontSize:12,color:C.muted,cursor:"pointer"}}>✎</span>
           <span onClick={()=>onDelete(s.id)} style={{fontSize:12,color:C.muted,cursor:"pointer"}}>✕</span>
         </div>
@@ -4378,6 +4468,7 @@ function WPCard({ s, onDelete, onEdit }) {
 // DAILY PAPER
 // ─────────────────────────────────────────────────────────────────────────────
 function DJRating({ label, options, value, onChange }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM;
   const idx = options.indexOf(value);
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -4401,41 +4492,48 @@ function DJRating({ label, options, value, onChange }) {
 }
 
 function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem }) {
+  const C = CF;
   const [showItemModal, setShowItemModal] = useState(false);
   const FIXED = [
-    { key:'win',      label:'WIN',        icon:'🏆', color:'#10b981' },
-    { key:'loss',     label:'LOSS',       icon:'💔', color:'#ef4444' },
-    { key:'ameliorer',label:'À AMÉLIORER',icon:'🔧', color:'#3b82f6' },
+    { key:'win',      label:'WIN',        icon:'🏆', color:'#34D399' },
+    { key:'loss',     label:'LOSS',       icon:'💔', color:'#FB7185' },
+    { key:'ameliorer',label:'À AMÉLIORER',icon:'🔧', color:'#60A5FA' },
   ];
   const todayCustom = entry.customItems || [];
   const todayCustomFull = todayCustom.map(tc => {
     const g = customGlobalItems.find(g=>g.id===tc.itemId);
     return g ? { ...g, content: tc.content } : null;
   }).filter(Boolean);
+  const block = (color, head, value, onChange, placeholder) => (
+    <div style={{display:'flex',gap:12,paddingBottom:16,marginBottom:16,borderBottom:`1px solid ${C.border}`}}>
+      <div style={{width:3,borderRadius:3,background:color,flexShrink:0,boxShadow:`0 0 8px ${color}`}}/>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{marginBottom:6}}>{head}</div>
+        <textarea value={value} onChange={onChange} placeholder={placeholder} rows={2}
+          style={{width:'100%',background:'transparent',border:'none',color:C.text,resize:'vertical',fontFamily:'inherit',fontSize:14,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
+      </div>
+    </div>
+  );
   return (
     <div>
-      {FIXED.map(({key,label,icon,color})=>(
-        <div key={key} style={{borderLeft:`4px solid ${color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
-          <label style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{icon} {label}</label>
-          <textarea value={entry[key]||''} onChange={e=>onFieldChange(key,e.target.value)}
-            placeholder={key==='win'?'Victoires de la journée...':key==='loss'?'Ce qui n\'a pas marché...':'Ce que tu veux améliorer...'}
-            rows={3} style={{width:'100%',background:'transparent',border:'none',color:C.text,resize:'vertical',fontFamily:'inherit',fontSize:14,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
-        </div>
+      {FIXED.map(({key,label,icon,color})=>block(
+        color,
+        <span style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.12em'}}>{icon} {label}</span>,
+        entry[key]||'', e=>onFieldChange(key,e.target.value),
+        key==='win'?'Victoires de la journée...':key==='loss'?'Ce qui n\'a pas marché...':'Ce que tu veux améliorer...'
       ))}
-      {todayCustomFull.map(item=>(
-        <div key={item.id} style={{borderLeft:`4px solid ${item.color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
-          <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-            <span style={{color:item.color,fontWeight:700,fontSize:11,textTransform:'uppercase'}}>{item.name}</span>
-            <div style={{display:'flex',gap:8}}>
-              <span onClick={()=>onEditGlobalItem(item.id)} style={{fontSize:14,cursor:'pointer',color:C.muted}}>✏️</span>
-              <span onClick={()=>onRemoveCustomItem(item.id)} style={{fontSize:14,cursor:'pointer',color:C.faint}}>🗑️</span>
-            </div>
+      {todayCustomFull.map(item=>block(
+        item.color,
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{color:item.color,fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'0.12em'}}>{item.name}</span>
+          <div style={{display:'flex',gap:10}}>
+            <span onClick={()=>onEditGlobalItem(item.id)} style={{fontSize:13,cursor:'pointer',color:C.muted}}>✏️</span>
+            <span onClick={()=>onRemoveCustomItem(item.id)} style={{fontSize:13,cursor:'pointer',color:C.faint}}>🗑️</span>
           </div>
-          <textarea value={item.content||''} onChange={e=>onUpdateCustomContent(item.id,e.target.value)}
-            rows={3} style={{width:'100%',background:'transparent',border:'none',color:C.text,resize:'vertical',fontFamily:'inherit',fontSize:14,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
-        </div>
+        </div>,
+        item.content||'', e=>onUpdateCustomContent(item.id,e.target.value), ''
       ))}
-      <button onClick={()=>setShowItemModal(true)} style={{width:'100%',padding:'12px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+      <button onClick={()=>setShowItemModal(true)} style={{width:'100%',padding:'12px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
         + Ajouter un item
       </button>
       {showItemModal && (
@@ -4448,6 +4546,7 @@ function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCust
 }
 
 function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM;
   const [tab, setTab] = useState('nouveau');
   const [name, setName] = useState('');
   const [color, setColor] = useState(ITEM_COLORS[0]);
@@ -4511,6 +4610,7 @@ function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
 }
 
 function EditGlobalItemModal({ item, onClose, onSave }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM;
   const [name, setName] = useState(item.name);
   const [color, setColor] = useState(item.color);
   return (
@@ -4533,6 +4633,7 @@ function EditGlobalItemModal({ item, onClose, onSave }) {
 }
 
 function DailyPaperModule() {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [daily, setDaily]     = useState(() => getLS("lp_daily", {}));
   const [customGlobalItems, setCustomGlobalItems] = useState(() => getLS("lp_custom_items", []));
   const [selDate, setSelDate] = useState(todayStr());
@@ -4568,9 +4669,9 @@ function DailyPaperModule() {
   const editingItem = customGlobalItems.find(g=>g.id===editingItemId);
 
   return (
-    <div>
-      <PageHeader title="📓 Daily Paper" />
-      <div style={{padding:"16px 16px 100px"}}>
+    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+      <CFHeader eyebrow="Journal" title="Daily Paper" />
+      <div style={{padding:"4px 16px 100px"}}>
         {/* Date nav */}
         <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,justifyContent:"center"}}>
           <button onClick={prevDay} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"8px 16px",borderRadius:12,cursor:"pointer",fontFamily:"inherit",fontSize:16}}>←</button>
@@ -4580,13 +4681,14 @@ function DailyPaperModule() {
           <button onClick={nextDay} disabled={isToday} style={{background:C.surface2,border:`1px solid ${C.border}`,color:isToday?C.muted:C.text,padding:"8px 16px",borderRadius:12,cursor:isToday?"default":"pointer",fontFamily:"inherit",fontSize:16,opacity:isToday?0.35:1}}>→</button>
         </div>
 
-        {/* Indicators */}
-        <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:18,padding:16,marginBottom:14}}>
-          <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+        {/* Indicators — boxless */}
+        <div style={{marginBottom:20}}>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
             <Select value={entry.type} options={DJ_TYPES} onChange={v=>setField("type",v)} style={{flex:1,minWidth:140}} />
             <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Remarque..." style={{flex:1}} />
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Énergie &amp; ressenti</div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
             <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
               <DJRating label="Matin"  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
               <DJRating label="Midi"   options={DJ_ENERGY} value={entry.noon}    onChange={v=>setField("noon",v)} />
@@ -4645,6 +4747,7 @@ function DailyPaperModule() {
 // LOGS
 // ─────────────────────────────────────────────────────────────────────────────
 function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteDaily, onUpdateDaily }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM;
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(false);
   const t=todayStr(); const raw=daily[date]; const paperEntry=raw?djEntry(raw):null; const editEntry=djEntry(raw);
@@ -4806,6 +4909,7 @@ function WRSection({ title, children }) {
 }
 
 function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const wkEnd = weekEnd(wkStart);
   const locked = isWeekLocked(wkStart);
   const reviewedWeekId = getISOWeekId(new Date(wkStart + 'T12:00:00'));
@@ -4889,14 +4993,14 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   return (
     <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.82)",backdropFilter:"blur(6px)"}} />
-      <div style={{position:"relative",width:"min(1000px,98vw)",maxHeight:"94vh",display:"flex",flexDirection:"column",background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,boxShadow:"0 0 60px rgba(139,92,246,0.3), 0 24px 80px rgba(0,0,0,0.8)",animation:"slide-up 0.22s ease"}}>
+      <div className="theme-light" style={{position:"relative",width:"min(1280px,98vw)",maxHeight:"94vh",display:"flex",flexDirection:"column",background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,boxShadow:"0 0 60px rgba(168,85,247,0.35), 0 24px 80px rgba(0,0,0,0.8)",animation:"slide-up 0.22s ease",fontFamily:"var(--font-body)"}}>
 
-        {/* Sticky header */}
-        <div style={{padding:"20px 28px 16px",borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
-          <span style={{fontSize:26}}>📊</span>
+        {/* Header */}
+        <div style={{padding:"22px 28px 16px",display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
           <div style={{flex:1}}>
-            <div style={{fontSize:20,fontWeight:800,color:C.text,letterSpacing:"-0.01em"}}>Weekly Review</div>
-            <div style={{fontSize:13,color:C.muted}}>{fmtD(wkStart)} → {fmtD(wkEnd)}</div>
+            <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.18em",fontWeight:700,marginBottom:4}}>Rétrospective</div>
+            <div style={{fontFamily:FONT_D,fontSize:24,fontWeight:800,color:C.text,letterSpacing:"-0.02em",lineHeight:1}}>Weekly Review</div>
+            <div style={{fontSize:13,color:C.muted,marginTop:4}}>{fmtD(wkStart)} → {fmtD(wkEnd)}</div>
           </div>
           {locked
             ? <span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.amber}`,fontWeight:600}}>🔒 Verrouillée</span>
@@ -4916,10 +5020,10 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
               {icon:"⚡",label:"Temps de travail",value:fmtHM(sessionsMins),sub:`${sessionsWeek.length} sessions`,color:C.blue},
               {icon:"📓",label:"Journaux remplis",value:`${dailyCount}/7`,sub:`entrées daily`,color:C.purple},
             ].map(({icon,label,value,sub,color})=>(
-              <div key={label} style={{padding:"16px",background:C.surface2,borderRadius:16,border:`1px solid ${C.border}`,textAlign:"center"}}>
+              <div key={label} style={{padding:"16px",background:C.surface2,borderRadius:16,border:`1px solid ${C.border}`,textAlign:"center",boxShadow:"0 2px 12px rgba(0,0,0,0.35)"}}>
                 <div style={{fontSize:24,marginBottom:8}}>{icon}</div>
-                <div style={{fontSize:26,fontWeight:800,color,lineHeight:1}}>{value}</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:4,lineHeight:1.3}}>{label}</div>
+                <div style={{fontFamily:FONT_D,fontSize:28,fontWeight:800,color,lineHeight:1,fontVariantNumeric:"tabular-nums"}}>{value}</div>
+                <div style={{fontSize:11,color:C.muted,marginTop:6,lineHeight:1.3}}>{label}</div>
                 <div style={{fontSize:10,color:C.faint,marginTop:2}}>{sub}</div>
               </div>
             ))}
@@ -5239,6 +5343,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 }
 
 function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyReview, onPerso }) {
+  const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const { todos: allTodos, restoreTodo } = useTodos();
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
@@ -5359,8 +5464,14 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
   const sortedWRQ = Object.keys(wrByQ).sort((a,b)=>b.localeCompare(a));
 
   return (
-    <div style={{minHeight:"100%",display:"flex",flexDirection:"column"}}>
-      <PageHeader title="📋 Logs" onBack={onBack} />
+    <div className="theme-light" style={{minHeight:"100%",display:"flex",flexDirection:"column",fontFamily:"var(--font-body)",color:C.text}}>
+      <div style={{padding:"20px 16px 10px",display:"flex",alignItems:"center",gap:12}}>
+        <span onClick={onBack} style={{cursor:"pointer",color:C.muted,fontSize:24,lineHeight:1}}>←</span>
+        <div>
+          <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.18em",fontWeight:700,marginBottom:4}}>Archives</div>
+          <div style={{fontFamily:FONT_D,fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-0.02em",lineHeight:1}}>Logs</div>
+        </div>
+      </div>
 
       {/* Weekly Review button */}
       <div style={{padding:"12px 16px 0"}}>
@@ -5382,78 +5493,8 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
             {[["pc","🖥 PC"],["mobile","📱 Mobile"]].map(([v,lbl])=>(
               <button key={v} onClick={()=>onSetViewMode(v)} style={{padding:"6px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${viewMode===v?C.accent:C.border}`,background:viewMode===v?C.accentBg:"transparent",color:viewMode===v?C.accent:C.muted,fontWeight:viewMode===v?600:400}}>{lbl}</button>
             ))}
-            {onSignOut&&<button onClick={onSignOut} style={{marginLeft:"auto",padding:"6px 14px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${C.border}`,background:"transparent",color:C.muted}}>Déconnexion</button>}
           </div>
         )}
-
-        {/* Deux colonnes */}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,alignItems:"start"}}>
-          {/* Gauche — Logs */}
-          <div>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>📋 Logs</div>
-            {logsContent}
-          </div>
-
-          {/* Droite — Projets terminés */}
-          <div>
-            <div style={{fontSize:10,color:C.green,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>✅ Projets terminés</div>
-            {sortedQR.length===0
-              ? <div style={{fontSize:12,color:C.faint,textAlign:"center",padding:"32px 0"}}>Aucun projet terminé.</div>
-              : sortedQR.map(qk=>{
-                  const [yr,tq]=qk.split("-"); const qOpen=openQuartersR.has(qk);
-                  const sortedMks=Object.keys(dpByQ[qk]).sort((a,b)=>b.localeCompare(a));
-                  const tot=sortedMks.reduce((s,mk)=>s+Object.values(dpByQ[qk][mk]).reduce((ss,arr)=>ss+arr.length,0),0);
-                  return (
-                    <div key={qk} style={{marginBottom:8}}>
-                      <div onClick={()=>toggleQR(qk)} style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",userSelect:"none",marginBottom:qOpen?6:0}}>
-                        <span style={{fontSize:9,color:C.muted,width:8}}>{qOpen?"▼":"▶"}</span>
-                        <span style={{fontSize:13,fontWeight:700,color:C.text}}>{tq} {yr}</span>
-                        <span style={{fontSize:10,color:C.faint,marginLeft:"auto"}}>{tot}</span>
-                      </div>
-                      {qOpen&&sortedMks.map(mk=>{
-                        const [my,mm]=mk.split("-").map(Number); const mOpen=openMonthsR.has(mk);
-                        const sortedWks=Object.keys(dpByQ[qk][mk]).sort((a,b)=>b.localeCompare(a));
-                        const mTot=sortedWks.reduce((s,wk)=>s+dpByQ[qk][mk][wk].length,0);
-                        return (
-                          <div key={mk} style={{marginLeft:8,marginBottom:4}}>
-                            <div onClick={()=>toggleMR(mk)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",background:C.surface3,border:`1px solid ${C.border}`,borderRadius:10,cursor:"pointer",userSelect:"none",marginBottom:mOpen?4:0}}>
-                              <span style={{fontSize:9,color:C.muted,width:8}}>{mOpen?"▼":"▶"}</span>
-                              <span style={{fontSize:12,fontWeight:600,color:C.text}}>{MONTH_FR[mm-1]} {my}</span>
-                              <span style={{fontSize:10,color:C.faint,marginLeft:"auto"}}>{mTot}</span>
-                            </div>
-                            {mOpen&&sortedWks.map(wk=>{
-                              const ps=dpByQ[qk][mk][wk]; const wOpen=openWeeksR.has(wk);
-                              return (
-                                <div key={wk} style={{marginLeft:8,marginBottom:4}}>
-                                  <div onClick={()=>toggleWR(wk)} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",background:C.surface3,border:`1px solid ${C.border}`,borderRadius:8,cursor:"pointer",userSelect:"none",marginBottom:wOpen?4:0}}>
-                                    <span style={{fontSize:9,color:C.muted,width:8}}>{wOpen?"▼":"▶"}</span>
-                                    <span style={{fontSize:11,color:C.muted}}>Sem. {wkRange(wk)}</span>
-                                    <span style={{fontSize:10,color:C.faint,marginLeft:"auto"}}>{ps.length}</span>
-                                  </div>
-                                  {wOpen&&ps.map(p=>{
-                                    const sc=SPHERES[p.sphere]?.c||C.border;
-                                    return (
-                                      <div key={p.id} style={{marginLeft:8,padding:"8px 10px",borderRadius:8,marginBottom:4,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:`3px solid ${sc}`,display:"flex",alignItems:"center",gap:8}}>
-                                        <div style={{flex:1}}>
-                                          <div style={{fontSize:11,color:C.muted,textDecoration:"line-through",lineHeight:1.3}}>{p.name}</div>
-                                          {p.sphere&&<span style={{fontSize:9,color:sc}}>{SPHERES[p.sphere]?.label}</span>}
-                                        </div>
-                                        <span onClick={()=>restoreTodo(p.id)} title="Remettre en cours" style={{fontSize:14,cursor:"pointer",color:C.muted,flexShrink:0,padding:"2px 4px",borderRadius:4,border:`1px solid ${C.border}`}}>↩</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })
-            }
-          </div>
-        </div>
 
         {/* Weekly Reviews log */}
         <div style={{marginTop:28}}>
@@ -5512,20 +5553,25 @@ function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyRe
         </div>
       </div>
 
-      {/* Personnalisation — always at bottom */}
-      {onPerso && (
-        <div style={{marginTop:"auto",padding:"12px 16px",background:C.bg,borderTop:`1px solid ${C.border}`}}>
+      {/* Bas de side — Personnalisation + Déconnexion */}
+      <div style={{marginTop:"auto",padding:"12px 16px",borderTop:`1px solid ${C.border}`,display:"flex",gap:10}}>
+        {onPerso && (
           <button onClick={onPerso} style={{
-            width:"100%",padding:"12px 20px",borderRadius:14,
-            background:C.surface2,color:C.muted,fontSize:13,fontWeight:600,
-            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:"pointer",
-            display:"flex",alignItems:"center",gap:10,
+            flex:1,padding:"12px 16px",borderRadius:14,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,
+            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,
           }}>
-            <span style={{fontSize:16}}>⚙️</span>
-            Personnalisation
+            <span style={{fontSize:16}}>⚙️</span>Personnalisation
           </button>
-        </div>
-      )}
+        )}
+        {onSignOut && (
+          <button onClick={onSignOut} style={{
+            flex:1,padding:"12px 16px",borderRadius:14,background:"transparent",color:C.red,fontSize:13,fontWeight:600,
+            fontFamily:"inherit",border:`1px solid ${C.red}55`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,
+          }}>
+            <span style={{fontSize:15}}>⏻</span>Déconnexion
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -5773,7 +5819,7 @@ export default function App({ session, signOut }) {
             if(Math.abs(dx)>Math.abs(dy)&&dx>70) setLogsOpen(false);
             e.stopPropagation();
           }}
-          style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:C.bg, transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
+          style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:"#0B0714", transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
           <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} onOpenWeeklyReview={setWrModal} onPerso={()=>{setLogsOpen(false);setShowPerso(true);}} />
         </div>

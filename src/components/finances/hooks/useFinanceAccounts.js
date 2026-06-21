@@ -70,6 +70,14 @@ export function useFinanceAccounts(userId) {
     setAccounts(a => a.filter(x => x.id !== id));
   };
 
+  // Suppression définitive (les transactions liées tombent via ON DELETE CASCADE)
+  const deleteAccount = async (id) => {
+    const { error } = await supabase.from("finance_accounts").delete().eq("id", id);
+    if (error) { console.error("deleteAccount error:", error); return; }
+    setAccounts(a => a.filter(x => x.id !== id));
+    window.dispatchEvent(new Event("finance-data-changed"));
+  };
+
   const reorderAccounts = async (orderedIds) => {
     setAccounts(prev => orderedIds.map((id, i) => ({ ...prev.find(a => a.id === id), sort_order: i })));
     await Promise.all(orderedIds.map((id, i) =>
@@ -79,5 +87,5 @@ export function useFinanceAccounts(userId) {
 
   const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0);
 
-  return { accounts, totalBalance, loading, createAccount, updateAccount, archiveAccount, reorderAccounts, refetch: fetch };
+  return { accounts, totalBalance, loading, createAccount, updateAccount, archiveAccount, deleteAccount, reorderAccounts, refetch: fetch };
 }
