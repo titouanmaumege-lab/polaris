@@ -1043,7 +1043,7 @@ function RecurringFormSheet({ open, onClose, onSubmit, onDelete, recurring, acco
         </>
       )}
 
-      <label style={labelStyle}>Prochaine échéance</label>
+      <label style={labelStyle}>Commence le</label>
       <input type="date" value={nextOcc} onChange={e => setNextOcc(e.target.value)} style={{ ...sheetInput, marginBottom: 16, colorScheme: "dark" }} />
 
       {!forceSubscription && (
