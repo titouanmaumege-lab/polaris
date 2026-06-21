@@ -2185,10 +2185,94 @@ function LifePlanTree({ goals, onOpenEdit }) {
 }
 
 const OBJ_MAX_PER_LEVEL = 6;
+// Petit sélecteur d'émoji inline (même DA)
+const RM_EMOJIS = ["🗺","📊","🧠","💡","🎯","🚀","🗂️","📌","🔭","🧩","📈","🌐","🛠️","📋","✨","🔥","📅","🧭"];
+function MiroMetaEdit({ name, emoji, onMeta }) {
+  const [editName, setEditName] = useState(false);
+  const [draftName, setDraftName] = useState(name);
+  const [pick, setPick] = useState(false);
+  useEffect(() => setDraftName(name), [name]);
+  const commit = () => { onMeta(draftName.trim() || "Roadmap", emoji); setEditName(false); };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
+      <span onClick={() => setPick(p => !p)} title="Changer l'émoji" style={{ fontSize: 20, cursor: "pointer", lineHeight: 1 }}>{emoji}</span>
+      {editName
+        ? <input autoFocus value={draftName} onChange={e => setDraftName(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraftName(name); setEditName(false); } }}
+            style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: C.text, background: "transparent", border: "none", borderBottom: `1px solid ${C.accent}`, outline: "none", width: 200, letterSpacing: "-0.01em" }} />
+        : <span onClick={() => setEditName(true)} title="Renommer" style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: C.text, cursor: "pointer", letterSpacing: "-0.01em" }}>{name}</span>}
+      {pick && (
+        <div style={{ position: "absolute", top: "120%", left: 0, zIndex: 50, background: C.surface2, border: `1px solid ${C.borderMid}`, borderRadius: 14, padding: 10, display: "grid", gridTemplateColumns: "repeat(6, 34px)", gap: 4, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
+          {RM_EMOJIS.map(e => (
+            <button key={e} onClick={() => { onMeta(name, e); setPick(false); }} style={{ width: 34, height: 34, borderRadius: 9, fontSize: 18, cursor: "pointer", background: emoji === e ? C.accentBg : "transparent", border: `1px solid ${emoji === e ? C.accent : "transparent"}` }}>{e}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Tableau MIRO intégré (live-embed iframe) — éditable si connecté à Miro
+function MiroRoadmap({ name = "Roadmap", emoji = "🗺", onMeta }) {
+  const [raw, setRaw] = useState(() => getLS("lp_roadmap_miro", ""));
+  const [editing, setEditing] = useState(() => !getLS("lp_roadmap_miro", ""));
+  const [draft, setDraft] = useState(() => getLS("lp_roadmap_miro", ""));
+
+  const toEmbed = (s) => {
+    if (!s) return "";
+    const t = s.trim();
+    const srcM = t.match(/src=["']([^"']+)["']/); // iframe collé
+    if (srcM) return srcM[1];
+    if (t.includes("live-embed")) return t;
+    const idM = t.match(/board\/([^/?\s]+)/); // lien de partage Miro
+    if (idM) return `https://miro.com/app/live-embed/${idM[1]}/?autoplay=true`;
+    return t;
+  };
+  const embed = toEmbed(raw);
+  const save = () => { const v = draft.trim(); setRaw(v); setLS("lp_roadmap_miro", v); setEditing(false); };
+
+  if (editing || !embed) {
+    return (
+      <div style={{ maxWidth: 560 }}>
+        <div style={{ marginBottom: 14 }}><MiroMetaEdit name={name} emoji={emoji} onMeta={onMeta} /></div>
+        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+          Colle le <b style={{ color: C.text }}>lien de partage</b> de ton tableau Miro (ou le code d'intégration iframe).<br />
+          Dans Miro : <b style={{ color: C.text }}>Partager → Intégrer → copier</b>. Vérifie que le partage autorise la modification pour pouvoir éditer ici.
+        </div>
+        <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={3} placeholder="https://miro.com/app/board/uXjV…=/  ou  <iframe src=…>"
+          style={{ width: "100%", background: C.surface3, border: `1px solid ${C.border}`, color: C.text, borderRadius: 12, padding: "12px 14px", fontSize: 13, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", marginBottom: 12 }} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={save} disabled={!draft.trim()} style={{ background: GRAD, color: "#fff", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: draft.trim() ? 1 : 0.5, boxShadow: GLOW_SM }}>Afficher la roadmap</button>
+          {embed && <button onClick={() => { setDraft(raw); setEditing(false); }} style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 12, padding: "11px 18px", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Annuler</button>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+        <MiroMetaEdit name={name} emoji={emoji} onMeta={onMeta} />
+        <button onClick={() => { setDraft(raw); setEditing(true); }} style={{ background: C.surface2, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Changer le tableau</button>
+      </div>
+      <div style={{ position: "relative", width: "100%", height: "72vh", borderRadius: 18, overflow: "hidden", border: `1px solid ${C.borderMid}`, background: C.surface2 }}>
+        <iframe
+          src={embed} title="Roadmap Miro"
+          style={{ width: "100%", height: "100%", border: "none", display: "block" }}
+          allow="fullscreen; clipboard-read; clipboard-write"
+          allowFullScreen
+        />
+      </div>
+    </div>
+  );
+}
+
 function ObjectifsModule({ initialTab = "lt" }) {
   const [goals, setGoals]   = useState(()=>getLS("lp_goals",NOTION_GOALS));
   const [tab, setTab]       = useState(initialTab);
   useEffect(()=>{ if(initialTab) setTab(initialTab); }, [initialTab]);
+  const [rmName, setRmName]   = useState(()=>getLS("lp_roadmap_name","Roadmap"));
+  const [rmEmoji, setRmEmoji] = useState(()=>getLS("lp_roadmap_emoji","🗺"));
+  const saveRmMeta = (name, emoji) => { setRmName(name); setRmEmoji(emoji); setLS("lp_roadmap_name", name); setLS("lp_roadmap_emoji", emoji); };
   const [newTitre, setNewTitre] = useState("");
   const [newSpaces, setNewSpaces] = useState([]);
   const [newParentId, setNewParentId] = useState("");
@@ -2229,7 +2313,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
     setToast(null);
   };
   return (
-    <div className="theme-light" style={{minHeight:"100dvh"}}>
+    <div className="theme-light" style={{minHeight:"100dvh", ...(tab==="roadmap" ? { background:"#000", backgroundImage:"none" } : {})}}>
       <CFHeader eyebrow="Vision &amp; cap" title="Objectifs" />
       <div style={{padding:"4px 16px 100px"}}>
         <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
@@ -2248,9 +2332,16 @@ function ObjectifsModule({ initialTab = "lt" }) {
               </button>
             );
           })}
+          {(() => { const rm=tab==="roadmap"; return (
+            <button onClick={()=>setTab("roadmap")} style={{flexShrink:0,padding:"8px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${rm?"#22D3EE":C.border}`,background:rm?"rgba(34,211,238,0.16)":C.surface2,color:rm?"#22D3EE":C.muted,fontWeight:rm?700:400,display:"flex",alignItems:"center",gap:6}}>
+              <span>{rmEmoji}</span><span>{rmName}</span>
+            </button>
+          );})()}
         </div>
 
-        {tab==="lifeplan" ? (
+        {tab==="roadmap" ? (
+          <MiroRoadmap name={rmName} emoji={rmEmoji} onMeta={saveRmMeta} />
+        ) : tab==="lifeplan" ? (
           <LifePlanTree goals={goals} onOpenEdit={openEdit} />
         ) : (<>
         {/* En-tête niveau + crayon d'ajout */}
