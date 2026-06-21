@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { syncToSupabase } from "./supabase";
 import BaseModule from "./components/knowledge/BaseModule";
+import FinancesModule from "./components/finances/FinancesModule";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
@@ -437,6 +438,7 @@ const BOTTOM_NAV = [
   { id: "daily",     icon: "📓", label: "Daily" },
   { id: "objectifs", icon: "⭐", label: "Goals" },
   { id: "base",      icon: "📚", label: "Base" },
+  { id: "finances",  icon: "💰", label: "Finances" },
 ];
 
 function BottomNav({ current, onNav, mobile, onPerso }) {
@@ -1063,6 +1065,11 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
     setWeekText(""); setShowAddWeek(false);
   };
   const toggleWeekly = id => saveWeekly(weeklyObjs.map(o => o.id === id ? (o.completed ? { ...o, completed: false, partial: true } : o.partial ? { ...o, partial: false, missed: true } : o.missed ? { ...o, missed: false } : { ...o, completed: true }) : o));
+  const [editWeekId, setEditWeekId] = useState(null);
+  const [editWeekText, setEditWeekText] = useState("");
+  const deleteWeekly = id => saveWeekly(weeklyObjs.filter(o => o.id !== id));
+  const startEditWeekly = o => { setEditWeekId(o.id); setEditWeekText(o.title); };
+  const commitEditWeekly = () => { saveWeekly(weeklyObjs.map(o => o.id === editWeekId ? { ...o, title: editWeekText.trim() || o.title } : o)); setEditWeekId(null); };
 
 
   const hlText = highlight[t] || "";
@@ -1333,19 +1340,31 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
                   <div className="home-week-grid" style={{ "--cols": Math.min(wObjs.length, 6) }}>
                     {wObjs.map(o => {
                       const s = stOf(o);
+                      const editing = editWeekId === o.id;
                       return (
-                        <div key={o.id} onClick={() => toggleWeekly(o.id)} title="Cliquer pour changer le statut" style={{
+                        <div key={o.id} onClick={() => { if (!editing) toggleWeekly(o.id); }} title={editing ? undefined : "Cliquer pour changer le statut"} style={{
                           position: "relative", overflow: "hidden", minHeight: 110, padding: "12px 14px", borderRadius: 15,
-                          display: "flex", flexDirection: "column", cursor: "pointer",
+                          display: "flex", flexDirection: "column", cursor: editing ? "default" : "pointer",
                           background: "transparent", border: `1px solid ${o.completed ? C.green + "40" : "#38BDF826"}`,
                         }}>
                           <div style={{ position: "absolute", inset: 0, zIndex: 0, transform: "translateY(10%)", WebkitMaskImage: ggMask, maskImage: ggMask }}>
                             <HikingArt idKey={o.id} fit="cover" color={o.completed ? C.green : "#38BDF8"} />
                           </div>
-                          <div style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 600, color: C.text, lineHeight: 1.28, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
+                          {editing ? (
+                            <input autoFocus value={editWeekText} onClick={e => e.stopPropagation()}
+                              onChange={e => setEditWeekText(e.target.value)}
+                              onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") commitEditWeekly(); if (e.key === "Escape") setEditWeekId(null); }}
+                              onBlur={commitEditWeekly}
+                              style={{ position: "relative", zIndex: 1, width: "100%", boxSizing: "border-box", background: "rgba(0,0,0,0.45)", border: `1px solid #38BDF877`, color: C.text, padding: "6px 9px", borderRadius: 9, fontSize: 12.5, fontFamily: "inherit", outline: "none" }} />
+                          ) : (
+                            <div style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 600, color: C.text, lineHeight: 1.28, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
+                          )}
                           <div style={{ flex: 1 }} />
                           <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: s.c, border: `1.5px solid ${s.c}`, boxShadow: `0 0 6px ${s.c}66` }}>{s.ic}</span>
+                            <div style={{ flex: 1 }} />
+                            <button onClick={e => { e.stopPropagation(); editing ? commitEditWeekly() : startEditWeekly(o); }} title={editing ? "Valider" : "Renommer"} style={{ width: 22, height: 22, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.border}`, color: editing ? C.green : C.muted }}>{editing ? "✓" : "✎"}</button>
+                            <button onClick={e => { e.stopPropagation(); deleteWeekly(o.id); }} title="Supprimer" style={{ width: 22, height: 22, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.border}`, color: C.muted }}>✕</button>
                           </div>
                         </div>
                       );
@@ -5735,6 +5754,7 @@ export default function App({ session, signOut }) {
         {module === "daily"     && <DailyPaperModule />}
         {module === "todo"      && <TodoModule />}
         {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
+        {module === "finances"  && <FinancesModule userId={session?.user?.id ?? null} />}
       </div>
       <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} onPause={handleSessionPause} onResume={handleSessionResume} />
       {stopModal && <LiveStopModal session={activeSession} elapsed={stopModal.elapsed} onConfirm={handleConfirmStop} onCancel={()=>setStopModal(null)} />}
