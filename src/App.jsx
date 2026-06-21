@@ -1047,7 +1047,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
   const [highlight, setHighlight]= useState(() => getLS("lp_highlight", {}));
   const [editingHL, setEditingHL]= useState(false);
   const [qAction, setQAction]    = useState(null);
-  const [appName, setAppName]    = useState(() => getLS("lp_app_name", "LE PLAN"));
+  const [appName, setAppName]    = useState(() => { const v = getLS("lp_app_name", "POLARIS"); return (v === "LE PLAN" || v === "Le Plan") ? "POLARIS" : v; });
   const [mantra, setMantra]      = useState(() => getLS("lp_mantra", "Per Aspera Ad Astra"));
   const [editingName, setEditingName] = useState(false);
   const [editingMantra, setEditingMantra] = useState(false);
@@ -1164,6 +1164,8 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
     <div className="theme-light" style={{ minHeight: "100dvh", fontFamily: "var(--font-body)" }}>
       {/* HEADER — transparent, eyebrow mantra + gros titre (aucun ruban) */}
       <div style={{ padding: "22px 16px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+        <img src="/polaris-logo.png" alt="Polaris" width={52} height={52} style={{ flexShrink: 0, filter: "drop-shadow(0 0 10px rgba(56,189,248,0.45))" }} />
         <div style={{ minWidth: 0 }}>
           {editingMantra
             ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}
@@ -1181,6 +1183,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
               />
             : <div onClick={()=>setEditingName(true)} style={{ fontFamily:FONT_D, fontSize:26, fontWeight:800, letterSpacing:"-0.02em", color:C.text, lineHeight:1, cursor:"pointer" }} title="Cliquer pour modifier">{appName}</div>
           }
+        </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, paddingTop: 2 }}>
           <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>

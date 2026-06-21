@@ -137,7 +137,8 @@ export default function AuthGate({ children }) {
   if (recovery) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
-        <h2 style={{ color: C.text, fontSize: 22, fontWeight: 700, marginBottom: 8, textAlign: "center" }}>Le Plan</h2>
+        <img src="/polaris-logo.png" alt="Polaris" width={72} height={72} style={{ display: "block", margin: "0 auto 12px", filter: "drop-shadow(0 0 14px rgba(56,189,248,0.5))" }} />
+        <h2 style={{ color: C.text, fontSize: 24, fontWeight: 800, letterSpacing: "0.04em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>
         <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginBottom: 28 }}>Choisis un nouveau mot de passe</p>
         <form onSubmit={handleUpdatePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <input
@@ -155,7 +156,8 @@ export default function AuthGate({ children }) {
   if (!session) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
-        <h2 style={{ color: C.text, fontSize: 22, fontWeight: 700, marginBottom: 8, textAlign: "center" }}>Le Plan</h2>
+        <img src="/polaris-logo.png" alt="Polaris" width={88} height={88} style={{ display: "block", margin: "0 auto 14px", filter: "drop-shadow(0 0 16px rgba(56,189,248,0.55))" }} />
+        <h2 style={{ color: C.text, fontSize: 26, fontWeight: 800, letterSpacing: "0.05em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>
         <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginBottom: 28 }}>
           {mode === "login" ? "Connecte-toi" : mode === "signup" ? "Crée ton compte" : "Réinitialise ton mot de passe"}
         </p>
