@@ -307,8 +307,9 @@ const WP_TYPE_C    = { DEEP: C.purple, SHALLOW: C.blue, COURS: C.amber, GROUPE: 
 const DJ_ENERGY  = ["⚡","⚡⚡","⚡⚡⚡","⚡⚡⚡⚡","⚡⚡⚡⚡⚡"];
 const DJ_FOCUS   = ["❖","❖❖","❖❖❖","❖❖❖❖","❖❖❖❖❖"];
 const DJ_STRESS  = ["✶","✶✶","✶✶✶","✶✶✶✶","✶✶✶✶✶"];
+const DJ_HAPPY   = ["☺","☺☺","☺☺☺","☺☺☺☺","☺☺☺☺☺"];
 let DJ_TYPES   = _perso0.djTypes  || _D_DJ_TYPES;
-const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
+const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",happy:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
 const djEntry    = raw => !raw ? DJ_EMPTY() : typeof raw === "string" ? { ...DJ_EMPTY(), reflexions: raw } : { ...DJ_EMPTY(), ...raw };
 const ITEM_COLORS = ["#10b981","#ef4444","#3b82f6","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
 
@@ -4582,7 +4583,7 @@ function DJRating({ label, options, value, onChange }) {
   );
 }
 
-function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem }) {
+function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem, onNav }) {
   const C = CF;
   const [showItemModal, setShowItemModal] = useState(false);
   const FIXED = [
@@ -4626,6 +4627,10 @@ function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCust
       ))}
       <button onClick={()=>setShowItemModal(true)} style={{width:'100%',padding:'12px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
         + Ajouter un item
+      </button>
+      <button onClick={()=>onNav?.("finances")} style={{width:'100%',marginTop:10,padding:'12px 14px',borderRadius:12,border:`1px solid ${C.amber}55`,background:`linear-gradient(135deg, ${C.amber}1f, transparent 70%)`,color:C.amber,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
+        <span style={{fontSize:16}}>💰</span> N'oublie pas de mettre à jour tes comptes du jour
+        <span style={{marginLeft:'auto',opacity:0.7}}>→</span>
       </button>
       {showItemModal && (
         <ItemAddModal globalItems={customGlobalItems} onClose={()=>setShowItemModal(false)}
@@ -4723,7 +4728,7 @@ function EditGlobalItemModal({ item, onClose, onSave }) {
   );
 }
 
-function DailyPaperModule() {
+function DailyPaperModule({ onNav }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [daily, setDaily]     = useState(() => getLS("lp_daily", {}));
   const [customGlobalItems, setCustomGlobalItems] = useState(() => getLS("lp_custom_items", []));
@@ -4788,6 +4793,7 @@ function DailyPaperModule() {
             <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
               <DJRating label="Focus"  options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
               <DJRating label="Stress" options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
+              <DJRating label="Bonheur" options={DJ_HAPPY} value={entry.happy}   onChange={v=>setField("happy",v)} />
             </div>
           </div>
         </div>
@@ -4801,6 +4807,7 @@ function DailyPaperModule() {
           onRemoveCustomItem={removeCustomItem}
           onUpdateCustomContent={updateCustomContent}
           onEditGlobalItem={id=>setEditingItemId(id)}
+          onNav={onNav}
         />
 
         {/* Recent entries */}
@@ -4903,6 +4910,7 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
               <DJRating label="Matin" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
               <DJRating label="Focus" options={DJ_FOCUS}  value={editEntry.focus}   onChange={v=>onUpdateDaily(date,"focus",v)} />
               <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress} onChange={v=>onUpdateDaily(date,"stress",v)} />
+              <DJRating label="Bonheur" options={DJ_HAPPY} value={editEntry.happy} onChange={v=>onUpdateDaily(date,"happy",v)} />
             </div>
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
               {[{key:"win",ph:"Victoires..."},{key:"loss",ph:"Ce qui n'a pas marché..."},{key:"ameliorer",ph:"À améliorer..."}].map(({key,ph})=>(
@@ -4944,43 +4952,94 @@ const avgBar = (val, max, color) => val == null ? null : (
   </div>
 );
 
-const PIE_COLORS = ['#8b5cf6','#6366f1','#10b981','#f59e0b','#ef4444','#f97316','#ec4899','#06b6d4','#84cc16','#14b8a6'];
-function PieChart({ data }) {
-  if (!data.length) return null;
-  const size = 180, cx = size/2, cy = size/2, r = size/2 - 14, ri = r * 0.52;
-  let cum = -Math.PI / 2;
-  const slices = data.map(d => {
-    const angle = (d.pct / 100) * 2 * Math.PI;
-    const s = cum; cum += angle;
-    return { ...d, s, e: cum };
-  });
-  const arc = (s, e) => {
-    if (Math.abs(e - s) >= 2 * Math.PI - 0.001) {
-      return `M ${cx} ${cy-r} A ${r} ${r} 0 1 1 ${cx-0.001} ${cy-r} Z`;
-    }
-    const x1=cx+r*Math.cos(s), y1=cy+r*Math.sin(s);
-    const x2=cx+r*Math.cos(e), y2=cy+r*Math.sin(e);
-    return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${e-s>Math.PI?1:0} 1 ${x2} ${y2} Z`;
-  };
+// Anneau de progression (donut) — val/max
+const RingGauge = ({ val, max=5, color, size=72, stroke=7, label, icon }) => {
+  const r = (size-stroke)/2, circ = 2*Math.PI*r;
+  const pct = val==null ? 0 : Math.max(0,Math.min(1,val/max));
   return (
-    <div style={{display:'flex',gap:24,alignItems:'center',flexWrap:'wrap'}}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{flexShrink:0,filter:'drop-shadow(0 4px 16px rgba(0,0,0,0.4))'}}>
-        {slices.map((sl,i)=>(
-          <path key={i} d={arc(sl.s,sl.e)} fill={sl.color} stroke={C.surface} strokeWidth={2} />
-        ))}
-        <circle cx={cx} cy={cy} r={ri} fill={C.surface} />
-        <text x={cx} y={cy-6} textAnchor="middle" fill={C.muted} fontSize={9} fontFamily="Inter,sans-serif" fontWeight="600" letterSpacing="0.08em">TOTAL</text>
-        <text x={cx} y={cy+10} textAnchor="middle" fill={C.text} fontSize={13} fontFamily="Inter,sans-serif" fontWeight="700">{fmtHM(data.reduce((s,d)=>s+d.mins,0))}</text>
-      </svg>
-      <div style={{flex:1,minWidth:160}}>
-        {data.map((d,i)=>(
-          <div key={i} style={{display:'flex',alignItems:'center',gap:10,marginBottom:8,padding:'8px 10px',borderRadius:10,background:d.color+'12',border:`1px solid ${d.color}33`}}>
-            <div style={{width:10,height:10,borderRadius:'50%',background:d.color,flexShrink:0,boxShadow:`0 0 6px ${d.color}88`}} />
-            <span style={{fontSize:13,color:C.text,fontWeight:500,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{d.name}</span>
-            <span style={{fontSize:14,fontWeight:800,color:d.color,flexShrink:0}}>{d.pct}%</span>
-            <span style={{fontSize:11,color:C.muted,flexShrink:0,minWidth:36,textAlign:'right'}}>{d.fmtMins}</span>
-          </div>
-        ))}
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:6}}>
+      <div style={{position:"relative",width:size,height:size}}>
+        <svg width={size} height={size} style={{transform:"rotate(-90deg)"}}>
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={C.surface3} strokeWidth={stroke} />
+          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+            strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={circ*(1-pct)}
+            style={{transition:"stroke-dashoffset 0.4s ease",filter:`drop-shadow(0 0 4px ${color}55)`}} />
+        </svg>
+        <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center"}}>
+          <span style={{fontSize:16,fontWeight:700,color:C.text,lineHeight:1}}>{val==null?"—":val.toFixed(1)}</span>
+          <span style={{fontSize:8,color:C.faint,marginTop:1}}>/{max}</span>
+        </div>
+      </div>
+      {label && <div style={{fontSize:10,color:C.muted,fontWeight:600,display:"flex",alignItems:"center",gap:3}}>{icon&&<span style={{color}}>{icon}</span>}{label}</div>}
+    </div>
+  );
+};
+
+const PIE_COLORS = ['#8b5cf6','#6366f1','#10b981','#f59e0b','#ef4444','#f97316','#ec4899','#06b6d4','#84cc16','#14b8a6'];
+function PieChart({ data, onSliceClick, activeName, centerLabel="TOTAL" }) {
+  if (!data.length) return null;
+  const size = 188, stroke = 16, r = (size - stroke)/2 - 8, cx = size/2, cy = size/2;
+  const circ = 2*Math.PI*r;
+  const total = data.reduce((s,d)=>s+d.mins,0);
+  const gap = data.length > 1 ? 7 : 0;
+  const clickable = !!onSliceClick;
+  const active = data.find(d => d.name === activeName);
+  let acc = 0;
+  const segs = data.map(d => {
+    const len = (d.pct/100)*circ;
+    const seg = { ...d, len, offset: acc };
+    acc += len;
+    return seg;
+  });
+  return (
+    <div style={{display:'flex',gap:22,alignItems:'center',flexWrap:'wrap'}}>
+      <div style={{position:'relative',width:size,height:size,flexShrink:0}}>
+        <svg width={size} height={size} style={{transform:'rotate(-90deg)'}}>
+          <circle cx={cx} cy={cy} r={r} fill="none" stroke={C.surface3} strokeWidth={stroke} opacity={0.35} />
+          {segs.map((sg,i)=>{
+            const isActive = activeName===sg.name;
+            const dash = Math.max(0.1, sg.len - gap);
+            return (
+              <circle key={i} cx={cx} cy={cy} r={r} fill="none"
+                stroke={sg.color} strokeWidth={isActive?stroke+6:stroke} strokeLinecap="round"
+                strokeDasharray={`${dash} ${circ-dash}`} strokeDashoffset={-sg.offset}
+                onClick={clickable?()=>onSliceClick(sg):undefined}
+                style={{cursor:clickable?'pointer':'default',opacity:activeName&&!isActive?0.3:1,
+                  filter:isActive?`drop-shadow(0 0 9px ${sg.color})`:`drop-shadow(0 0 3px ${sg.color}55)`,
+                  transition:'stroke-width 0.25s ease, opacity 0.25s ease'}}>
+                <title>{sg.name} · {sg.fmtMins} · {sg.pct}%</title>
+              </circle>
+            );
+          })}
+        </svg>
+        <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',pointerEvents:'none',padding:'0 30px'}}>
+          {active ? (<>
+            <span style={{fontSize:26,fontWeight:800,color:active.color,lineHeight:1,textShadow:`0 0 14px ${active.color}66`}}>{active.pct}%</span>
+            <span style={{fontSize:10,color:C.text,fontWeight:600,marginTop:4,maxWidth:'100%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{active.name}</span>
+            <span style={{fontSize:9,color:C.faint,marginTop:1}}>{active.fmtMins}</span>
+          </>) : (<>
+            <span style={{fontSize:9,color:C.muted,letterSpacing:'0.14em',fontWeight:700}}>{centerLabel}</span>
+            <span style={{fontSize:19,fontWeight:800,color:C.text,marginTop:3}}>{fmtHM(total)}</span>
+            <span style={{fontSize:9,color:C.faint,marginTop:1}}>{data.length} cat.</span>
+          </>)}
+        </div>
+      </div>
+      <div style={{flex:1,minWidth:150,display:'flex',flexDirection:'column',gap:6}}>
+        {data.map((d,i)=>{
+          const isActive = activeName===d.name;
+          return (
+            <div key={i} onClick={clickable?()=>onSliceClick(d):undefined}
+              style={{display:'flex',alignItems:'center',gap:9,padding:'7px 12px',borderRadius:999,
+                background:isActive?d.color+'1f':'transparent',
+                border:`1px solid ${isActive?d.color+'99':C.border}`,
+                cursor:clickable?'pointer':'default',opacity:activeName&&!isActive?0.4:1,transition:'all 0.15s'}}>
+              <div style={{width:8,height:8,borderRadius:'50%',background:d.color,flexShrink:0,boxShadow:`0 0 7px ${d.color}`}} />
+              <span style={{fontSize:12,color:C.text,fontWeight:600,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.name}</span>
+              <span style={{fontSize:10,color:C.muted,flexShrink:0}}>{d.fmtMins}</span>
+              <span style={{fontSize:12,fontWeight:800,color:d.color,flexShrink:0,minWidth:34,textAlign:'right'}}>{d.pct}%</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -5017,6 +5076,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const [editObjId, setEditObjId] = useState(null);
   const [editObjTitle, setEditObjTitle] = useState("");
   const [saved, setSaved] = useState(false);
+  const [sessFilter, setSessFilter] = useState(null); // {kind:'type'|'domaine', value, color}
 
   const habits  = getLS("lp_habits", []);
   const todos   = getLS("leplan_todos", []);
@@ -5054,32 +5114,67 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 
   // Daily averages
   const energyVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.morning)).filter(v=>v!=null);
+  const noonVals   = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.noon)).filter(v=>v!=null);
+  const eveVals    = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.evening)).filter(v=>v!=null);
   const focusVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_FOCUS,  e.focus)).filter(v=>v!=null);
   const stressVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_STRESS, e.stress)).filter(v=>v!=null);
+  const happyVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_HAPPY,  e.happy)).filter(v=>v!=null);
   const avgEnergy  = avg(energyVals);
+  const avgNoon    = avg(noonVals);
+  const avgEve     = avg(eveVals);
+  const avgEnergyDay = avg([...energyVals,...noonVals,...eveVals]); // moyenne globale journée
   const avgFocus   = avg(focusVals);
   const avgStress  = avg(stressVals);
+  const avgHappy   = avg(happyVals);
 
   const fmtD = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long"});
   const fmtDshort = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
 
-  const save = () => {
+  // Y a-t-il qqch à sauver ? (évite reviews vides)
+  const isDirty = !!(existing || note || wrWin || wrLoss || wrAmeliorer || wrCustomItems.length);
+
+  // Persistance LS seule (safe hors render / unmount)
+  const persistReview = () => {
+    if (locked || !isDirty) return null;
     const review = {
       id: existing?.id || uid(),
       weekStart: wkStart, weekEnd: wkEnd,
       note, win: wrWin, loss: wrLoss, ameliorer: wrAmeliorer, customItems: wrCustomItems,
-      summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress },
+      summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress, avgHappy },
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       locked: isWeekLocked(wkStart),
     };
     const updated = existing ? reviews.map(r => r.weekStart===wkStart ? review : r) : [...reviews, review];
-    setReviews(updated);
     setLS("lp_weekly_reviews", updated);
+    return updated;
+  };
+
+  const save = () => {
+    const updated = persistReview();
+    if (!updated) return;
+    setReviews(updated);
     setSaved(true);
     onSaved?.();
     setTimeout(() => setSaved(false), 2500);
   };
+
+  // Auto-sauvegarde : fermeture modal (unmount), onglet caché, fermeture page
+  const persistRef = useRef(persistReview);
+  persistRef.current = persistReview;
+  useEffect(() => {
+    const flush = () => { persistRef.current?.(); };
+    const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+      flush(); // unmount = fermeture modal
+    };
+  }, []);
 
   return (
     <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
@@ -5186,29 +5281,57 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           {dailyCount > 0 && (
             <WRSection title="Daily Tracker">
               {/* Moyennes */}
-              {(avgEnergy||avgFocus||avgStress) && (
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10,marginBottom:16}}>
-                  {[
-                    {label:"Énergie (matin)",val:avgEnergy,color:C.amber,max:5},
-                    {label:"Focus",val:avgFocus,color:C.blue,max:5},
-                    {label:"Stress",val:avgStress,color:C.red,max:5},
-                  ].map(({label,val,color,max})=>(
-                    <div key={label} style={{padding:"12px 14px",background:C.surface2,borderRadius:12,border:`1px solid ${C.border}`}}>
-                      <div style={{fontSize:11,color:C.muted,marginBottom:6,fontWeight:600}}>{label}</div>
-                      {avgBar(val,max,color)}
-                      <div style={{fontSize:10,color:C.faint,marginTop:4}}>moyenne sur {val!=null?(val===avgEnergy?energyVals:val===avgFocus?focusVals:stressVals).length:0} jours</div>
+              {(avgEnergyDay||avgFocus||avgStress||avgHappy) && (
+                <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:12,marginBottom:16}}>
+                  {/* Énergie unifiée — matin / midi / soir */}
+                  <div style={{padding:"16px 18px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
+                    backgroundImage:`linear-gradient(135deg, ${C.amber}10, transparent 60%)`}}>
+                    <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12,display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{color:C.amber}}>⚡</span> Énergie — journée
                     </div>
-                  ))}
+                    <div style={{display:"flex",alignItems:"center",gap:18}}>
+                      <RingGauge val={avgEnergyDay} color={C.amber} size={84} stroke={8} />
+                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:10}}>
+                        {[
+                          {l:"Matin",v:avgEnergy,n:energyVals.length},
+                          {l:"Midi", v:avgNoon, n:noonVals.length},
+                          {l:"Soir", v:avgEve,  n:eveVals.length},
+                        ].map(({l,v,n})=>(
+                          <div key={l}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                              <span style={{fontSize:10,color:C.muted,fontWeight:600}}>{l}</span>
+                              <span style={{fontSize:10,color:C.amber,fontWeight:700}}>{v!=null?v.toFixed(1):"—"}<span style={{color:C.faint,fontWeight:400}}>/5</span></span>
+                            </div>
+                            <div style={{height:5,borderRadius:3,background:C.surface3,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${v!=null?(v/5)*100:0}%`,background:`linear-gradient(90deg,${C.amber}99,${C.amber})`,borderRadius:3,transition:"width 0.4s"}} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  {/* Focus / Stress / Bonheur — anneaux */}
+                  <div style={{padding:"16px 12px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
+                    display:"flex",alignItems:"center",justifyContent:"space-around"}}>
+                    {[
+                      {label:"Focus",val:avgFocus,color:C.blue,icon:"❖"},
+                      {label:"Stress",val:avgStress,color:C.red,icon:"✶"},
+                      {label:"Bonheur",val:avgHappy,color:C.green,icon:"☺"},
+                    ].map(({label,val,color,icon})=>(
+                      <RingGauge key={label} val={val} color={color} size={70} stroke={7} label={label} icon={icon} />
+                    ))}
+                  </div>
                 </div>
               )}
               {/* Par jour */}
               <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:6}}>
                 {weekDays.map((d,i)=>{
                   const e=djEntry(daily[d]);
-                  const hasData=e.morning||e.win||e.loss||e.ameliorer||e.focus||e.stress;
+                  const hasData=e.morning||e.win||e.loss||e.ameliorer||e.focus||e.stress||e.happy;
                   const en=emojiVal(DJ_ENERGY,e.morning);
                   const fo=emojiVal(DJ_FOCUS,e.focus);
                   const st=emojiVal(DJ_STRESS,e.stress);
+                  const ha=emojiVal(DJ_HAPPY,e.happy);
                   return (
                     <div key={d} style={{padding:"10px 8px",background:hasData?C.surface2:C.surface3,borderRadius:12,border:`1px solid ${hasData?C.border:"transparent"}`,opacity:hasData?1:0.4}}>
                       <div style={{fontSize:10,color:C.muted,fontWeight:700,marginBottom:6}}>{DAY_LABELS[i]}</div>
@@ -5217,7 +5340,8 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                         <>
                           {en&&<div style={{fontSize:9,marginBottom:3,color:C.amber}} title="Énergie">⚡ {en}/5</div>}
                           {fo&&<div style={{fontSize:9,marginBottom:3,color:C.blue}} title="Focus">❖ {fo}/5</div>}
-                          {st&&<div style={{fontSize:9,marginBottom:6,color:C.red}} title="Stress">✶ {st}/5</div>}
+                          {st&&<div style={{fontSize:9,marginBottom:3,color:C.red}} title="Stress">✶ {st}/5</div>}
+                          {ha&&<div style={{fontSize:9,marginBottom:6,color:C.green}} title="Bonheur">☺ {ha}/5</div>}
                           {e.win&&<div style={{fontSize:9,color:C.green,lineHeight:1.4,borderTop:`1px solid ${C.border}`,paddingTop:4,marginBottom:2}}>🏆 {e.win.length>60?e.win.slice(0,60)+"…":e.win}</div>}
                           {e.loss&&<div style={{fontSize:9,color:C.red,lineHeight:1.4,marginTop:2}}>💔 {e.loss.length>60?e.loss.slice(0,60)+"…":e.loss}</div>}
                         </>
@@ -5244,52 +5368,65 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             </WRSection>
           )}
 
-          {/* ── SESSIONS DE TRAVAIL ── */}
-          {sessionsWeek.length > 0 && (
-            <WRSection title="Sessions de travail">
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {weekDays.filter(d=>sessionsWeek.some(s=>s.date===d)).map(d=>{
-                  const daySessions=sessionsWeek.filter(s=>s.date===d);
-                  const dayMins=daySessions.reduce((s,x)=>s+(x.temps||0),0);
-                  return (
-                    <div key={d} style={{padding:"12px 14px",background:C.surface2,borderRadius:12,border:`1px solid ${C.border}`}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-                        <span style={{fontSize:11,fontWeight:700,color:C.text}}>{fmtDshort(d)}</span>
-                        <span style={{marginLeft:"auto",fontSize:11,color:C.blue,fontWeight:700}}>{fmtMin(dayMins)}</span>
-                      </div>
-                      {daySessions.map(s=>(
-                        <div key={s.id} style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+          {/* ── CAMEMBERTS SESSIONS (Type + Domaine) ── */}
+          {sessionsWeek.length > 0 && (() => {
+            // Anneau 1 : répartition par type (Deep, Shallow, ...)
+            const typeMap = {};
+            sessionsWeek.forEach(s => { const t=s.type||'AUTRE'; typeMap[t]=(typeMap[t]||0)+(s.temps||0); });
+            const typeTotal = Object.values(typeMap).reduce((a,b)=>a+b,0);
+            const typeData = Object.entries(typeMap)
+              .sort(([,a],[,b])=>b-a)
+              .map(([name,mins],i) => ({name,mins,pct:typeTotal?Math.round(mins/typeTotal*100):0,color:WP_TYPE_C[name]||PIE_COLORS[i%PIE_COLORS.length],fmtMins:fmtMin(mins)}));
+
+            // Anneau 2 : répartition par domaine
+            const domMap = {};
+            sessionsWeek.forEach(s => { const d=s.domaine||'AUTRE'; domMap[d]=(domMap[d]||0)+(s.temps||0); });
+            const domTotal = Object.values(domMap).reduce((a,b)=>a+b,0);
+            const domData = Object.entries(domMap)
+              .sort(([,a],[,b])=>b-a)
+              .map(([name,mins],i) => ({name,mins,pct:domTotal?Math.round(mins/domTotal*100):0,color:PIE_COLORS[i%PIE_COLORS.length],fmtMins:fmtMin(mins)}));
+
+            const pick = (kind,d) => setSessFilter(f => (f&&f.kind===kind&&f.value===d.name) ? null : {kind,value:d.name,color:d.color});
+            const filtered = sessFilter
+              ? sessionsWeek.filter(s => sessFilter.kind==='type' ? (s.type||'AUTRE')===sessFilter.value : (s.domaine||'AUTRE')===sessFilter.value)
+              : [];
+
+            return (
+              <WRSection title="Répartition des sessions">
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+                  <div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Par type</div>
+                    <PieChart data={typeData} centerLabel="TYPE" onSliceClick={d=>pick('type',d)} activeName={sessFilter?.kind==='type'?sessFilter.value:null} />
+                  </div>
+                  <div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Par domaine</div>
+                    <PieChart data={domData} centerLabel="DOMAINE" onSliceClick={d=>pick('domaine',d)} activeName={sessFilter?.kind==='domaine'?sessFilter.value:null} />
+                  </div>
+                </div>
+
+                {/* Détail des sessions filtrées */}
+                {sessFilter && (
+                  <div style={{marginTop:16,padding:"14px 16px",background:C.surface2,borderRadius:14,border:`1px solid ${sessFilter.color}55`,borderLeft:`3px solid ${sessFilter.color}`}}>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+                      <span style={{fontSize:9,padding:"3px 9px",borderRadius:999,background:sessFilter.color+"22",color:sessFilter.color,fontWeight:700,textTransform:"uppercase"}}>{sessFilter.kind}</span>
+                      <span style={{fontSize:14,fontWeight:800,color:C.text}}>{sessFilter.value}</span>
+                      <span style={{fontSize:11,color:C.muted}}>· {filtered.length} session{filtered.length>1?"s":""} · {fmtMin(filtered.reduce((s,x)=>s+(x.temps||0),0))}</span>
+                      <button onClick={()=>setSessFilter(null)} style={{marginLeft:"auto",background:"none",border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",borderRadius:999,padding:"3px 10px"}}>✕ Fermer</button>
+                    </div>
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+                      {filtered.sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(s=>(
+                        <div key={s.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:C.surface3,borderRadius:9,border:`1px solid ${C.border}`}}>
                           <span style={{fontSize:9,padding:"2px 7px",borderRadius:999,background:WP_TYPE_C[s.type]+"22",color:WP_TYPE_C[s.type],fontWeight:700,flexShrink:0}}>{s.type}</span>
-                          <span style={{fontSize:11,color:C.muted,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.tache||s.domaine||"—"}</span>
-                          <span style={{fontSize:10,color:C.faint,flexShrink:0}}>{fmtMin(s.temps)}</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:11,color:C.text,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.tache||s.domaine||"—"}</div>
+                            <div style={{fontSize:9,color:C.faint}}>{fmtDshort(s.date)}{s.domaine&&sessFilter.kind==='type'?` · ${s.domaine}`:""}</div>
+                          </div>
+                          <span style={{fontSize:11,color:C.blue,fontWeight:700,flexShrink:0}}>{fmtMin(s.temps)}</span>
                         </div>
                       ))}
                     </div>
-                  );
-                })}
-              </div>
-              {/* Par type summary */}
-              <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
-                {Object.entries(WP_TYPE_C).map(([type,color])=>{
-                  const mins=sessionsWeek.filter(s=>s.type===type).reduce((s,x)=>s+(x.temps||0),0);
-                  if(!mins) return null;
-                  return <span key={type} style={{fontSize:11,padding:"4px 12px",borderRadius:999,background:color+"22",color,fontWeight:600,border:`1px solid ${color}44`}}>{type} · {fmtMin(mins)}</span>;
-                })}
-              </div>
-            </WRSection>
-          )}
-
-          {/* ── CAMEMBERT SESSIONS ── */}
-          {sessionsWeek.length > 0 && (() => {
-            const map = {};
-            sessionsWeek.forEach(s => { const d=s.domaine||'AUTRE'; map[d]=(map[d]||0)+(s.temps||0); });
-            const total = Object.values(map).reduce((a,b)=>a+b,0);
-            const pieData = Object.entries(map)
-              .sort(([,a],[,b])=>b-a)
-              .map(([name,mins],i) => ({name,mins,pct:total?Math.round(mins/total*100):0,color:PIE_COLORS[i%PIE_COLORS.length],fmtMins:fmtMin(mins)}));
-            return (
-              <WRSection title="Répartition par domaine">
-                <PieChart data={pieData} />
+                  </div>
+                )}
               </WRSection>
             );
           })()}
@@ -5888,7 +6025,7 @@ export default function App({ session, signOut }) {
         {module === "objectifs" && <ObjectifsModule initialTab={objTab} />}
         {module === "habitudes" && <HabitudesModule />}
         {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}
-        {module === "daily"     && <DailyPaperModule />}
+        {module === "daily"     && <DailyPaperModule onNav={navTo} />}
         {module === "todo"      && <TodoModule />}
         {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
         {module === "finances"  && <FinancesModule userId={session?.user?.id ?? null} />}
