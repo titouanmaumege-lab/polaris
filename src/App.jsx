@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { syncToSupabase } from "./supabase";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
+import PolarisLogo from "./PolarisLogo";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
@@ -1165,7 +1166,7 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
       {/* HEADER — transparent, eyebrow mantra + gros titre (aucun ruban) */}
       <div style={{ padding: "22px 16px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-        <img src="/polaris-logo.png" alt="Polaris" width={52} height={52} style={{ flexShrink: 0, filter: "drop-shadow(0 0 10px rgba(56,189,248,0.45))" }} />
+        <PolarisLogo size={52} style={{ flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
           {editingMantra
             ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}

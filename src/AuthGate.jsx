@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, loadUserData, hydrateLocalStorage, syncToSupabase } from "./supabase";
+import PolarisLogo from "./PolarisLogo";
 
 const C = {
   bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830",
@@ -137,7 +138,7 @@ export default function AuthGate({ children }) {
   if (recovery) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
-        <img src="/polaris-logo.png" alt="Polaris" width={72} height={72} style={{ display: "block", margin: "0 auto 12px", filter: "drop-shadow(0 0 14px rgba(56,189,248,0.5))" }} />
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><PolarisLogo size={72} /></div>
         <h2 style={{ color: C.text, fontSize: 24, fontWeight: 800, letterSpacing: "0.04em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>
         <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginBottom: 28 }}>Choisis un nouveau mot de passe</p>
         <form onSubmit={handleUpdatePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -156,7 +157,7 @@ export default function AuthGate({ children }) {
   if (!session) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
-        <img src="/polaris-logo.png" alt="Polaris" width={88} height={88} style={{ display: "block", margin: "0 auto 14px", filter: "drop-shadow(0 0 16px rgba(56,189,248,0.55))" }} />
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><PolarisLogo size={88} /></div>
         <h2 style={{ color: C.text, fontSize: 26, fontWeight: 800, letterSpacing: "0.05em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>
         <p style={{ color: C.muted, fontSize: 13, textAlign: "center", marginBottom: 28 }}>
           {mode === "login" ? "Connecte-toi" : mode === "signup" ? "Crée ton compte" : "Réinitialise ton mot de passe"}
