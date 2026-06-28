@@ -1,13 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
-
-const monthBounds = (ym) => {
-  // ym = 'YYYY-MM' → [first, last] dates inclusives
-  const [y, m] = ym.split("-").map(Number);
-  const pad = n => String(n).padStart(2, "0");
-  const last = new Date(y, m, 0).getDate();
-  return [`${y}-${pad(m)}-01`, `${y}-${pad(m)}-${pad(last)}`];
-};
+import { monthBounds } from "../../../utils/date";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
 

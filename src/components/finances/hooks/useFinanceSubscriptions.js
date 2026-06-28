@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { pad } from "../../../utils/date";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
-const pad = n => String(n).padStart(2, "0");
 // Date de prélèvement pour le mois courant ('YYYY-MM') selon billing_day (sinon aujourd'hui).
 const billingDate = (ym, billingDay) => {
   const today = new Date().toISOString().split("T")[0];

@@ -3,11 +3,12 @@ import { syncToSupabase } from "./supabase";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
 import PolarisLogo from "./PolarisLogo";
+import { pad, todayStr } from "./utils/date";
+import { uid } from "./utils/id";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILS
 // ─────────────────────────────────────────────────────────────────────────────
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 const getLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 let _userId = null;
 let _syncTimer = null;
@@ -24,7 +25,6 @@ const setLS = (k, v) => {
     }, 1500);
   }
 };
-const todayStr = () => new Date().toISOString().split("T")[0];
 const weekDates = () => {
   const d = new Date(), day = d.getDay() === 0 ? 6 : d.getDay() - 1;
   return Array.from({ length: 7 }, (_, i) => { const dt = new Date(d); dt.setDate(d.getDate() - day + i); return dt.toISOString().split("T")[0]; });
@@ -537,7 +537,6 @@ function MonthCalendar() {
   const totalDays = new Date(year, month+1, 0).getDate();
   const startDow = (firstDay.getDay()+6)%7; // Mon=0
 
-  const pad = n => String(n).padStart(2,"0");
   const dateStr = d => `${year}-${pad(month+1)}-${pad(d)}`;
 
   const prevMonth = () => { if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1); };
@@ -3572,7 +3571,6 @@ function TodoModule() {
 
         {/* ── FAIT ── */}
         {tab==="fait"&&(()=>{
-          const pad=n=>String(n).padStart(2,"0");
           const [cy,cm]=projCalMonth.split("-").map(Number);
           const dstr=d=>`${cy}-${pad(cm)}-${pad(d)}`;
           const startDow=(new Date(cy,cm-1,1).getDay()+6)%7;

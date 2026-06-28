@@ -6,6 +6,7 @@ import {
   useBasePages, useKnowledgePage, useBacklinks,
   syncWikilinks, usePageSearch, useGraphData,
 } from "./hooks/useKnowledgePages";
+import { uid } from "../../utils/id";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
@@ -25,8 +26,6 @@ const SOURCE_TYPES = ["book", "video", "article", "podcast", "course", "other"];
 const SOURCE_TYPE_LABELS = { book: "📖 Livre", video: "🎬 Vidéo", article: "📰 Article", podcast: "🎙️ Podcast", course: "🎓 Cours", other: "📌 Autre" };
 const STATUS_LABELS = { todo: "À faire", in_progress: "En cours", done: "Terminé" };
 const STATUS_C = { todo: C.muted, in_progress: C.amber, done: C.green };
-
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 
 // ─── Petit utilitaire textarea auto-resize ────────────────────────────────────
 function AutoTextarea({ value, onChange, onKeyDown, placeholder, style, autoFocus }) {

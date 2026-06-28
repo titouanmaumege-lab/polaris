@@ -6,3 +6,7 @@ dist
 *.jsonl
 
 .vercel
+
+# graphify knowledge graph artifacts
+graphify-out/
+.backups/

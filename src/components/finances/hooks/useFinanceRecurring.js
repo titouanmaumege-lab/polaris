@@ -1,16 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { pad, todayStr, monthKey, monthBounds } from "../../../utils/date";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
-const pad = n => String(n).padStart(2, "0");
 const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const todayStr = () => new Date().toISOString().split("T")[0];
-const monthKey = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
-const curMonthBounds = () => {
-  const d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
-  const last = new Date(y, m, 0).getDate();
-  return [`${y}-${pad(m)}-01`, `${y}-${pad(m)}-${pad(last)}`];
-};
 
 // Avance une date d'occurrence selon la récurrence (strictement > date donnée).
 export function advanceOccurrence(rec, fromStr) {
@@ -49,7 +42,7 @@ export function useFinanceRecurring(userId) {
 
   const fetch = useCallback(async () => {
     if (!userId) return;
-    const [first, last] = curMonthBounds();
+    const [first, last] = monthBounds();
     const [{ data }, { data: txs }] = await Promise.all([
       supabase.from("finance_recurring").select("*").eq("user_id", userId).order("next_occurrence"),
       supabase.from("finance_transactions").select("id, recurring_id")
@@ -143,7 +136,7 @@ export function useFinanceRecurring(userId) {
       await fetch(); emitChange();
       return false;
     }
-    const [, last] = curMonthBounds();
+    const [, last] = monthBounds();
     const ym = monthKey();
     const day = rec.day_of_month ? Math.min(rec.day_of_month, Number(last.split("-")[2])) : new Date().getDate();
     const date = `${ym}-${pad(day)}`;

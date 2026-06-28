@@ -5,6 +5,7 @@ import { useFinanceTransactions } from "./hooks/useFinanceTransactions";
 import { useFinanceBudgets } from "./hooks/useFinanceBudgets";
 import { useFinanceGoals } from "./hooks/useFinanceGoals";
 import { useFinanceRecurring, recurrenceLabel } from "./hooks/useFinanceRecurring";
+import { pad, todayStr, monthKey } from "../../utils/date";
 
 // ─── Design tokens — DA HOME « Cyber Focus » (.theme-light), repris d'App.jsx ──
 const C = {
@@ -65,8 +66,6 @@ const ALL_EMOJIS = EMOJI_GROUPS.flatMap(g => g.emojis);
 
 const fmtEUR = (n, currency = "EUR") =>
   new Intl.NumberFormat("fr-FR", { style: "currency", currency }).format(n ?? 0);
-const todayStr = () => new Date().toISOString().split("T")[0];
-const monthKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 const MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const monthLabel = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MONTH_FR[m - 1]} ${y}`; };
 const shiftMonth = (ym, delta) => {
@@ -677,7 +676,6 @@ function MonthNav({ month, onChange }) {
 const CAL_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
 function TransactionCalendar({ month, transactions, accounts, categories, onRowClick, desktop }) {
   const [y, m] = month.split("-").map(Number);
-  const pad = n => String(n).padStart(2, "0");
   const dstr = d => `${y}-${pad(m)}-${pad(d)}`;
   const startDow = (new Date(y, m - 1, 1).getDay() + 6) % 7; // Lun = 0
   const nbDays = new Date(y, m, 0).getDate();

@@ -1,12 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
-
-const currentMonthBounds = () => {
-  const d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1;
-  const pad = n => String(n).padStart(2, "0");
-  const last = new Date(y, m, 0).getDate();
-  return [`${y}-${pad(m)}-01`, `${y}-${pad(m)}-${pad(last)}`];
-};
+import { monthBounds } from "../../../utils/date";
 
 // Budgets mensuels récurrents + dépensé du mois courant (calcul client).
 export function useFinanceBudgets(userId) {
@@ -15,7 +9,7 @@ export function useFinanceBudgets(userId) {
 
   const fetch = useCallback(async () => {
     if (!userId) return;
-    const [first, last] = currentMonthBounds();
+    const [first, last] = monthBounds();
     const [{ data: budData }, { data: txData }] = await Promise.all([
       supabase.from("finance_budgets").select("*").eq("user_id", userId),
       supabase.from("finance_transactions").select("amount, category_id")
