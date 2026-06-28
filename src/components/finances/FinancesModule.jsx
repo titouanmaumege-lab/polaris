@@ -8,20 +8,13 @@ import { useFinanceInvestments } from "./hooks/useFinanceInvestments";
 import { useFinanceDebts } from "./hooks/useFinanceDebts";
 import { useFinanceRecurring, advanceOccurrence } from "./hooks/useFinanceRecurring";
 import { todayStr, monthKey } from "../../utils/date";
+import { C, GRAD } from "../../ui/tokens";
 
-// ─── DA POLARIS « Cyber Focus » (reprise de l'ancien module finances) ─────────
-const C = {
-  bg: "#0B0714", surface: "#181225", surface2: "#1E1733", surface3: "#221A36",
-  border: "rgba(168,85,247,0.18)", borderMid: "rgba(168,85,247,0.38)",
-  accent: "#A855F7", accent2: "#EC4899", accentBg: "rgba(168,85,247,0.16)",
-  text: "#F4F2FF", muted: "#9990C0", faint: "#6B6390",
-  green: "#34D399", greenBg: "rgba(52,211,153,0.14)",
-  red: "#FB7185", redBg: "rgba(251,113,133,0.14)",
-  blue: "#60A5FA", blueBg: "rgba(96,165,250,0.14)",
-  amber: "#FBBF24", amberBg: "rgba(251,191,36,0.16)",
-};
-const GRAD = "linear-gradient(135deg,#A855F7,#EC4899)";
-const MONO = "'JetBrains Mono','SFMono-Regular',monospace";
+// DA partagée avec le reste de l'app : tokens `C` + thème `.theme-light`
+// (fond #0b0714 + halo violet/magenta, police Space Grotesk) — voir src/index.css.
+// Les chiffres utilisent la police display, comme les autres écrans.
+const MONO = "var(--font-display)";
+const SHADOW_CARD = "0 2px 16px rgba(0,0,0,0.40)";
 
 const MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const fmtEUR = (n) => new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(n || 0);
@@ -30,7 +23,7 @@ const parseAmount = (s) => { const n = parseFloat(String(s).replace(/\s/g, "").r
 const monthLabel = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MONTH_FR[m - 1]} ${y}`; };
 const shiftMonth = (ym, delta) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1 + delta, 1); return monthKey(d); };
 
-const COLORS = ["#A855F7","#EC4899","#FB7185","#FB923C","#FBBF24","#34D399","#22D3EE","#60A5FA","#818CF8","#F472B6","#94A3B8","#A3E635"];
+const COLORS = ["#8b5cf6","#6366f1","#ef4444","#f97316","#f59e0b","#10b981","#06b6d4","#3b82f6","#818cf8","#ec4899","#94a3b8","#a3e635"];
 const ESETS = {
   Argent:["💰","💵","💳","🏦","💸","📈","📉","📊","🪙","💎"],
   Objectifs:["🎯","🏆","🎁","🎉","🚀","⭐","🌟","✨","🔥","💪"],
@@ -66,8 +59,8 @@ function Donut({ data, total, size = 160 }) {
 }
 
 // ─── Primitives DA ────────────────────────────────────────────────────────────
-const cardSt = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: 22 };
-const statSt = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18 };
+const cardSt = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 18, padding: 22, boxShadow: SHADOW_CARD };
+const statSt = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, boxShadow: SHADOW_CARD };
 const titleSt = { fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 16 };
 
 function Btn({ children, onClick, kind = "p", small, style }) {
@@ -173,8 +166,8 @@ export default function FinancesModule({ userId }) {
   const openTx = (t = null) => {
     setEditing(t);
     setF(t
-      ? { type: t.type, amount: String(t.amount), note: t.note || "", category_id: t.category_id, account_id: t.account_id, date: t.date }
-      : { type: "depense", amount: "", note: "", category_id: expCats[0]?.id || null, account_id: acc.accounts[0]?.id || null, date: todayStr() });
+      ? { type: t.type, amount: String(t.amount), note: t.note || "", category_id: t.category_id, account_id: t.account_id, transfer_account_id: t.transfer_account_id || null, date: t.date }
+      : { type: "depense", amount: "", note: "", category_id: expCats[0]?.id || null, account_id: acc.accounts[0]?.id || null, transfer_account_id: acc.accounts[1]?.id || null, date: todayStr() });
     setModal("tx");
   };
   const openRec = (r = null) => {
@@ -191,7 +184,7 @@ export default function FinancesModule({ userId }) {
       : { dir: "in", person: "", description: "", amount: "", due_date: "", account_id: "" });
     setModal("debt");
   };
-  const openBudget = () => { setF({ category_id: expCats[0]?.id || null, amount: "" }); setModal("budget"); };
+  const openBudget = (b = null) => { setEditing(b); setF(b ? { category_id: b.category_id, amount: String(b.amount) } : { category_id: expCats[0]?.id || null, amount: "" }); setModal("budget"); };
   const openPocket = (p = null) => {
     setEditing(p);
     setF(p
@@ -213,7 +206,7 @@ export default function FinancesModule({ userId }) {
     setModal("account");
   };
   const openSettle = (d) => { setEditing(d); setF({ account_id: "", date: todayStr() }); setModal("settle"); };
-  const openCat = () => { setF({ kind: "depense", emoji: "📦", name: "", color: COLORS[0] }); setModal("cat"); };
+  const openCat = (c = null) => { setEditing(c); setF(c ? { kind: c.kind, emoji: c.icon || "📦", name: c.name, color: c.color || COLORS[0] } : { kind: "depense", emoji: "📦", name: "", color: COLORS[0] }); setModal("cat"); };
   const openEmoji = (target) => { setEmojiTarget(target); setEmojiBack(modal); setModal("emoji"); };
 
   // ── Soumissions ───────────────────────────────────────────────────────────
@@ -221,7 +214,16 @@ export default function FinancesModule({ userId }) {
     const amount = parseAmount(f.amount);
     if (!amount || amount <= 0) return showToast("Montant invalide");
     if (!f.account_id) return showToast("Compte requis");
-    const payload = { account_id: f.account_id, category_id: f.category_id, type: f.type, amount, date: f.date, note: f.note };
+    if (f.type === "transfert") {
+      if (!f.transfer_account_id) return showToast("Compte destination requis");
+      if (f.transfer_account_id === f.account_id) return showToast("Comptes identiques");
+    }
+    const payload = {
+      account_id: f.account_id,
+      transfer_account_id: f.type === "transfert" ? f.transfer_account_id : null,
+      category_id: f.type === "transfert" ? null : f.category_id,
+      type: f.type, amount, date: f.date, note: f.note,
+    };
     if (editing) await tx.updateTransaction(editing.id, payload);
     else await tx.createTransaction(payload);
     close(); showToast(editing ? "Modifié" : "Opération ajoutée");
@@ -299,8 +301,9 @@ export default function FinancesModule({ userId }) {
   };
   const submitCat = async () => {
     if (!f.name?.trim()) return showToast("Nom requis");
-    await cat.createCategory({ name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji });
-    close(); showToast("Catégorie créée");
+    if (editing) await cat.updateCategory(editing.id, { name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji });
+    else await cat.createCategory({ name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji });
+    close(); showToast(editing ? "Modifié" : "Catégorie créée");
   };
 
   const NAV = [
@@ -319,9 +322,9 @@ export default function FinancesModule({ userId }) {
   ];
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "var(--font-body, Inter, sans-serif)" }}>
+    <div className="theme-light" style={{ display: "flex", minHeight: "100vh", color: C.text, fontFamily: "var(--font-body)" }}>
       {/* ── SIDEBAR ── */}
-      <nav style={{ width: 220, flexShrink: 0, background: C.surface, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", paddingBottom: 90 }}>
+      <nav style={{ width: 220, flexShrink: 0, background: "linear-gradient(to right, rgba(139,92,246,0.035), rgba(139,92,246,0))", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", paddingBottom: 90 }}>
         <div style={{ padding: "22px 18px 10px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 34, height: 34, background: C.accentBg, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>💼</div>
           <div style={{ fontSize: 16, fontWeight: 800 }}>Budget</div>
@@ -342,7 +345,7 @@ export default function FinancesModule({ userId }) {
         <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".1em", padding: "10px 10px 5px" }}>Comptes</div>
         <div>
           {acc.accounts.map(a => (
-            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px" }}>
+            <div key={a.id} onClick={() => openAccount(a)} title="Modifier le compte" style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px", cursor: "pointer", borderRadius: 8 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: a.color || C.accent, flexShrink: 0 }} />
               <span style={{ fontSize: 12, flex: 1, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</span>
               <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</span>
@@ -442,15 +445,17 @@ export default function FinancesModule({ userId }) {
           <div style={cardSt}>
             <div style={titleSt}>Dernières opérations</div>
             {recent.length === 0 ? <Empty icon="📭" text="Aucune transaction" /> : recent.map(t => {
-              const c = getCat(t.category_id); const d = new Date(t.date);
+              const isT = t.type === "transfert"; const c = getCat(t.category_id); const d = new Date(t.date);
+              const icon = isT ? "⇄" : c.icon; const col = isT ? C.accent : (c.color || C.muted);
+              const meta = isT ? `${getAcc(t.account_id)?.name || "—"} → ${getAcc(t.transfer_account_id)?.name || "—"}` : c.name;
               return (
                 <div key={t.id} style={txRowSt}>
-                  <div style={{ ...txIconSt, background: (c.color || C.muted) + "22" }}>{c.icon}</div>
+                  <div style={{ ...txIconSt, background: col + "22" }}>{icon}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.note || c.name}</div>
-                    <div style={{ fontSize: 11, color: C.muted }}>{c.name} · {d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.note || (isT ? "Transfert" : c.name)}</div>
+                    <div style={{ fontSize: 11, color: C.muted }}>{meta} · {d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</div>
                   </div>
-                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: t.type === "revenu" ? C.green : C.text }}>{t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</div>
+                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: isT ? C.muted : t.type === "revenu" ? C.green : C.text }}>{isT ? "" : t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</div>
                 </div>
               );
             })}
@@ -500,14 +505,14 @@ export default function FinancesModule({ userId }) {
               <thead><tr>{["Date", "Description", "Catégorie", "Compte", "Montant", ""].map((h, i) => <th key={i} style={{ ...thSt, textAlign: i === 4 ? "right" : "left" }}>{h}</th>)}</tr></thead>
               <tbody>
                 {list.map(t => {
-                  const c = getCat(t.category_id); const a = getAcc(t.account_id); const d = new Date(t.date);
+                  const isT = t.type === "transfert"; const c = getCat(t.category_id); const a = getAcc(t.account_id); const dst = getAcc(t.transfer_account_id); const d = new Date(t.date);
                   return (
                     <tr key={t.id}>
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</td>
-                      <td style={{ ...tdSt, fontWeight: 500 }}>{t.note || "—"}</td>
-                      <td style={tdSt}><span style={badgeSt(c.color)}>{c.icon} {c.name}</span></td>
-                      <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{a ? a.name : "—"}</td>
-                      <td style={{ ...tdSt, fontFamily: MONO, fontWeight: 600, textAlign: "right", color: t.type === "revenu" ? C.green : C.text }}>{t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</td>
+                      <td style={{ ...tdSt, fontWeight: 500 }}>{t.note || (isT ? "Transfert" : "—")}</td>
+                      <td style={tdSt}>{isT ? <span style={badgeSt(C.accent)}>⇄ Transfert</span> : <span style={badgeSt(c.color)}>{c.icon} {c.name}</span>}</td>
+                      <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{isT ? `${a ? a.name : "—"} → ${dst ? dst.name : "—"}` : (a ? a.name : "—")}</td>
+                      <td style={{ ...tdSt, fontFamily: MONO, fontWeight: 600, textAlign: "right", color: isT ? C.muted : t.type === "revenu" ? C.green : C.text }}>{isT ? "" : t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</td>
                       <td style={tdSt}><RowActions>{rowBtn("✏️", () => openTx(t))}{rowBtn("✕", () => { tx.deleteTransaction(t.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
                     </tr>
                   );
@@ -610,7 +615,7 @@ export default function FinancesModule({ userId }) {
               const c = getCat(b.category_id); const pct = b.amount > 0 ? Math.min(100, b.spent / b.amount * 100) : 0; const over = b.spent > b.amount;
               const col = over ? C.red : pct > 75 ? C.amber : (c.color || C.accent);
               return (
-                <div key={b.id} style={{ ...statSt, position: "relative" }}>
+                <div key={b.id} onClick={() => openBudget(b)} title="Modifier le budget" style={{ ...statSt, position: "relative", cursor: "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                     <div>
                       <div style={{ fontSize: 14, fontWeight: 600 }}>{c.icon} {c.name}</div>
@@ -620,7 +625,7 @@ export default function FinancesModule({ userId }) {
                   </div>
                   <Progress pct={pct} color={col} h={7} />
                   {over && <div style={{ fontSize: 11, color: C.red, marginTop: 8 }}>⚠️ Dépassé de {fmtEUR(b.spent - b.amount)}</div>}
-                  <button onClick={() => { bud.deleteBudget(b.id); showToast("Supprimé"); }} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: 12 }}>✕</button>
+                  <button onClick={(e) => { e.stopPropagation(); bud.deleteBudget(b.id); showToast("Supprimé"); }} style={{ position: "absolute", top: 10, right: 10, background: "none", border: "none", color: C.faint, cursor: "pointer", fontSize: 12 }}>✕</button>
                 </div>
               );
             })}
@@ -710,7 +715,7 @@ export default function FinancesModule({ userId }) {
     return (
       <>
         <PageHead title="Bilan patrimonial" />
-        <div style={{ background: "linear-gradient(135deg,rgba(168,85,247,.16),rgba(52,211,153,.06))", border: `1px solid ${C.accent}`, borderRadius: 20, padding: 36, textAlign: "center", marginBottom: 22 }}>
+        <div style={{ background: "linear-gradient(135deg,rgba(139,92,246,.16),rgba(99,102,241,.08))", border: `1px solid ${C.borderMid}`, borderRadius: 20, padding: 36, textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".12em", marginBottom: 10 }}>Patrimoine net total</div>
           <div style={{ fontFamily: MONO, fontSize: 52, fontWeight: 800, letterSpacing: "-.02em", color: netWorth >= 0 ? C.green : C.red }}>{fmtEUR(netWorth)}</div>
         </div>
@@ -752,7 +757,7 @@ export default function FinancesModule({ userId }) {
         <span style={{ width: 12, height: 12, borderRadius: 3, background: c.color || C.muted }} />
         <span style={{ fontSize: 17 }}>{c.icon}</span>
         <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{c.name}</div>
-        {rowBtn("✕", () => { cat.archiveCategory(c.id); showToast("Supprimé"); }, C.red)}
+        <RowActions>{rowBtn("✏️", () => openCat(c))}{rowBtn("✕", () => { cat.archiveCategory(c.id); showToast("Supprimé"); }, C.red)}</RowActions>
       </div>
     ));
     return (
@@ -783,11 +788,20 @@ export default function FinancesModule({ userId }) {
     return (
       <>
         <Modal open={modal === "tx"} onClose={close} title={editing ? "Modifier l'opération" : "Nouvelle opération"}>
-          <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: (v === "revenu" ? incCats : expCats)[0]?.id || null }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }]} />
+          <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: v === "transfert" ? null : (v === "revenu" ? incCats : expCats)[0]?.id || null, transfer_account_id: v === "transfert" ? (p.transfer_account_id && p.transfer_account_id !== p.account_id ? p.transfer_account_id : acc.accounts.find(a => a.id !== p.account_id)?.id || null) : p.transfer_account_id }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }, { v: "transfert", label: "⇄ Transfert", c: C.accent }]} />
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
-          <Field label="Description"><TextIn value={f.note} onChange={e => set("note", e.target.value)} placeholder="Ex : Courses Monoprix" /></Field>
-          <Field label="Catégorie"><CatGrid kind={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
-          <Field label="Compte"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
+          <Field label="Description"><TextIn value={f.note} onChange={e => set("note", e.target.value)} placeholder={f.type === "transfert" ? "Ex : Vers épargne" : "Ex : Courses Monoprix"} /></Field>
+          {f.type === "transfert" ? (
+            <>
+              <Field label="Compte source"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
+              <Field label="Compte destination"><SelectIn value={f.transfer_account_id || ""} onChange={e => set("transfer_account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
+            </>
+          ) : (
+            <>
+              <Field label="Catégorie"><CatGrid kind={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
+              <Field label="Compte"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
+            </>
+          )}
           <Field label="Date"><TextIn type="date" value={f.date} onChange={e => set("date", e.target.value)} /></Field>
           <Btn onClick={submitTx}>Enregistrer</Btn>
         </Modal>
@@ -820,7 +834,7 @@ export default function FinancesModule({ userId }) {
           <Btn onClick={confirmSettle}>Confirmer le règlement</Btn>
         </Modal>
 
-        <Modal open={modal === "budget"} onClose={close} title="Définir un budget">
+        <Modal open={modal === "budget"} onClose={close} title={editing ? "Modifier le budget" : "Définir un budget"}>
           <Field label="Catégorie"><SelectIn value={f.category_id || ""} onChange={e => set("category_id", e.target.value)}>{expCats.map(c => <option key={c.id} value={c.id}>{c.icon} {c.name}</option>)}</SelectIn></Field>
           <Field label={`Budget mensuel (€) — ${monthLabel(ym)}`}><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
           <Btn onClick={submitBudget}>Définir</Btn>
@@ -855,7 +869,7 @@ export default function FinancesModule({ userId }) {
           <Btn onClick={submitAccount}>Enregistrer</Btn>
         </Modal>
 
-        <Modal open={modal === "cat"} onClose={close} title="Nouvelle catégorie">
+        <Modal open={modal === "cat"} onClose={close} title={editing ? "Modifier la catégorie" : "Nouvelle catégorie"}>
           <Field label="Type"><SelectIn value={f.kind} onChange={e => set("kind", e.target.value)}><option value="depense">Dépense</option><option value="revenu">Revenu</option></SelectIn></Field>
           <Field label="Emoji"><div style={{ display: "flex", gap: 8 }}><TextIn value={f.emoji} onChange={e => set("emoji", e.target.value)} maxLength={2} style={{ width: 70, flexShrink: 0, textAlign: "center", fontSize: 22 }} /><Btn kind="g" style={{ flex: 1 }} onClick={() => openEmoji("emoji")}>Choisir 🌞</Btn></div></Field>
           <Field label="Nom"><TextIn value={f.name} onChange={e => set("name", e.target.value)} placeholder="Ex : Sport, Cadeaux..." /></Field>
