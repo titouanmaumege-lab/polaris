@@ -1,99 +1,29 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { syncToSupabase } from "./supabase";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
 import PolarisLogo from "./PolarisLogo";
-import { pad, todayStr } from "./utils/date";
+import {
+  pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked,
+  DAY_LABELS, MONTH_FR, MONTHS_FR, QUARTERS_FR, monthDates, fmtDate,
+  periodeTypeForLevel, lastDayOfMonth, computeCloture, periodeLabel, defaultPeriode,
+  fmtMin, fmtHM, formatElapsed,
+} from "./utils/date";
 import { uid } from "./utils/id";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// UTILS
-// ─────────────────────────────────────────────────────────────────────────────
-const getLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-let _userId = null;
-let _syncTimer = null;
-let _onSyncStatus = null;
-const setLS = (k, v) => {
-  localStorage.setItem(k, JSON.stringify(v));
-  if (_userId) {
-    _onSyncStatus?.("saving");
-    clearTimeout(_syncTimer);
-    _syncTimer = setTimeout(() => {
-      syncToSupabase(_userId)
-        .then(() => { _onSyncStatus?.("ok"); setTimeout(() => _onSyncStatus?.(null), 2000); })
-        .catch(() => { _onSyncStatus?.("error"); });
-    }, 1500);
-  }
-};
-const weekDates = () => {
-  const d = new Date(), day = d.getDay() === 0 ? 6 : d.getDay() - 1;
-  return Array.from({ length: 7 }, (_, i) => { const dt = new Date(d); dt.setDate(d.getDate() - day + i); return dt.toISOString().split("T")[0]; });
-};
-const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
-const weekStart = dateStr => {
-  const d = new Date(dateStr + "T12:00:00");
-  const off = d.getDay() === 0 ? 6 : d.getDay() - 1;
-  const mon = new Date(d); mon.setDate(d.getDate() - off);
-  return mon.toISOString().split("T")[0];
-};
-const weekEnd = dateStr => {
-  const d = new Date(weekStart(dateStr) + "T12:00:00");
-  d.setDate(d.getDate() + 6);
-  return d.toISOString().split("T")[0];
-};
-const isWeekLocked = wkStart => new Date() > new Date(weekEnd(wkStart) + "T23:59:59");
-const MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
-const monthDates = (y, m) => Array.from({ length: new Date(y, m + 1, 0).getDate() }, (_, i) => new Date(y, m, i + 1).toISOString().split("T")[0]);
-const fmtDate = s => new Date(s + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-const clamp = (v, mn, mx) => Math.min(Math.max(v, mn), mx);
-const pct = (start, cur, target) => {
-  if (target === start) return cur >= target ? 100 : 0;
-  return Math.round(clamp((cur - start) / (target - start) * 100, 0, 100));
-};
-// % d'un Key Result (gère sens croissant ET décroissant)
-const krPct = kr => pct(kr.depart ?? 0, kr.actuelle ?? kr.depart ?? 0, kr.cible ?? 0);
-// % global d'un objectif : moyenne des KR + bonus complétion (jusqu'à +15 si tous finis)
-const KR_BONUS_MAX = 15;
-const krsProgress = krs => {
-  if (!krs || !krs.length) return null;
-  const avg = krs.reduce((s, k) => s + krPct(k), 0) / krs.length;
-  const completedFrac = krs.filter(k => krPct(k) >= 100).length / krs.length;
-  return Math.round(clamp(avg + completedFrac * KR_BONUS_MAX, 0, 100));
-};
-
-// ── Période & clôture des OKR ──
-const MONTHS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
-const QUARTERS_FR = [["T1","Jan–Mar"],["T2","Avr–Juin"],["T3","Juil–Sep"],["T4","Oct–Déc"]];
-const periodeTypeForLevel = lvl => lvl === "mensuel" ? "month" : lvl === "trimestriel" ? "quarter" : lvl === "annuel" ? "year" : null;
-const lastDayOfMonth = (y, m) => { const d = new Date(y, m + 1, 0); return `${y}-${String(m + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
-const computeCloture = periode => {
-  if (!periode) return "";
-  if (periode.type === "month")   return lastDayOfMonth(periode.year, periode.month);
-  if (periode.type === "quarter") return lastDayOfMonth(periode.year, periode.quarter * 3 + 2);
-  if (periode.type === "year")    return `${periode.year}-12-31`;
-  return "";
-};
-const periodeLabel = periode => {
-  if (!periode) return "";
-  if (periode.type === "month")   return `${MONTHS_FR[periode.month]} ${periode.year}`;
-  if (periode.type === "quarter") return `${QUARTERS_FR[periode.quarter][0]} ${periode.year}`;
-  if (periode.type === "year")    return `${periode.year}`;
-  return "";
-};
-const defaultPeriode = lvl => {
-  const t = periodeTypeForLevel(lvl); if (!t) return null;
-  const now = new Date();
-  return { type: t, year: now.getFullYear(), month: now.getMonth(), quarter: Math.floor(now.getMonth() / 3) };
-};
-const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60).padStart(2, "0") : ""}` : m > 0 ? `${m}min` : "—";
-const fmtHM = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
-const formatElapsed = ms => {
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-};
+import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
+import { getLS, setLS, setSyncContext } from "./utils/storage";
+import { P, applyPerso } from "./state/perso";
+import {
+  C, GRAD, GLOW, GLOW_SM, TR, SPACES, STATUTS, OBJ_STATUSES, OBJ_CLOSED,
+  isObjClosed, isObjAchieved, STATUS_MIGRATE, normObjStatus,
+  LEVELS, LEVEL_PARENT, LEVEL_CHILD, STATUS_OPTIONS_BASE,
+  WP_EFFICIENCE, WP_TYPE_C, DJ_ENERGY, DJ_FOCUS, DJ_STRESS, DJ_HAPPY, ITEM_COLORS,
+} from "./ui/tokens";
+import {
+  CircularProgress, Pill, StatusPill, SpacePill, ProgressBar, Select, Input, Btn, Card,
+  PageHeader, cycleHabitStatus, HabitToggle, HabitChip,
+} from "./ui/primitives";
+// Helpers date/semaine/mois/période/format → src/utils/date.js
+// Helpers numériques + progression OKR → src/utils/math.js
 function useElapsedTimer(startTime) {
   const [elapsed, setElapsed] = useState(startTime ? Date.now() - startTime : 0);
   useEffect(() => {
@@ -120,12 +50,7 @@ function useElapsedWithPause(session) {
   return elapsed;
 }
 const LS_SESSION_KEY = 'LE_PLAN_ACTIVE_SESSION';
-const _perso0 = getLS("lp_personalization", {});
-const _D_DOMAINES = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
-const _D_WP_TYPES = ["DEEP","SHALLOW","COURS","GROUPE"];
-const _D_DJ_TYPES = ["Journée classique","Journée libre","Weekend","Voyage","Jour off","Jour spécial"];
-const _D_SPHERES  = { business:{label:"💸 Business",c:"#8b5cf6"}, master:{label:"📚 Master",c:"#3b82f6"}, sport:{label:"⚡ Sport",c:"#10b981"}, perso:{label:"👁 Perso",c:"#f59e0b"}, pro:{label:"🧑‍💻 Pro",c:"#ec4899"} };
-let WP_CATEGORIES = _perso0.domaines || _D_DOMAINES;
+// Store personnalisation (P + applyPerso) → src/state/perso.js
 function getISOWeekId(date = new Date()) {
   const d = new Date(date); d.setHours(0,0,0,0);
   d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
@@ -157,93 +82,15 @@ const calcStreak = habits => {
   }
   return streak;
 };
-function cycleHabitStatus(current) {
-  if (current === null || current === undefined) return 'validated';
-  if (current === 'validated') return 'invalidated';
-  return null;
-}
-function HabitToggle({ status, onToggle }) {
-  const cfg = status === 'validated'
-    ? { bg: '#10b981', border: '#10b981', icon: '✓', glow: '0 0 16px rgba(16,185,129,0.5)', cls: 'habit-pulse' }
-    : status === 'invalidated'
-    ? { bg: '#ef4444', border: '#ef4444', icon: '✕', glow: '0 0 16px rgba(239,68,68,0.5)', cls: 'habit-shake' }
-    : { bg: 'transparent', border: 'rgba(139,92,246,0.4)', icon: null, glow: 'none', cls: '' };
-  return (
-    <button onClick={e=>{e.stopPropagation();onToggle();}} className={cfg.cls}
-      style={{ width:36,height:36,borderRadius:'50%',background:cfg.bg,border:`2px solid ${cfg.border}`,boxShadow:cfg.glow,
-        color:'#fff',fontWeight:700,fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',
-        transition:'all 0.25s cubic-bezier(0.4,0,0.2,1)',cursor:'pointer',flexShrink:0 }}>
-      {cfg.icon}
-    </button>
-  );
-}
+// cycleHabitStatus, HabitToggle, HabitChip → src/ui/primitives.jsx
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DESIGN
 // ─────────────────────────────────────────────────────────────────────────────
-const C = {
-  bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830", surface3: "#201e38",
-  border: "rgba(139,92,246,0.15)", borderMid: "rgba(139,92,246,0.4)",
-  accent: "#8b5cf6", accent2: "#6366f1", accentBg: "rgba(139,92,246,0.12)",
-  text: "#f1f0ff", muted: "#9391b5", faint: "#524f72",
-  green: "#10b981", greenBg: "rgba(16,185,129,0.12)",
-  red: "#ef4444", redBg: "rgba(239,68,68,0.12)",
-  blue: "#6366f1", blueBg: "rgba(99,102,241,0.12)",
-  purple: "#8b5cf6", purpleBg: "rgba(139,92,246,0.12)",
-  amber: "#f59e0b", amberBg: "rgba(245,158,11,0.12)",
-  orange: "#f97316", pink: "#f472b6",
-};
-const GRAD = "linear-gradient(135deg, #8b5cf6, #6366f1)";
-const GLOW = "0 0 24px rgba(139,92,246,0.35)";
-const GLOW_SM = "0 0 12px rgba(139,92,246,0.2)";
-const TR = "0.18s cubic-bezier(0.4,0,0.2,1)";
+// Tokens design (C, GRAD, GLOW, GLOW_SM, TR) → src/ui/tokens.js
 
-const SPACES = {
-  "Sport & Santé": { c: C.green,  icon: "⚡" },
-  "Business":      { c: C.blue,   icon: "💼" },
-  "Etudes et Pro": { c: C.orange, icon: "📚" },
-  "Relations":     { c: C.purple, icon: "🤝" },
-};
-const STATUTS = {
-  "Dans les blocs": { c: C.faint,  label: "À planifier" },
-  "Pas commencé":   { c: C.faint,  label: "Pas commencé" },
-  "En cours":       { c: C.blue,   label: "En cours" },
-  "On-track":       { c: C.green,  label: "On track" },
-  "On track":       { c: C.green,  label: "On track" },
-  "Off-track":      { c: C.amber,  label: "Off track" },
-  "Off track":      { c: C.amber,  label: "Off track" },
-  "At-risk":        { c: C.orange, label: "At risk" },
-  "At risk":        { c: C.orange, label: "At risk" },
-  "Partiel":        { c: C.purple, label: "Partiel" },
-  "Terminé":        { c: C.green,  label: "Terminé" },
-  "Échoué":         { c: C.red,    label: "Échoué" },
-  "Echoué":         { c: C.red,    label: "Échoué" },
-  // Statuts objectifs (DA 2026)
-  "Ça arrive":      { c: C.faint,  label: "Ça arrive" },
-  "C'est chaud":    { c: C.purple, label: "C'est chaud" },
-  "Atteint":        { c: C.green,  label: "Atteint" },
-  "Abandonné":      { c: C.red,    label: "Abandonné" },
-};
-// Jeu de statuts pour les objectifs (toutes temporalités) — ordre + icône + couleur
-const OBJ_STATUSES = [
-  { k: "Ça arrive",   c: C.faint,  icon: "💤" },
-  { k: "En cours",    c: C.blue,   icon: "🚀" },
-  { k: "C'est chaud", c: C.purple, icon: "🔥" },
-  { k: "Atteint",     c: C.green,  icon: "🏆" },
-  { k: "Échoué",      c: C.red,    icon: "💥" },
-  { k: "Abandonné",   c: C.red,    icon: "🏳️" },
-];
-const OBJ_CLOSED = ["Terminé", "Atteint", "Échoué", "Echoué", "Abandonné"];
-const isObjClosed   = s => OBJ_CLOSED.includes(s);
-const isObjAchieved = s => s === "Atteint" || s === "Terminé";
-// Migration anciens statuts → nouveau jeu
-const STATUS_MIGRATE = {
-  "Dans les blocs":"Ça arrive", "Pas commencé":"Ça arrive",
-  "On-track":"En cours", "On track":"En cours", "Partiel":"En cours",
-  "Off-track":"C'est chaud", "Off track":"C'est chaud", "At-risk":"C'est chaud", "At risk":"C'est chaud",
-  "Terminé":"Atteint", "Echoué":"Échoué",
-};
-const normObjStatus = s => OBJ_STATUSES.find(o => o.k === s) ? s : (STATUS_MIGRATE[s] || "Ça arrive");
+// SPACES, STATUTS, OBJ_STATUSES, OBJ_CLOSED, isObjClosed/isObjAchieved,
+// STATUS_MIGRATE, normObjStatus → src/ui/tokens.js
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DATA
@@ -290,29 +137,14 @@ const NOTION_GOALS = {
   if (!stored || !hasLT) setLS("lp_goals", NOTION_GOALS);
 })();
 
-const LEVELS = [
-  { id: "lt",          label: "Long Terme",   icon: "👁️", c: C.purple },
-  { id: "annuel",      label: "Annuel",       icon: "🌌", c: C.blue },
-  { id: "trimestriel", label: "Trimestriel",  icon: "🌍", c: C.green },
-  { id: "mensuel",     label: "Mensuel",      icon: "🗻", c: C.amber },
-];
-const LEVEL_PARENT = { annuel:"lt", trimestriel:"annuel", mensuel:"trimestriel" };
-const LEVEL_CHILD  = { lt:"annuel", annuel:"trimestriel", trimestriel:"mensuel" };
-const STATUS_OPTIONS_BASE = OBJ_STATUSES.map(s => s.k);
+// LEVELS, LEVEL_PARENT, LEVEL_CHILD, STATUS_OPTIONS_BASE → src/ui/tokens.js
 
-let WP_TYPES     = _perso0.wpTypes  || _D_WP_TYPES;
-let WP_DOMAINES  = _perso0.domaines || _D_DOMAINES;
-const WP_EFFICIENCE= ["💡","💡💡","💡💡💡","💡💡💡💡","💡💡💡💡💡"];
-const WP_TYPE_C    = { DEEP: C.purple, SHALLOW: C.blue, COURS: C.amber, GROUPE: C.green };
+// WP_EFFICIENCE, WP_TYPE_C → src/ui/tokens.js ; WP_TYPES/WP_DOMAINES → state/perso (P)
 
-const DJ_ENERGY  = ["⚡","⚡⚡","⚡⚡⚡","⚡⚡⚡⚡","⚡⚡⚡⚡⚡"];
-const DJ_FOCUS   = ["❖","❖❖","❖❖❖","❖❖❖❖","❖❖❖❖❖"];
-const DJ_STRESS  = ["✶","✶✶","✶✶✶","✶✶✶✶","✶✶✶✶✶"];
-const DJ_HAPPY   = ["☺","☺☺","☺☺☺","☺☺☺☺","☺☺☺☺☺"];
-let DJ_TYPES   = _perso0.djTypes  || _D_DJ_TYPES;
+// DJ_ENERGY/DJ_FOCUS/DJ_STRESS/DJ_HAPPY → src/ui/tokens.js ; DJ_TYPES → state/perso (P)
 const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",happy:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
 const djEntry    = raw => !raw ? DJ_EMPTY() : typeof raw === "string" ? { ...DJ_EMPTY(), reflexions: raw } : { ...DJ_EMPTY(), ...raw };
-const ITEM_COLORS = ["#10b981","#ef4444","#3b82f6","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
+// ITEM_COLORS → src/ui/tokens.js
 
 const QUICK_ADDS = [
   { label: "💼 Business", prefix: "Business — " },
@@ -321,113 +153,6 @@ const QUICK_ADDS = [
   { label: "🏋️ Sport",   prefix: "Sport — " },
   { label: "🧘 Perso",   prefix: "Perso — " },
 ];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PRIMITIVES
-// ─────────────────────────────────────────────────────────────────────────────
-function CircularProgress({ value, max, size = 52, strokeWidth = 4, color = C.accent }) {
-  const r = (size - strokeWidth * 2) / 2;
-  const circ = 2 * Math.PI * r;
-  const filled = max === 0 ? 0 : clamp(value / max, 0, 1);
-  const offset = circ * (1 - filled);
-  return (
-    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)", display: "block" }}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--c-ring-track)" strokeWidth={strokeWidth} />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth}
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 0.5s ease" }} />
-      </svg>
-      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color }}>
-        {value}/{max}
-      </div>
-    </div>
-  );
-}
-
-const Pill = ({ label, color }) => (
-  <span style={{
-    display: "inline-flex", alignItems: "center", padding: "3px 10px",
-    borderRadius: 999, fontSize: 11, fontWeight: 500, letterSpacing: "0.04em",
-    background: color + "20", color, border: `1px solid ${color}35`,
-  }}>{label}</span>
-);
-const StatusPill = ({ statut }) => { const s = STATUTS[statut] || { c: C.muted, label: statut }; return <Pill label={s.label} color={s.c} />; };
-const SpacePill  = ({ space })  => { const sp = SPACES[space] || { c: C.muted, icon: "•" }; return <Pill label={`${sp.icon} ${space}`} color={sp.c} />; };
-
-const ProgressBar = ({ value, color, height = 6 }) => (
-  <div style={{ height, background: "rgba(139,92,246,0.1)", borderRadius: height }}>
-    <div style={{
-      height: "100%", width: `${clamp(value, 0, 100)}%`,
-      background: color ? `linear-gradient(90deg, ${color}99, ${color})` : GRAD,
-      borderRadius: height, transition: "width 0.5s ease",
-    }} />
-  </div>
-);
-
-const Select = ({ value, options, onChange, style }) => (
-  <select value={value} onChange={e => onChange(e.target.value)} style={{
-    background: "var(--c-surface-2)", border: `1px solid var(--c-border)`, color: "var(--c-text)",
-    padding: "8px 10px", borderRadius: 10, fontSize: 13, fontFamily: "inherit",
-    outline: "none", cursor: "pointer", ...style,
-  }}>
-    {options.map(o => <option key={o} value={o}>{o}</option>)}
-  </select>
-);
-
-const Input = ({ value, onChange, onKeyDown, placeholder, style, type = "text", autoFocus }) => (
-  <input type={type} autoFocus={autoFocus}
-    value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
-    placeholder={placeholder}
-    style={{
-      background: "var(--c-surface-2)", border: `1px solid var(--c-border)`, color: "var(--c-text)",
-      padding: "10px 14px", borderRadius: 12, fontSize: 14, fontFamily: "inherit",
-      outline: "none", width: "100%", boxSizing: "border-box",
-      minHeight: 44, transition: TR, ...style,
-    }}
-  />
-);
-
-const Btn = ({ children, onClick, variant = "default", style, disabled }) => (
-  <button onClick={onClick} disabled={disabled} style={{
-    padding: "10px 18px", borderRadius: 12, fontSize: 13, fontFamily: "inherit",
-    fontWeight: 600, transition: TR, border: "none", minHeight: 44,
-    opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer",
-    ...(variant === "accent"
-      ? { background: "var(--c-grad)", color: "#fff", boxShadow: "var(--c-glow-sm)" }
-      : variant === "ghost"
-      ? { background: "transparent", color: "var(--c-accent)", border: `1px solid var(--c-border-mid)` }
-      : { background: "var(--c-surface-2)", color: "var(--c-text)", border: `1px solid var(--c-border)` }),
-    ...style,
-  }}>{children}</button>
-);
-
-const Card = ({ children, style, onClick, className }) => (
-  <div onClick={onClick} className={className} style={{
-    background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18,
-    padding: 16, ...(onClick ? { cursor: "pointer" } : {}), ...style,
-  }}>{children}</div>
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PAGE HEADER (non-dashboard pages)
-// ─────────────────────────────────────────────────────────────────────────────
-function PageHeader({ title, onBack, action }) {
-  return (
-    <div style={{
-      position: "sticky", top: 0, zIndex: 20,
-      background: "rgba(13,13,26,0.95)", backdropFilter: "blur(20px)",
-      borderBottom: `1px solid ${C.border}`, padding: "14px 16px",
-      display: "flex", alignItems: "center", gap: 12,
-    }}>
-      {onBack && (
-        <span onClick={onBack} style={{ cursor: "pointer", color: C.muted, fontSize: 22, lineHeight: 1 }}>←</span>
-      )}
-      <span style={{ fontSize: 17, fontWeight: 700, color: C.text, flex: 1 }}>{title}</span>
-      {action}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BOTTOM NAV
@@ -485,39 +210,6 @@ function BottomNav({ current, onNav, mobile, onPerso }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
-function HabitChip({ habit, status, onToggle, animating }) {
-  const done = status === 'validated';
-  const inv  = status === 'invalidated';
-  return (
-    <div onClick={onToggle} style={{
-      display: "flex", alignItems: "center", gap: 14,
-      padding: "13px 14px", marginBottom: 8, borderRadius: 14,
-      background: done ? "rgba(52,211,153,0.12)" : inv ? "rgba(251,113,133,0.10)" : "var(--c-surface-2)",
-      border: `1px solid ${done ? "rgba(52,211,153,0.35)" : inv ? "rgba(251,113,133,0.30)" : "var(--c-border)"}`,
-      boxShadow: "var(--c-item-shadow)",
-      cursor: "pointer", transition: TR, minHeight: 52,
-    }}>
-      <span style={{ fontSize: 22, flexShrink: 0, opacity: done ? 0.5 : 1 }}>{habit.emoji}</span>
-      <span style={{
-        flex: 1, fontSize: 15, fontWeight: 500,
-        color: done ? "var(--c-muted)" : inv ? "#ef4444" : "var(--c-text)",
-        textDecoration: done ? "line-through" : "none",
-        transition: TR,
-      }}>{habit.name}</span>
-      <div className={animating ? "habit-pop" : ""} style={{
-        width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-        background: done ? "linear-gradient(135deg,#10b981,#059669)" : inv ? "#ef4444" : "transparent",
-        border: `2px solid ${done ? "#10b981" : inv ? "#ef4444" : "var(--c-border-mid)"}`,
-        display: "flex", alignItems: "center", justifyContent: "center",
-        boxShadow: done ? "0 0 12px rgba(16,185,129,0.4)" : inv ? "0 0 12px rgba(239,68,68,0.4)" : "none",
-        transition: TR,
-      }}>
-        {done && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✓</span>}
-        {inv  && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✕</span>}
-      </div>
-    </div>
-  );
-}
 
 // ── MonthCalendar ──
 function MonthCalendar() {
@@ -2427,7 +2119,11 @@ function ObjectifsModule({ initialTab = "lt" }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO — GTD v2 + CALENDAR
 // ─────────────────────────────────────────────────────────────────────────────
-let SPHERES = _perso0.spheres || _D_SPHERES;
+let SPHERES       = P.spheres;
+let WP_CATEGORIES = P.wpCategories;
+let WP_DOMAINES   = P.domaines;
+let WP_TYPES      = P.wpTypes;
+let DJ_TYPES      = P.djTypes;
 const MATRICES = {
   ui:   { label: "🔴 Urgent · Important",     short: "UI" },
   uni:  { label: "🟡 Urgent · Secondaire",    short: "U·S" },
@@ -5941,6 +5637,7 @@ export default function App({ session, signOut }) {
 
   const handleSavePerso = (p) => {
     setLS("lp_personalization", p);
+    applyPerso(p);
     WP_CATEGORIES = p.domaines;
     WP_DOMAINES   = p.domaines;
     WP_TYPES      = p.wpTypes;
@@ -5953,8 +5650,7 @@ export default function App({ session, signOut }) {
   useEffect(() => { setLS("lp_active_module", module); }, [module]);
 
   useEffect(() => {
-    _userId = session?.user?.id ?? null;
-    _onSyncStatus = setSyncStatus;
+    setSyncContext(session?.user?.id ?? null, setSyncStatus);
   }, [session]);
 
   const handleSessionStart = (s) => {

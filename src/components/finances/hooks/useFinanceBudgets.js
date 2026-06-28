@@ -1,33 +1,32 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
-import { monthBounds } from "../../../utils/date";
+import { monthBounds, monthKey } from "../../../utils/date";
 
-// Budgets mensuels récurrents + dépensé du mois courant (calcul client).
-export function useFinanceBudgets(userId) {
+// Budgets PAR MOIS (year + month 1-12) + dépensé du mois (calcul client).
+// ym = 'YYYY-MM' ; défaut = mois courant.
+export function useFinanceBudgets(userId, ym = monthKey()) {
   const [budgets, setBudgets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [y, m] = ym.split("-").map(Number);
 
   const fetch = useCallback(async () => {
     if (!userId) return;
-    const [first, last] = monthBounds();
+    const [first, last] = monthBounds(ym);
     const [{ data: budData }, { data: txData }] = await Promise.all([
-      supabase.from("finance_budgets").select("*").eq("user_id", userId),
+      supabase.from("finance_budgets").select("*")
+        .eq("user_id", userId).eq("year", y).eq("month", m),
       supabase.from("finance_transactions").select("amount, category_id")
         .eq("user_id", userId).eq("type", "depense").gte("date", first).lte("date", last),
     ]);
-    const spentByCat = {}; let spentTotal = 0;
+    const spentByCat = {};
     (txData || []).forEach(t => {
-      const amt = Number(t.amount);
-      spentTotal += amt;
-      if (t.category_id) spentByCat[t.category_id] = (spentByCat[t.category_id] || 0) + amt;
+      if (t.category_id) spentByCat[t.category_id] = (spentByCat[t.category_id] || 0) + Number(t.amount);
     });
     setBudgets((budData || []).map(b => ({
-      ...b,
-      amount: Number(b.amount),
-      spent: b.category_id ? (spentByCat[b.category_id] || 0) : spentTotal,
+      ...b, amount: Number(b.amount), spent: spentByCat[b.category_id] || 0,
     })));
     setLoading(false);
-  }, [userId]);
+  }, [userId, ym, y, m]);
 
   useEffect(() => { fetch(); }, [fetch]);
 
@@ -37,10 +36,11 @@ export function useFinanceBudgets(userId) {
     return () => window.removeEventListener("finance-data-changed", handler);
   }, [fetch]);
 
-  // upsert sur (user_id, category_id) — category_id null = budget global
-  const upsertBudget = async ({ category_id = null, amount }) => {
+  // upsert sur (user_id, category_id, year, month)
+  const upsertBudget = async ({ category_id, amount }) => {
     const { error } = await supabase.from("finance_budgets")
-      .upsert({ user_id: userId, category_id, amount }, { onConflict: "user_id,category_id" });
+      .upsert({ user_id: userId, category_id, amount, year: y, month: m },
+        { onConflict: "user_id,category_id,year,month" });
     if (error) { console.error("upsertBudget error:", error); return null; }
     await fetch();
   };

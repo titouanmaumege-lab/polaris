@@ -30,6 +30,7 @@ export function useFinanceInvestments(userId) {
   const createInvestment = async (inv) => {
     const { data, error } = await supabase.from("finance_investments").insert({
       user_id: userId, account_id: inv.account_id ?? null, label: inv.label,
+      ticker: inv.ticker ?? null,
       quantity: inv.quantity ?? 0, avg_buy_price: inv.avg_buy_price ?? 0,
       current_price: inv.current_price ?? 0, currency: inv.currency ?? "EUR",
     }).select().single();
