@@ -4426,6 +4426,81 @@ function EditGlobalItemModal({ item, onClose, onSave }) {
   );
 }
 
+// Suivi des Key Results mensuels — lit/écrit lp_goals (source de vérité partagée avec Objectifs)
+function MonthlyKRTracker({ onNav }) {
+  const C = CF, FONT_D = CF_FONT;
+  const [goals, setGoals] = useState(() => getLS("lp_goals", NOTION_GOALS));
+  const [drafts, setDrafts] = useState({});
+  const saveGoals = g => { setGoals(g); setLS("lp_goals", g); };
+  const monthlyWithKR = (goals.mensuel || []).filter(o => (o.krs || []).length > 0);
+
+  const updateKR = (objId, krIndex, newActuelle) => {
+    saveGoals({ ...goals, mensuel: (goals.mensuel || []).map(o => o.id !== objId ? o
+      : { ...o, krs: o.krs.map((k, i) => i === krIndex ? { ...k, actuelle: newActuelle } : k) }) });
+  };
+
+  const stepBtn = (onClick, sym) => (
+    <button onClick={onClick} style={{width:26,height:26,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface2,color:C.text,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0,padding:0}}>{sym}</button>
+  );
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>🎯 Objectifs du mois</div>
+      {monthlyWithKR.length === 0 && (
+        <div onClick={()=>onNav?.("objectifs:mensuel")} style={{fontSize:12,color:C.faint,padding:"2px 0 6px",cursor:"pointer"}}>
+          Aucun KR mensuel à suivre · <span style={{color:C.accent}}>→ Objectifs</span>
+        </div>
+      )}
+      {monthlyWithKR.map(o => {
+        const p = krsProgress(o.krs);
+        return (
+          <div key={o.id} style={{marginBottom:12,padding:"14px 16px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+              <span style={{flex:1,fontSize:13,fontWeight:600,color:C.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.titre}</span>
+              <span style={{fontFamily:FONT_D,fontSize:12,fontWeight:800,color:p>=100?C.green:C.accent,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{p}%</span>
+            </div>
+            {o.krs.map((kr, i) => {
+              const kp = krPct(kr);
+              const key = `${o.id}:${i}`;
+              const cur = kr.actuelle ?? kr.depart ?? 0;
+              const shown = drafts[key] !== undefined ? drafts[key] : String(cur);
+              const commit = raw => {
+                if (raw.trim() === "" || raw === "-") return; // vide toléré pendant la frappe
+                const n = Number(raw);
+                if (Number.isFinite(n)) updateKR(o.id, i, n);
+              };
+              return (
+                <div key={i} style={{marginTop:i===0?0:10}}>
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:5}}>
+                    <span style={{fontSize:12,color:C.muted,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{kr.nom}</span>
+                    <span style={{fontSize:11,color:kp>=100?C.green:C.muted,fontVariantNumeric:"tabular-nums",flexShrink:0}}>
+                      <b style={{color:C.text}}>{cur}</b> / {kr.cible} · {kp}%
+                    </span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:10}}>
+                    <div style={{flex:1,height:6,borderRadius:3,background:C.surface3,overflow:"hidden"}}>
+                      <div style={{height:"100%",width:`${kp}%`,background:`linear-gradient(90deg,${C.accent}99,${C.accent})`,borderRadius:3,transition:"width 0.3s"}} />
+                    </div>
+                    {stepBtn(()=>updateKR(o.id,i,cur-1),"−")}
+                    <input
+                      value={shown}
+                      inputMode="decimal"
+                      onChange={e=>{ setDrafts(d=>({...d,[key]:e.target.value})); commit(e.target.value); }}
+                      onBlur={()=>setDrafts(d=>{ const {[key]:_,...rest}=d; return rest; })}
+                      style={{width:52,textAlign:"center",background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:"5px 4px",borderRadius:9,fontSize:12,fontFamily:"inherit",outline:"none",fontVariantNumeric:"tabular-nums"}}
+                    />
+                    {stepBtn(()=>updateKR(o.id,i,cur+1),"+")}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DailyPaperModule({ onNav }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [daily, setDaily]     = useState(() => getLS("lp_daily", {}));
@@ -4475,6 +4550,9 @@ function DailyPaperModule({ onNav }) {
           <button onClick={nextDay} disabled={isToday} style={{background:C.surface2,border:`1px solid ${C.border}`,color:isToday?C.muted:C.text,padding:"8px 16px",borderRadius:12,cursor:isToday?"default":"pointer",fontFamily:"inherit",fontSize:16,opacity:isToday?0.35:1}}>→</button>
         </div>
 
+        {/* Key Results mensuels */}
+        <MonthlyKRTracker onNav={onNav} />
+
         {/* Indicators — boxless */}
         <div style={{marginBottom:20}}>
           <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
@@ -4482,17 +4560,11 @@ function DailyPaperModule({ onNav }) {
             <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Remarque..." style={{flex:1}} />
           </div>
           <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Énergie &amp; ressenti</div>
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-              <DJRating label="Matin"  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
-              <DJRating label="Midi"   options={DJ_ENERGY} value={entry.noon}    onChange={v=>setField("noon",v)} />
-              <DJRating label="Soir"   options={DJ_ENERGY} value={entry.evening} onChange={v=>setField("evening",v)} />
-            </div>
-            <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-              <DJRating label="Focus"  options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
-              <DJRating label="Stress" options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
-              <DJRating label="Bonheur" options={DJ_HAPPY} value={entry.happy}   onChange={v=>setField("happy",v)} />
-            </div>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+            <DJRating label="Énergie" options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
+            <DJRating label="Focus"   options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
+            <DJRating label="Stress"  options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
+            <DJRating label="Bonheur" options={DJ_HAPPY}  value={entry.happy}   onChange={v=>setField("happy",v)} />
           </div>
         </div>
 
@@ -4605,7 +4677,7 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
               <Input value={editEntry.remark} onChange={v=>onUpdateDaily(date,"remark",v)} placeholder="Remarque..." style={{flex:1}} />
             </div>
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-              <DJRating label="Matin" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
+              <DJRating label="Énergie" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
               <DJRating label="Focus" options={DJ_FOCUS}  value={editEntry.focus}   onChange={v=>onUpdateDaily(date,"focus",v)} />
               <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress} onChange={v=>onUpdateDaily(date,"stress",v)} />
               <DJRating label="Bonheur" options={DJ_HAPPY} value={editEntry.happy} onChange={v=>onUpdateDaily(date,"happy",v)} />
@@ -4812,15 +4884,10 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 
   // Daily averages
   const energyVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.morning)).filter(v=>v!=null);
-  const noonVals   = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.noon)).filter(v=>v!=null);
-  const eveVals    = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.evening)).filter(v=>v!=null);
   const focusVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_FOCUS,  e.focus)).filter(v=>v!=null);
   const stressVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_STRESS, e.stress)).filter(v=>v!=null);
   const happyVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_HAPPY,  e.happy)).filter(v=>v!=null);
   const avgEnergy  = avg(energyVals);
-  const avgNoon    = avg(noonVals);
-  const avgEve     = avg(eveVals);
-  const avgEnergyDay = avg([...energyVals,...noonVals,...eveVals]); // moyenne globale journée
   const avgFocus   = avg(focusVals);
   const avgStress  = avg(stressVals);
   const avgHappy   = avg(happyVals);
@@ -4979,34 +5046,13 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           {dailyCount > 0 && (
             <WRSection title="Daily Tracker">
               {/* Moyennes */}
-              {(avgEnergyDay||avgFocus||avgStress||avgHappy) && (
-                <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:12,marginBottom:16}}>
-                  {/* Énergie unifiée — matin / midi / soir */}
-                  <div style={{padding:"16px 18px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
-                    backgroundImage:`linear-gradient(135deg, ${C.amber}10, transparent 60%)`}}>
-                    <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12,display:"flex",alignItems:"center",gap:5}}>
-                      <span style={{color:C.amber}}>⚡</span> Énergie — journée
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:18}}>
-                      <RingGauge val={avgEnergyDay} color={C.amber} size={84} stroke={8} />
-                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:10}}>
-                        {[
-                          {l:"Matin",v:avgEnergy,n:energyVals.length},
-                          {l:"Midi", v:avgNoon, n:noonVals.length},
-                          {l:"Soir", v:avgEve,  n:eveVals.length},
-                        ].map(({l,v,n})=>(
-                          <div key={l}>
-                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
-                              <span style={{fontSize:10,color:C.muted,fontWeight:600}}>{l}</span>
-                              <span style={{fontSize:10,color:C.amber,fontWeight:700}}>{v!=null?v.toFixed(1):"—"}<span style={{color:C.faint,fontWeight:400}}>/5</span></span>
-                            </div>
-                            <div style={{height:5,borderRadius:3,background:C.surface3,overflow:"hidden"}}>
-                              <div style={{height:"100%",width:`${v!=null?(v/5)*100:0}%`,background:`linear-gradient(90deg,${C.amber}99,${C.amber})`,borderRadius:3,transition:"width 0.4s"}} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
+              {(avgEnergy||avgFocus||avgStress||avgHappy) && (
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1.6fr",gap:12,marginBottom:16}}>
+                  {/* Énergie — une seule mesure par jour */}
+                  <div style={{padding:"16px 12px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
+                    backgroundImage:`linear-gradient(135deg, ${C.amber}10, transparent 60%)`,
+                    display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <RingGauge val={avgEnergy} color={C.amber} size={84} stroke={8} label="Énergie" icon="⚡" />
                   </div>
                   {/* Focus / Stress / Bonheur — anneaux */}
                   <div style={{padding:"16px 12px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
