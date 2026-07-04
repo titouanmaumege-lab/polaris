@@ -4281,6 +4281,33 @@ function DJRating({ label, options, value, onChange }) {
   );
 }
 
+// Carte de ressenti — jauge équalizer 5 crans, un tap règle le niveau (re-tap efface).
+// Chaque métrique a sa teinte : le ressenti du jour se lit d'un coup d'œil en couleur.
+function RitualGauge({ glyph, label, color, options, value, onChange }) {
+  const C = CF;
+  const idx = options.indexOf(value); // -1 si vide
+  const set = idx >= 0;
+  return (
+    <div style={{background:C.surface2,border:`1px solid ${set?`${color}44`:C.border}`,borderRadius:14,padding:"10px 12px",transition:"border-color 0.2s"}}>
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+        <span style={{fontSize:13,color:set?color:C.faint,lineHeight:1}}>{glyph}</span>
+        <span style={{flex:1,fontSize:11,color:C.muted,fontWeight:600}}>{label}</span>
+        <span style={{fontFamily:CF_FONT,fontSize:11,fontWeight:800,color:set?color:C.faint,fontVariantNumeric:"tabular-nums"}}>{set?`${idx+1}/5`:"—"}</span>
+      </div>
+      <div style={{display:"flex",gap:4,alignItems:"flex-end",height:24}}>
+        {options.map((o,i)=>(
+          <div key={i} onClick={()=>onChange(value===o?"":o)} style={{
+            flex:1,height:9+i*3.5,borderRadius:3,cursor:"pointer",
+            background:set&&idx>=i?(i===idx?color:`${color}88`):C.surface3,
+            boxShadow:set&&i===idx?`0 0 10px ${color}66`:"none",
+            transition:"background 0.15s, box-shadow 0.15s",
+          }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem, onNav }) {
   const C = CF;
   const [showItemModal, setShowItemModal] = useState(false);
@@ -4310,7 +4337,7 @@ function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCust
         color,
         <span style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.12em'}}>{icon} {label}</span>,
         entry[key]||'', e=>onFieldChange(key,e.target.value),
-        key==='win'?'Victoires de la journée...':key==='loss'?'Ce qui n\'a pas marché...':'Ce que tu veux améliorer...'
+        key==='win'?'Qu\'est-ce qui t\'a rendu fier aujourd\'hui ?':key==='loss'?'Qu\'est-ce qui n\'a pas marché ?':'Que feras-tu mieux demain ?'
       ))}
       {todayCustomFull.map(item=>block(
         item.color,
@@ -4426,13 +4453,69 @@ function EditGlobalItemModal({ item, onClose, onSave }) {
   );
 }
 
+// Panorama d'ascension — crêtes sous ciel de nuit, corde de progression vers le sommet.
+// Écho direct du LevelArt mensuel (🗻) : ambre en montée, vert au sommet.
+function AscentPanorama({ p, idKey }) {
+  const C = CF;
+  const reached = p >= 100;
+  const lc = reached ? C.green : C.amber;
+  const cp = clamp(p, 0, 100);
+  const trailRef = useRef(null);
+  const [climber, setClimber] = useState(null);
+  useEffect(() => {
+    const el = trailRef.current;
+    if (!el) return;
+    const q = el.getPointAtLength(el.getTotalLength() * cp / 100);
+    setClimber({ x: q.x, y: q.y });
+  }, [cp]);
+  const gid = `asc-${idKey}`;
+  const TRAIL = "M12,80 L48,62 L84,68 L122,42 L154,54 L196,22";
+  return (
+    <svg viewBox="0 0 300 84" preserveAspectRatio="xMidYMax slice" style={{ display:"block", width:"100%", height:"100%" }}>
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={`${lc}4d`} /><stop offset="100%" stopColor={`${lc}0a`} />
+        </linearGradient>
+      </defs>
+      {/* crête arrière */}
+      <path d="M0,84 L58,48 L108,64 L160,36 L214,60 L262,42 L300,62 L300,84 Z" fill={`${lc}12`} />
+      {/* crête principale */}
+      <path d="M0,84 L48,58 L100,32 L150,52 L196,20 L246,50 L300,38 L300,84 Z" fill={`url(#${gid})`} stroke={`${lc}40`} strokeWidth="0.7" />
+      {/* neige au sommet */}
+      <path d="M196,20 L188,32 L204,32 Z" fill={reached ? C.green : `${C.amber}cc`} opacity="0.95" />
+      {/* sentier complet en pointillé */}
+      <path d={TRAIL} fill="none" stroke={`${lc}38`} strokeWidth="1.4" strokeDasharray="2.5 4" strokeLinecap="round" />
+      {/* corde de progression */}
+      <path ref={trailRef} d={TRAIL} fill="none" stroke={lc} strokeWidth="2.2" strokeLinecap="round" pathLength="100"
+        strokeDasharray={`${cp} ${101 - cp}`} opacity="0.95"
+        style={{ transition:"stroke-dasharray 0.5s ease, stroke 0.3s" }} />
+      {/* grimpeur */}
+      {climber && cp > 0 && (
+        <g>
+          <circle cx={climber.x} cy={climber.y} r="6.5" fill={`${lc}2e`} style={{ transition:"cx 0.5s ease, cy 0.5s ease" }} />
+          <circle cx={climber.x} cy={climber.y} r="3" fill={lc} style={{ transition:"cx 0.5s ease, cy 0.5s ease" }} />
+          <circle cx={climber.x} cy={climber.y} r="1.3" fill="#fff" opacity="0.9" style={{ transition:"cx 0.5s ease, cy 0.5s ease" }} />
+        </g>
+      )}
+      {/* fanion planté à 100% */}
+      {reached && (
+        <g>
+          <line x1="196" y1="20" x2="196" y2="6" stroke={C.green} strokeWidth="1.4" />
+          <path d="M196,6 L207,9.5 L196,13 Z" fill={C.green} />
+        </g>
+      )}
+    </svg>
+  );
+}
+
 // Suivi des Key Results mensuels — lit/écrit lp_goals (source de vérité partagée avec Objectifs)
 function MonthlyKRTracker({ onNav }) {
   const C = CF, FONT_D = CF_FONT;
   const [goals, setGoals] = useState(() => getLS("lp_goals", NOTION_GOALS));
   const [drafts, setDrafts] = useState({});
+  const [openId, setOpenId] = useState(null); // accordéon : un seul panorama déplié
   const saveGoals = g => { setGoals(g); setLS("lp_goals", g); };
-  const monthlyWithKR = (goals.mensuel || []).filter(o => (o.krs || []).length > 0);
+  const monthlyWithKR = (goals.mensuel || []).filter(o => !o.archived && (o.krs || []).length > 0);
 
   const updateKR = (objId, krIndex, newActuelle) => {
     saveGoals({ ...goals, mensuel: (goals.mensuel || []).map(o => o.id !== objId ? o
@@ -4440,60 +4523,91 @@ function MonthlyKRTracker({ onNav }) {
   };
 
   const stepBtn = (onClick, sym) => (
-    <button onClick={onClick} style={{width:26,height:26,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface2,color:C.text,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0,padding:0}}>{sym}</button>
+    <button onClick={onClick} style={{width:26,height:26,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface3,color:C.text,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0,padding:0}}>{sym}</button>
   );
 
   return (
     <div style={{marginBottom:20}}>
-      <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>🎯 Objectifs du mois</div>
+      <div style={{fontSize:10,color:C.amber,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>🗻 Ascension du mois</div>
       {monthlyWithKR.length === 0 && (
         <div onClick={()=>onNav?.("objectifs:mensuel")} style={{fontSize:12,color:C.faint,padding:"2px 0 6px",cursor:"pointer"}}>
-          Aucun KR mensuel à suivre · <span style={{color:C.accent}}>→ Objectifs</span>
+          Aucun KR mensuel à suivre · <span style={{color:C.amber}}>→ Objectifs</span>
         </div>
       )}
       {monthlyWithKR.map(o => {
         const p = krsProgress(o.krs);
+        const reached = p >= 100;
+        const lc = reached ? C.green : C.amber;
+        const open = openId === o.id;
         return (
-          <div key={o.id} style={{marginBottom:12,padding:"14px 16px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`}}>
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:10}}>
+          <div key={o.id} style={{marginBottom:8,background:C.surface2,borderRadius:open?16:12,border:`1px solid ${reached?"rgba(52,211,153,0.28)":"rgba(251,191,36,0.20)"}`,overflow:"hidden",transition:"border-radius 0.2s"}}>
+            {/* Rangée compacte — toujours visible, tap pour déplier */}
+            <div onClick={()=>setOpenId(open?null:o.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none"}}>
+              {/* mini sommet */}
+              <svg viewBox="0 0 20 14" style={{width:20,height:14,flexShrink:0,display:"block"}}>
+                <path d="M0,14 L7,4 L11,9 L15,3 L20,14 Z" fill={`${lc}33`} stroke={`${lc}88`} strokeWidth="0.8" />
+                <path d="M15,3 L13,6.2 L17,6.2 Z" fill={lc} />
+              </svg>
               <span style={{flex:1,fontSize:13,fontWeight:600,color:C.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.titre}</span>
-              <span style={{fontFamily:FONT_D,fontSize:12,fontWeight:800,color:p>=100?C.green:C.accent,fontVariantNumeric:"tabular-nums",flexShrink:0}}>{p}%</span>
+              {/* jauge fine */}
+              <div style={{width:56,height:5,borderRadius:2,background:C.surface3,overflow:"hidden",flexShrink:0}}>
+                <div style={{height:"100%",width:`${Math.min(p,100)}%`,background:lc,transition:"width 0.3s"}} />
+              </div>
+              <span style={{fontFamily:FONT_D,fontSize:13,fontWeight:800,color:lc,fontVariantNumeric:"tabular-nums",flexShrink:0,minWidth:38,textAlign:"right"}}>{p}%</span>
+              <span style={{fontSize:10,color:C.faint,flexShrink:0,transform:open?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▼</span>
             </div>
-            {o.krs.map((kr, i) => {
-              const kp = krPct(kr);
-              const key = `${o.id}:${i}`;
-              const cur = kr.actuelle ?? kr.depart ?? 0;
-              const shown = drafts[key] !== undefined ? drafts[key] : String(cur);
-              const commit = raw => {
-                if (raw.trim() === "" || raw === "-") return; // vide toléré pendant la frappe
-                const n = Number(raw);
-                if (Number.isFinite(n)) updateKR(o.id, i, n);
-              };
-              return (
-                <div key={i} style={{marginTop:i===0?0:10}}>
-                  <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:5}}>
-                    <span style={{fontSize:12,color:C.muted,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{kr.nom}</span>
-                    <span style={{fontSize:11,color:kp>=100?C.green:C.muted,fontVariantNumeric:"tabular-nums",flexShrink:0}}>
-                      <b style={{color:C.text}}>{cur}</b> / {kr.cible} · {kp}%
-                    </span>
-                  </div>
-                  <div style={{display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{flex:1,height:6,borderRadius:3,background:C.surface3,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:`${kp}%`,background:`linear-gradient(90deg,${C.accent}99,${C.accent})`,borderRadius:3,transition:"width 0.3s"}} />
-                    </div>
-                    {stepBtn(()=>updateKR(o.id,i,cur-1),"−")}
-                    <input
-                      value={shown}
-                      inputMode="decimal"
-                      onChange={e=>{ setDrafts(d=>({...d,[key]:e.target.value})); commit(e.target.value); }}
-                      onBlur={()=>setDrafts(d=>{ const {[key]:_,...rest}=d; return rest; })}
-                      style={{width:52,textAlign:"center",background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:"5px 4px",borderRadius:9,fontSize:12,fontFamily:"inherit",outline:"none",fontVariantNumeric:"tabular-nums"}}
-                    />
-                    {stepBtn(()=>updateKR(o.id,i,cur+1),"+")}
-                  </div>
+            {open && <>
+            {/* Panorama — le titre et l'altitude vivent dans le ciel */}
+            <div style={{position:"relative",height:88}}>
+              <div style={{position:"absolute",inset:0}}><AscentPanorama p={p} idKey={o.id} /></div>
+              <div style={{position:"absolute",top:10,left:14,right:14,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
+                <div style={{fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700,color:lc,opacity:0.85}}>
+                  {reached ? "Sommet atteint" : "En ascension"}
                 </div>
-              );
-            })}
+              </div>
+            </div>
+            {/* Key Results — jauges graduées façon altimètre */}
+            <div style={{padding:"6px 16px 14px"}}>
+              {o.krs.map((kr, i) => {
+                const kp = krPct(kr);
+                const kc = kp >= 100 ? C.green : C.amber;
+                const key = `${o.id}:${i}`;
+                const cur = kr.actuelle ?? kr.depart ?? 0;
+                const shown = drafts[key] !== undefined ? drafts[key] : String(cur);
+                const commit = raw => {
+                  if (raw.trim() === "" || raw === "-") return; // vide toléré pendant la frappe
+                  const n = Number(raw);
+                  if (Number.isFinite(n)) updateKR(o.id, i, n);
+                };
+                return (
+                  <div key={i} style={{marginTop:i===0?0:12}}>
+                    <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:5}}>
+                      <span style={{fontSize:12,color:C.muted,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{kr.nom}</span>
+                      <span style={{fontSize:11,color:kp>=100?C.green:C.muted,fontVariantNumeric:"tabular-nums",flexShrink:0}}>
+                        <b style={{color:C.text}}>{cur}</b> / {kr.cible} · {kp}%
+                      </span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:10}}>
+                      <div style={{flex:1,position:"relative",height:9,borderRadius:2,background:C.surface3,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${Math.min(kp,100)}%`,background:`linear-gradient(90deg,${C.amber}77,${kc})`,transition:"width 0.3s"}} />
+                        {/* graduations d'altimètre : ticks tous les 10 % */}
+                        <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),${C.surface2} calc(10% - 1px) 10%)`}} />
+                      </div>
+                      {stepBtn(()=>updateKR(o.id,i,cur-1),"−")}
+                      <input
+                        value={shown}
+                        inputMode="decimal"
+                        onChange={e=>{ setDrafts(d=>({...d,[key]:e.target.value})); commit(e.target.value); }}
+                        onBlur={()=>setDrafts(d=>{ const {[key]:_,...rest}=d; return rest; })}
+                        style={{width:52,textAlign:"center",background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:"5px 4px",borderRadius:9,fontSize:12,fontFamily:"inherit",outline:"none",fontVariantNumeric:"tabular-nums"}}
+                      />
+                      {stepBtn(()=>updateKR(o.id,i,cur+1),"+")}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            </>}
           </div>
         );
       })}
@@ -4541,34 +4655,59 @@ function DailyPaperModule({ onNav }) {
     <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
       <CFHeader eyebrow="Journal" title="Daily Paper" />
       <div style={{padding:"4px 16px 100px"}}>
-        {/* Date nav */}
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,justifyContent:"center"}}>
+        {/* Date nav + progression du rituel */}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6,justifyContent:"center"}}>
           <button onClick={prevDay} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"8px 16px",borderRadius:12,cursor:"pointer",fontFamily:"inherit",fontSize:16}}>←</button>
           <span style={{fontSize:14,fontWeight:600,color:isToday?C.accent:C.text,flex:1,textAlign:"center"}}>
             {fmtDate(selDate)}{isToday?" · Aujourd'hui":""}
           </span>
           <button onClick={nextDay} disabled={isToday} style={{background:C.surface2,border:`1px solid ${C.border}`,color:isToday?C.muted:C.text,padding:"8px 16px",borderRadius:12,cursor:isToday?"default":"pointer",fontFamily:"inherit",fontSize:16,opacity:isToday?0.35:1}}>→</button>
         </div>
+        {(() => {
+          const steps = [entry.morning, entry.focus, entry.stress, entry.happy, entry.win, entry.loss, entry.ameliorer];
+          const done = steps.filter(s => s && String(s).trim()).length;
+          const full = done === steps.length;
+          return (
+            <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center",marginBottom:16}}>
+              {steps.map((s,i)=>(
+                <span key={i} style={{width:5,height:5,borderRadius:"50%",background:(s&&String(s).trim())?(full?C.green:C.accent):C.surface3,transition:"background 0.2s"}} />
+              ))}
+              <span style={{fontSize:10,color:full?C.green:C.faint,marginLeft:4,letterSpacing:"0.06em"}}>
+                {full ? "Rituel complet ✦" : `Rituel ${done}/${steps.length}`}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* Key Results mensuels */}
         <MonthlyKRTracker onNav={onNav} />
 
-        {/* Indicators — boxless */}
-        <div style={{marginBottom:20}}>
-          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
-            <Select value={entry.type} options={DJ_TYPES} onChange={v=>setField("type",v)} style={{flex:1,minWidth:140}} />
-            <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Remarque..." style={{flex:1}} />
+        {/* Type de journée — un tap, pas de menu */}
+        <div style={{marginBottom:16}}>
+          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:8}}>
+            {DJ_TYPES.map(t=>{
+              const on = entry.type === t;
+              return (
+                <button key={t} onClick={()=>setField("type",t)} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${on?C.accent:C.border}`,background:on?C.accentBg:"transparent",color:on?C.accent:C.muted,fontSize:12,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",transition:"all 0.15s"}}>{t}</button>
+              );
+            })}
           </div>
+          <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Une remarque sur la journée ?" style={{width:"100%"}} />
+        </div>
+
+        {/* Énergie & ressenti — grille 2×2, un tap par jauge */}
+        <div style={{marginBottom:20}}>
           <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Énergie &amp; ressenti</div>
-          <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
-            <DJRating label="Énergie" options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
-            <DJRating label="Focus"   options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
-            <DJRating label="Stress"  options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
-            <DJRating label="Bonheur" options={DJ_HAPPY}  value={entry.happy}   onChange={v=>setField("happy",v)} />
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <RitualGauge glyph="⚡" label="Énergie" color={C.amber}  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
+            <RitualGauge glyph="❖" label="Focus"   color={C.accent} options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
+            <RitualGauge glyph="✶" label="Stress"  color={C.red}    options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
+            <RitualGauge glyph="☺" label="Bonheur" color={C.green}  options={DJ_HAPPY}  value={entry.happy}   onChange={v=>setField("happy",v)} />
           </div>
         </div>
 
         {/* Win/Loss/Améliorer + custom items */}
+        <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Rétro du jour</div>
         <RetrospectiveCards
           entry={entry}
           onFieldChange={setField}
