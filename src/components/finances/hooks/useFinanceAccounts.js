@@ -15,7 +15,9 @@ export function useFinanceAccounts(userId) {
         .eq("user_id", userId).eq("archived", false).order("sort_order"),
       supabase.from("finance_transactions")
         .select("account_id, transfer_account_id, type, amount")
-        .eq("user_id", userId),
+        .eq("user_id", userId)
+        .range(0, 49999), // sinon plafond Supabase à 1000 lignes → solde faux
+
     ]);
 
     // Agrège les mouvements par compte

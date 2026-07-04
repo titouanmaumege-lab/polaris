@@ -22,6 +22,7 @@ export function useFinanceTransactions(userId, filters = {}) {
     if (categoryId) q = q.eq("category_id", categoryId);
     if (type)       q = q.eq("type", type);
     if (limit)      q = q.limit(limit);
+    else            q = q.range(0, 49999); // sinon plafond Supabase à 1000 lignes
     const { data, error } = await q;
     if (error) console.error("fetch transactions error:", error);
     setTransactions((data || []).map(t => ({ ...t, amount: Number(t.amount) })));
@@ -46,6 +47,8 @@ export function useFinanceTransactions(userId, filters = {}) {
       amount: tx.amount,
       date: tx.date,
       note: tx.note?.trim() || null,
+      source: tx.source ?? "manuel",
+      recurring_id: tx.recurring_id ?? null,
     };
     const { data, error } = await supabase.from("finance_transactions").insert(payload).select().single();
     if (error) { console.error("createTransaction error:", error); return null; }

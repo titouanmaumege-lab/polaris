@@ -239,7 +239,11 @@ export default function FinancesModule({ userId }) {
     close(); showToast(editing ? "Modifié" : "Récurrence créée");
   };
   const payRec = async (r) => {
-    await tx.createTransaction({ account_id: r.account_id, category_id: r.category_id, type: r.type, amount: r.amount, date: todayStr(), note: r.label });
+    await tx.createTransaction({
+      account_id: r.account_id, transfer_account_id: r.transfer_account_id || null,
+      category_id: r.category_id, type: r.type, amount: r.amount, date: todayStr(),
+      note: r.label, source: "recurrent", recurring_id: r.id,
+    });
     await rec.updateRecurring(r.id, { next_occurrence: advanceOccurrence(r, r.next_occurrence) });
     showToast("Payé · transaction créée");
   };

@@ -26,6 +26,9 @@ export function useFinanceDebts(userId) {
   }, [fetch]);
 
   // Crée une dette. Si accountId fourni, impacte aussi un compte (transaction immédiate).
+  // À la CRÉATION le mouvement est l'inverse du règlement : une créance (dir='in',
+  // je viens de prêter) fait SORTIR l'argent (dépense) ; une dette (dir='out',
+  // je viens de recevoir) le fait ENTRER (revenu).
   const createDebt = async (d, accountId = null) => {
     const { data, error } = await supabase.from("finance_debts").insert({
       user_id: userId, person: d.person, description: d.description || null,
@@ -34,11 +37,12 @@ export function useFinanceDebts(userId) {
     if (error) { console.error("createDebt error:", error); return null; }
     if (accountId) {
       const isIn = d.dir === "in";
-      await supabase.from("finance_transactions").insert({
-        user_id: userId, account_id: accountId, type: isIn ? "revenu" : "depense",
+      const { error: txError } = await supabase.from("finance_transactions").insert({
+        user_id: userId, account_id: accountId, type: isIn ? "depense" : "revenu",
         amount: d.amount, date: new Date().toISOString().slice(0, 10),
-        note: d.person, source: "manuel",
+        note: isIn ? `Prêt → ${d.person}` : `Emprunt ← ${d.person}`, source: "manuel",
       });
+      if (txError) console.error("createDebt tx error:", txError);
     }
     await fetch(); emitChange();
     return data;
@@ -51,13 +55,16 @@ export function useFinanceDebts(userId) {
   };
 
   // Règle une dette : statut settled + transaction de règlement optionnelle.
+  // Au RÈGLEMENT : une créance réglée fait rentrer l'argent (revenu),
+  // une dette réglée le fait sortir (dépense).
   const settleDebt = async (debt, { accountId = null, date }) => {
     if (accountId) {
       const isIn = debt.dir === "in";
-      await supabase.from("finance_transactions").insert({
+      const { error: txError } = await supabase.from("finance_transactions").insert({
         user_id: userId, account_id: accountId, type: isIn ? "revenu" : "depense",
         amount: debt.amount, date, note: `Règlement ${debt.person}`, source: "manuel",
       });
+      if (txError) { console.error("settleDebt tx error:", txError); return; }
     }
     await supabase.from("finance_debts").update({ status: "settled", settled_date: date }).eq("id", debt.id);
     await fetch(); emitChange();
