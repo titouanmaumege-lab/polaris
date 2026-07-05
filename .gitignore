@@ -10,3 +10,4 @@ dist
 # graphify knowledge graph artifacts
 graphify-out/
 .backups/
+*.bak
