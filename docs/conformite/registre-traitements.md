@@ -1,6 +1,6 @@
 # POLARIS — Registre des activités de traitement (art. 30 RGPD)
 
-Responsable de traitement : [Prénom NOM], entrepreneur individuel (EI), SIRET [XXX], [adresse professionnelle], contact : [email dédié].
+Responsable de traitement : Titouan Maumège, entrepreneur individuel (EI, « Titouanmmg »), SIRET 940 448 087 00012, 26 Rue des Grives, 23300 Saint-Agnant-de-Versillat, France — contact : titouanmmg.training@gmail.com.
 Document établi le 5 juillet 2026. À tenir à jour à chaque évolution de l'app. À conserver et présenter à la CNIL sur demande.
 
 > Les durées de conservation marquées « proposée » deviennent effectives une fois implémentées en Phase 3 ; jusque-là, la conservation est illimitée (non conforme — à corriger).

@@ -7,12 +7,12 @@ import PolarisLogo from "../../PolarisLogo";
 /* ------------------------------------------------------------------ */
 /* Coordonnées éditeur — placeholders à compléter (voir docs/conformite) */
 const EDITEUR = {
-  nom: "[Prénom NOM]",                        // à compléter
-  statut: "Entrepreneur individuel (EI)",
-  siret: "[SIRET à compléter]",
-  adresse: "[Adresse professionnelle à compléter]",
-  email: "[email de contact à compléter]",    // ex. privacy@…
-  directeurPublication: "[Prénom NOM]",       // à compléter
+  nom: "Titouan Maumège",
+  statut: "Entrepreneur individuel (EI) — Titouanmmg",
+  siret: "940 448 087 00012",
+  adresse: "26 Rue des Grives, 23300 Saint-Agnant-de-Versillat, France",
+  email: "titouanmmg.training@gmail.com",
+  directeurPublication: "Titouan Maumège",
 };
 const HEBERGEUR = {
   nom: "Vercel Inc.",
