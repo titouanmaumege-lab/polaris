@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase, loadUserData, hydrateLocalStorage, syncToSupabase } from "./supabase";
 import PolarisLogo from "./PolarisLogo";
 import { LegalFooter } from "./components/legal/LegalPages";
+import { loadConsents, storePendingConsents } from "./state/consent";
 
 const C = {
   bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830",
@@ -21,6 +22,8 @@ export default function AuthGate({ children }) {
   const [migrating, setMigrating] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [recovery, setRecovery] = useState(false);
+  const [cguOk, setCguOk]       = useState(false);   // case 1 : CGU + politique (obligatoire)
+  const [healthOk, setHealthOk] = useState(false);   // case 2 : bien-être art. 9 (optionnelle, découplée)
   const sessionRef = useRef(null);
 
   useEffect(() => {
@@ -63,6 +66,7 @@ export default function AuthGate({ children }) {
     setLoading(true);
     sessionRef.current = session;
     try {
+      await loadConsents(session.user.id).catch(() => {});
       const data = await loadUserData(session.user.id);
       if (data) {
         hydrateLocalStorage(data);
@@ -96,12 +100,18 @@ export default function AuthGate({ children }) {
         else setError(error.message);
       }
     } else {
+      if (!cguOk) { setError("Tu dois accepter les CGU et la politique de confidentialité."); return; }
       const { error } = await supabase.auth.signUp({ email, password });
       if (error) {
         const sec = error.message.match(/(\d+) seconds?/)?.[1];
         if (sec) setCooldown(parseInt(sec));
         else setError(error.message);
-      } else setError("Vérifie ton email pour confirmer le compte.");
+      } else {
+        // Preuve d'accountability : horodatage capturé au moment du clic,
+        // matérialisé en base au premier login (RLS exige une session).
+        storePendingConsents({ cgu: true, health: healthOk });
+        setError("Vérifie ton email pour confirmer le compte.");
+      }
     }
   }
 
@@ -172,14 +182,35 @@ export default function AuthGate({ children }) {
           {mode !== "reset" && (
             <input
               type="password" placeholder="Mot de passe" value={password}
-              onChange={e => setPassword(e.target.value)} required
+              onChange={e => setPassword(e.target.value)} required minLength={8}
               style={inputStyle}
             />
+          )}
+          {mode === "signup" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, margin: "4px 0 2px" }}>
+              {/* Case 1 — CGU + politique (obligatoire, non pré-cochée) */}
+              <label style={checkRowStyle}>
+                <input type="checkbox" checked={cguOk} onChange={e => setCguOk(e.target.checked)} style={checkboxStyle} />
+                <span>
+                  J'accepte les <a href="/cgu" target="_blank" rel="noreferrer" style={linkStyle}>CGU</a> et
+                  j'ai pris connaissance de la <a href="/confidentialite" target="_blank" rel="noreferrer" style={linkStyle}>politique de confidentialité</a>. <span style={{ color: C.red }}>*</span>
+                </span>
+              </label>
+              {/* Case 2 — consentement explicite art. 9 (optionnelle, découplée) */}
+              <label style={checkRowStyle}>
+                <input type="checkbox" checked={healthOk} onChange={e => setHealthOk(e.target.checked)} style={checkboxStyle} />
+                <span>
+                  Je consens expressément au traitement de mes <b style={{ color: C.text }}>données de bien-être</b> (niveaux
+                  d'énergie, de concentration, de stress et de bonheur, bilans quotidiens) pour utiliser le journal
+                  quotidien. Optionnel — retirable à tout moment dans les réglages.
+                </span>
+              </label>
+            </div>
           )}
           {error && <p style={{ color: error.includes("Vérifie") ? C.green : C.red, fontSize: 12, margin: 0 }}>{error}</p>}
           {info && <p style={{ color: C.green, fontSize: 12, margin: 0 }}>{info}</p>}
           {cooldown > 0 && <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>Patiente {cooldown}s…</p>}
-          <button type="submit" disabled={cooldown > 0} style={{ ...btnStyle, opacity: cooldown > 0 ? 0.5 : 1, cursor: cooldown > 0 ? "not-allowed" : "pointer" }}>
+          <button type="submit" disabled={cooldown > 0 || (mode === "signup" && !cguOk)} style={{ ...btnStyle, opacity: (cooldown > 0 || (mode === "signup" && !cguOk)) ? 0.5 : 1, cursor: (cooldown > 0 || (mode === "signup" && !cguOk)) ? "not-allowed" : "pointer" }}>
             {cooldown > 0 ? `Patiente ${cooldown}s` : mode === "login" ? "Se connecter" : mode === "signup" ? "Créer le compte" : "Envoyer le lien"}
           </button>
         </form>
@@ -210,3 +241,9 @@ const btnStyle = {
   borderRadius: 8, padding: "11px 0", color: "#fff", fontSize: 14,
   fontWeight: 600, cursor: "pointer", marginTop: 4,
 };
+const checkRowStyle = {
+  display: "flex", alignItems: "flex-start", gap: 9, fontSize: 11.5,
+  lineHeight: 1.5, color: C.muted, cursor: "pointer", userSelect: "none",
+};
+const checkboxStyle = { marginTop: 2, accentColor: C.accent, flexShrink: 0, width: 14, height: 14, cursor: "pointer" };
+const linkStyle = { color: C.accent, textDecoration: "underline" };

@@ -2,6 +2,9 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
 import { LegalFooter } from "./components/legal/LegalPages";
+import { hasHealthConsent, onConsentChange, setHealthConsent } from "./state/consent";
+import { exportAllData, deleteAccount } from "./state/account";
+import { supabase } from "./supabase";
 import PolarisLogo from "./PolarisLogo";
 import {
   pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked,
@@ -51,6 +54,38 @@ function useElapsedWithPause(session) {
   return elapsed;
 }
 const LS_SESSION_KEY = 'LE_PLAN_ACTIVE_SESSION';
+// Consentement bien-être (art. 9 RGPD) — lecture réactive pour l'UI.
+function useHealthConsent() {
+  const [, force] = useState(0);
+  useEffect(() => onConsentChange(() => force(x => x + 1)), []);
+  return hasHealthConsent();
+}
+// Affiché à la place des jauges bien-être tant que le consentement art. 9 n'est pas donné.
+function HealthConsentPrompt() {
+  const [busy, setBusy] = useState(false);
+  const grant = async () => {
+    setBusy(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await setHealthConsent(user.id, true);
+    } catch (e) { console.error(e); }
+    setBusy(false);
+  };
+  return (
+    <div style={{ padding: "16px 18px", background: C.surface2, border: `1px dashed ${C.borderMid}`, borderRadius: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Suivi bien-être désactivé</div>
+      <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, margin: "0 0 12px" }}>
+        Les jauges énergie, focus, stress et bonheur sont des <b style={{ color: C.text }}>données de bien-être</b> (données
+        de santé au sens de l'art. 9 RGPD). Elles nécessitent ton consentement explicite, retirable à tout moment
+        dans « Le Poste ». <a href="/confidentialite" target="_blank" rel="noreferrer" style={{ color: C.accent }}>En savoir plus</a>
+      </p>
+      <button onClick={grant} disabled={busy} style={{
+        padding: "9px 16px", borderRadius: 10, border: "none", background: GRAD, color: "#fff",
+        fontSize: 12.5, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1,
+      }}>{busy ? "Activation…" : "J'active le suivi bien-être (je consens)"}</button>
+    </div>
+  );
+}
 // Store personnalisation (P + applyPerso) → src/state/perso.js
 function getISOWeekId(date = new Date()) {
   const d = new Date(date); d.setHours(0,0,0,0);
@@ -4687,6 +4722,7 @@ function MonthlyKRTracker({ onNav }) {
 }
 
 function DailyPaperModule({ onNav }) {
+  const healthConsent = useHealthConsent();
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [daily, setDaily]     = useState(() => getLS("lp_daily", {}));
   const [customGlobalItems, setCustomGlobalItems] = useState(() => getLS("lp_custom_items", []));
@@ -4766,15 +4802,17 @@ function DailyPaperModule({ onNav }) {
           <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Une remarque sur la journée ?" style={{width:"100%"}} />
         </div>
 
-        {/* Énergie & ressenti — grille 2×2, un tap par jauge */}
+        {/* Énergie & ressenti — grille 2×2, un tap par jauge. Gated art. 9 RGPD. */}
         <div style={{marginBottom:20}}>
           <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Énergie &amp; ressenti</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-            <RitualGauge glyph="⚡" label="Énergie" color={C.amber}  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
-            <RitualGauge glyph="❖" label="Focus"   color={C.accent} options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
-            <RitualGauge glyph="✶" label="Stress"  color={C.red}    options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
-            <RitualGauge glyph="☺" label="Bonheur" color={C.green}  options={DJ_HAPPY}  value={entry.happy}   onChange={v=>setField("happy",v)} />
-          </div>
+          {healthConsent ? (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              <RitualGauge glyph="⚡" label="Énergie" color={C.amber}  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
+              <RitualGauge glyph="❖" label="Focus"   color={C.accent} options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
+              <RitualGauge glyph="✶" label="Stress"  color={C.red}    options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
+              <RitualGauge glyph="☺" label="Bonheur" color={C.green}  options={DJ_HAPPY}  value={entry.happy}   onChange={v=>setField("happy",v)} />
+            </div>
+          ) : <HealthConsentPrompt />}
         </div>
 
         {/* Win/Loss/Améliorer + custom items */}
@@ -4825,6 +4863,7 @@ function DailyPaperModule({ onNav }) {
 // LOGS
 // ─────────────────────────────────────────────────────────────────────────────
 function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteDaily, onUpdateDaily }) {
+  const healthConsent = useHealthConsent();
   const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM;
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(false);
@@ -4886,12 +4925,14 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
               <Select value={editEntry.type} options={DJ_TYPES} onChange={v=>onUpdateDaily(date,"type",v)} />
               <Input value={editEntry.remark} onChange={v=>onUpdateDaily(date,"remark",v)} placeholder="Remarque..." style={{flex:1}} />
             </div>
+            {healthConsent && (
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
               <DJRating label="Énergie" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
               <DJRating label="Focus" options={DJ_FOCUS}  value={editEntry.focus}   onChange={v=>onUpdateDaily(date,"focus",v)} />
               <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress} onChange={v=>onUpdateDaily(date,"stress",v)} />
               <DJRating label="Bonheur" options={DJ_HAPPY} value={editEntry.happy} onChange={v=>onUpdateDaily(date,"happy",v)} />
             </div>
+            )}
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
               {[{key:"win",ph:"Victoires..."},{key:"loss",ph:"Ce qui n'a pas marché..."},{key:"ameliorer",ph:"À améliorer..."}].map(({key,ph})=>(
                 <textarea key={key} value={editEntry[key]||""} onChange={e=>onUpdateDaily(date,key,e.target.value)} placeholder={ph}
@@ -5524,8 +5565,13 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   );
 }
 
-function LogsModule({ onBack, email, onNavModule, onSignOut, onOpenWeeklyReview, onPerso }) {
+function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeeklyReview, onPerso }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
+  const healthConsent = useHealthConsent();
+  const [exporting, setExporting]   = useState(false);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [showWipeOffer, setShowWipeOffer] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
   const { todos: allTodos, restoreTodo } = useTodos();
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
@@ -5800,13 +5846,148 @@ function LogsModule({ onBack, email, onNavModule, onSignOut, onOpenWeeklyReview,
             <span style={{marginLeft:"auto",color:C.faint}}>→</span>
           </button>
         )}
-        <button onClick={()=>{exportData();}} style={{
-          width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,
-          fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,minHeight:44,
-        }}>
-          <span style={{fontSize:16}}>☁️</span>Exporter mes données (JSON)
+        <button
+          onClick={async ()=>{
+            if (!userId) { exportData(); return; }
+            setExporting(true);
+            try { await exportAllData(userId, email); } catch (e) { console.error(e); exportData(); }
+            setExporting(false);
+          }}
+          disabled={exporting}
+          style={{
+            width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,
+            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:exporting?"wait":"pointer",display:"flex",alignItems:"center",gap:10,minHeight:44,opacity:exporting?0.6:1,
+          }}>
+          <span style={{fontSize:16}}>☁️</span>{exporting?"Export en cours…":"Exporter mes données (JSON complet)"}
           <span style={{marginLeft:"auto",color:C.faint}}>↓</span>
         </button>
+
+        {/* CONFIDENTIALITÉ & COMPTE — droits RGPD exerçables in-app */}
+        <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",margin:"26px 0 10px"}}>Confidentialité &amp; compte</div>
+
+        {/* Consentement bien-être (art. 9) : état + retrait */}
+        <div style={{padding:"13px 16px",borderRadius:14,background:C.surface2,border:`1px solid ${C.border}`,marginBottom:8}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <span style={{fontSize:16}}>🩺</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:C.text}}>Suivi bien-être</div>
+              <div style={{fontSize:11,color:C.faint,marginTop:2}}>Énergie, focus, stress, bonheur — consentement explicite (art. 9 RGPD)</div>
+            </div>
+            <button
+              disabled={consentBusy || !userId}
+              onClick={async ()=>{
+                if (!userId) return;
+                setConsentBusy(true);
+                try {
+                  await setHealthConsent(userId, !healthConsent);
+                  if (healthConsent) setShowWipeOffer(true); // on vient de retirer → proposer la suppression
+                } catch (e) { console.error(e); }
+                setConsentBusy(false);
+              }}
+              style={{
+                padding:"7px 14px",borderRadius:999,fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:consentBusy?"wait":"pointer",
+                border:`1px solid ${healthConsent?C.green:C.borderMid}`,
+                background:healthConsent?"rgba(16,185,129,0.12)":"transparent",
+                color:healthConsent?C.green:C.muted,opacity:consentBusy?0.6:1,flexShrink:0,
+              }}>
+              {healthConsent?"Actif ✓":"Inactif"}
+            </button>
+          </div>
+          {showWipeOffer && !healthConsent && (
+            <div style={{marginTop:12,padding:"12px 14px",background:C.surface3,borderRadius:10,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:12,color:C.muted,lineHeight:1.55,marginBottom:10}}>
+                Consentement retiré : les jauges sont désactivées et ces données ne sont plus traitées.
+                Veux-tu aussi <b style={{color:C.text}}>supprimer les évaluations déjà enregistrées</b> (énergie, focus, stress, bonheur de toutes tes journées) ?
+              </div>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>{
+                  const cleaned = {};
+                  Object.entries(daily).forEach(([d,raw])=>{
+                    const e = djEntry(raw);
+                    cleaned[d] = { ...e, morning:"", focus:"", stress:"", happy:"" };
+                  });
+                  saveDaily(cleaned);
+                  setShowWipeOffer(false);
+                }} style={{padding:"8px 14px",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>
+                  Supprimer ces données
+                </button>
+                <button onClick={()=>setShowWipeOffer(false)} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>
+                  Conserver
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Suppression de compte — réelle et complète (art. 17, Apple 5.1.1(v)) */}
+        <button onClick={()=>setShowDelete(true)} style={{
+          width:"100%",padding:"13px 16px",borderRadius:14,background:"transparent",color:C.red,fontSize:13,fontWeight:600,
+          fontFamily:"inherit",border:`1px solid ${C.red}55`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,minHeight:44,
+        }}>
+          <span style={{fontSize:16}}>🗑️</span>Supprimer mon compte et toutes mes données
+          <span style={{marginLeft:"auto",color:C.red}}>→</span>
+        </button>
+        <div style={{fontSize:10.5,color:C.faint,lineHeight:1.5,marginTop:8}}>
+          Suppression immédiate et définitive de ton compte et de toutes tes données (journal, habitudes, finances, notes).
+          Les copies de sauvegarde techniques sont écrasées sous 30 jours maximum. <a href="/confidentialite" target="_blank" rel="noreferrer" style={{color:C.accent}}>Politique de confidentialité</a>
+        </div>
+
+        {showDelete && <DeleteAccountModal email={email} onClose={()=>setShowDelete(false)} />}
+      </div>
+    </div>
+  );
+}
+
+// Confirmation de suppression : re-saisie du mot de passe (exigence CNIL / Apple 5.1.1(v)).
+function DeleteAccountModal({ email, onClose }) {
+  const [pw, setPw]       = useState("");
+  const [busy, setBusy]   = useState(false);
+  const [err, setErr]     = useState("");
+  const [done, setDone]   = useState(false);
+  const submit = async e => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true); setErr("");
+    const res = await deleteAccount(email, pw);
+    if (res.error) { setErr(res.error); setBusy(false); return; }
+    setDone(true);
+    setTimeout(()=>{ window.location.replace("/"); }, 2500);
+  };
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={done?undefined:onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:400,background:C.surface,border:`1px solid ${C.red}55`,borderRadius:16,padding:24}}>
+        {done ? (
+          <div style={{textAlign:"center",padding:"12px 0"}}>
+            <div style={{fontSize:28,marginBottom:10}}>✓</div>
+            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:6}}>Compte supprimé</div>
+            <div style={{fontSize:12.5,color:C.muted,lineHeight:1.6}}>Toutes tes données ont été effacées. Les sauvegardes techniques seront écrasées sous 30 jours. Au revoir 👋</div>
+          </div>
+        ) : (
+          <>
+            <div style={{fontSize:16,fontWeight:800,color:C.red,marginBottom:8}}>Supprimer définitivement ton compte ?</div>
+            <div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginBottom:16}}>
+              Cette action est <b style={{color:C.text}}>irréversible</b>. Ton compte et l'intégralité de tes données
+              (journal bien-être, habitudes, objectifs, finances, notes, bases partagées) seront supprimés immédiatement.
+              Pense à <b style={{color:C.text}}>exporter tes données</b> avant si tu veux les conserver.
+            </div>
+            <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:10}}>
+              <input
+                type="password" placeholder="Confirme ton mot de passe" value={pw} autoFocus
+                onChange={e=>setPw(e.target.value)} required
+                style={{background:C.bg,border:`1px solid ${C.borderMid}`,borderRadius:8,padding:"10px 14px",color:C.text,fontSize:14,outline:"none",fontFamily:"inherit"}}
+              />
+              {err && <p style={{color:C.red,fontSize:12,margin:0}}>{err}</p>}
+              <div style={{display:"flex",gap:8,marginTop:4}}>
+                <button type="submit" disabled={busy||!pw} style={{flex:1,padding:"11px 0",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:busy?"wait":"pointer",opacity:(busy||!pw)?0.6:1}}>
+                  {busy?"Suppression…":"Supprimer définitivement"}
+                </button>
+                <button type="button" onClick={onClose} style={{flex:1,padding:"11px 0",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>
+                  Annuler
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
@@ -6071,7 +6252,7 @@ export default function App({ session, signOut }) {
           }}
           style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:"#0B0714", transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
-          <LogsModule onBack={()=>setLogsOpen(false)} email={session?.user?.email} onNavModule={id=>{setLogsOpen(false);navTo(id);}} onSignOut={signOut} onOpenWeeklyReview={setWrModal} onPerso={()=>{setLogsOpen(false);setShowPerso(true);}} />
+          <LogsModule onBack={()=>setLogsOpen(false)} email={session?.user?.email} userId={session?.user?.id} onNavModule={id=>{setLogsOpen(false);navTo(id);}} onSignOut={signOut} onOpenWeeklyReview={setWrModal} onPerso={()=>{setLogsOpen(false);setShowPerso(true);}} />
         </div>
       </div>
       {/* Weekly Review modal — rendered at root so it covers everything */}
