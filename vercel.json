@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/((?!assets/|favicon|apple-touch-icon).*)", "destination": "/index.html" }
+  ]
+}

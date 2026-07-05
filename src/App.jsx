@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
+import { LegalFooter } from "./components/legal/LegalPages";
 import PolarisLogo from "./PolarisLogo";
 import {
   pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked,
@@ -6038,6 +6039,7 @@ export default function App({ session, signOut }) {
         {module === "todo"      && <TodoModule />}
         {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
         {module === "finances"  && <FinancesModule userId={session?.user?.id ?? null} />}
+        <LegalFooter />
       </div>
       {/* Bouton « Le Poste » — accessible depuis toutes les pages */}
       {!logsOpen && (

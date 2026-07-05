@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, loadUserData, hydrateLocalStorage, syncToSupabase } from "./supabase";
 import PolarisLogo from "./PolarisLogo";
+import { LegalFooter } from "./components/legal/LegalPages";
 
 const C = {
   bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830",
@@ -155,7 +156,7 @@ export default function AuthGate({ children }) {
   );
 
   if (!session) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><PolarisLogo size={88} /></div>
         <h2 style={{ color: C.text, fontSize: 26, fontWeight: 800, letterSpacing: "0.05em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>
@@ -193,6 +194,7 @@ export default function AuthGate({ children }) {
           {mode === "login" ? "Pas de compte ? Créer un compte" : mode === "signup" ? "Déjà un compte ? Se connecter" : "Retour à la connexion"}
         </p>
       </div>
+      <LegalFooter compact />
     </div>
   );
 
