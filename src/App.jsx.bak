@@ -1,34 +1,99 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { syncToSupabase } from "./supabase";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
-import { LegalFooter } from "./components/legal/LegalPages";
-import { hasHealthConsent, onConsentChange, setHealthConsent } from "./state/consent";
-import { exportAllData, deleteAccount } from "./state/account";
-import { supabase } from "./supabase";
-import LazyEmbed from "./ui/LazyEmbed";
 import PolarisLogo from "./PolarisLogo";
-import {
-  pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked,
-  DAY_LABELS, MONTH_FR, MONTHS_FR, QUARTERS_FR, monthDates, fmtDate,
-  periodeTypeForLevel, lastDayOfMonth, computeCloture, periodeLabel, defaultPeriode,
-  fmtMin, fmtHM, formatElapsed,
-} from "./utils/date";
+import { pad, todayStr } from "./utils/date";
 import { uid } from "./utils/id";
-import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
-import { getLS, setLS, setSyncContext } from "./utils/storage";
-import { P, applyPerso } from "./state/perso";
-import {
-  C, GRAD, GLOW, GLOW_SM, TR, SPACES, STATUTS, OBJ_STATUSES, OBJ_CLOSED,
-  isObjClosed, isObjAchieved, STATUS_MIGRATE, normObjStatus,
-  LEVELS, LEVEL_PARENT, LEVEL_CHILD, STATUS_OPTIONS_BASE,
-  WP_EFFICIENCE, WP_TYPE_C, DJ_ENERGY, DJ_FOCUS, DJ_STRESS, DJ_HAPPY, ITEM_COLORS,
-} from "./ui/tokens";
-import {
-  CircularProgress, Pill, StatusPill, SpacePill, ProgressBar, Select, Input, Btn, Card,
-  PageHeader, cycleHabitStatus, HabitToggle, HabitChip,
-} from "./ui/primitives";
-// Helpers date/semaine/mois/période/format → src/utils/date.js
-// Helpers numériques + progression OKR → src/utils/math.js
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILS
+// ─────────────────────────────────────────────────────────────────────────────
+const getLS = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+let _userId = null;
+let _syncTimer = null;
+let _onSyncStatus = null;
+const setLS = (k, v) => {
+  localStorage.setItem(k, JSON.stringify(v));
+  if (_userId) {
+    _onSyncStatus?.("saving");
+    clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => {
+      syncToSupabase(_userId)
+        .then(() => { _onSyncStatus?.("ok"); setTimeout(() => _onSyncStatus?.(null), 2000); })
+        .catch(() => { _onSyncStatus?.("error"); });
+    }, 1500);
+  }
+};
+const weekDates = () => {
+  const d = new Date(), day = d.getDay() === 0 ? 6 : d.getDay() - 1;
+  return Array.from({ length: 7 }, (_, i) => { const dt = new Date(d); dt.setDate(d.getDate() - day + i); return dt.toISOString().split("T")[0]; });
+};
+const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
+const weekStart = dateStr => {
+  const d = new Date(dateStr + "T12:00:00");
+  const off = d.getDay() === 0 ? 6 : d.getDay() - 1;
+  const mon = new Date(d); mon.setDate(d.getDate() - off);
+  return mon.toISOString().split("T")[0];
+};
+const weekEnd = dateStr => {
+  const d = new Date(weekStart(dateStr) + "T12:00:00");
+  d.setDate(d.getDate() + 6);
+  return d.toISOString().split("T")[0];
+};
+const isWeekLocked = wkStart => new Date() > new Date(weekEnd(wkStart) + "T23:59:59");
+const MONTH_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+const monthDates = (y, m) => Array.from({ length: new Date(y, m + 1, 0).getDate() }, (_, i) => new Date(y, m, i + 1).toISOString().split("T")[0]);
+const fmtDate = s => new Date(s + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+const clamp = (v, mn, mx) => Math.min(Math.max(v, mn), mx);
+const pct = (start, cur, target) => {
+  if (target === start) return cur >= target ? 100 : 0;
+  return Math.round(clamp((cur - start) / (target - start) * 100, 0, 100));
+};
+// % d'un Key Result (gère sens croissant ET décroissant)
+const krPct = kr => pct(kr.depart ?? 0, kr.actuelle ?? kr.depart ?? 0, kr.cible ?? 0);
+// % global d'un objectif : moyenne des KR + bonus complétion (jusqu'à +15 si tous finis)
+const KR_BONUS_MAX = 15;
+const krsProgress = krs => {
+  if (!krs || !krs.length) return null;
+  const avg = krs.reduce((s, k) => s + krPct(k), 0) / krs.length;
+  const completedFrac = krs.filter(k => krPct(k) >= 100).length / krs.length;
+  return Math.round(clamp(avg + completedFrac * KR_BONUS_MAX, 0, 100));
+};
+
+// ── Période & clôture des OKR ──
+const MONTHS_FR = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+const QUARTERS_FR = [["T1","Jan–Mar"],["T2","Avr–Juin"],["T3","Juil–Sep"],["T4","Oct–Déc"]];
+const periodeTypeForLevel = lvl => lvl === "mensuel" ? "month" : lvl === "trimestriel" ? "quarter" : lvl === "annuel" ? "year" : null;
+const lastDayOfMonth = (y, m) => { const d = new Date(y, m + 1, 0); return `${y}-${String(m + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const computeCloture = periode => {
+  if (!periode) return "";
+  if (periode.type === "month")   return lastDayOfMonth(periode.year, periode.month);
+  if (periode.type === "quarter") return lastDayOfMonth(periode.year, periode.quarter * 3 + 2);
+  if (periode.type === "year")    return `${periode.year}-12-31`;
+  return "";
+};
+const periodeLabel = periode => {
+  if (!periode) return "";
+  if (periode.type === "month")   return `${MONTHS_FR[periode.month]} ${periode.year}`;
+  if (periode.type === "quarter") return `${QUARTERS_FR[periode.quarter][0]} ${periode.year}`;
+  if (periode.type === "year")    return `${periode.year}`;
+  return "";
+};
+const defaultPeriode = lvl => {
+  const t = periodeTypeForLevel(lvl); if (!t) return null;
+  const now = new Date();
+  return { type: t, year: now.getFullYear(), month: now.getMonth(), quarter: Math.floor(now.getMonth() / 3) };
+};
+const fmtMin = m => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? String(m % 60).padStart(2, "0") : ""}` : m > 0 ? `${m}min` : "—";
+const fmtHM = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
+const formatElapsed = ms => {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+};
 function useElapsedTimer(startTime) {
   const [elapsed, setElapsed] = useState(startTime ? Date.now() - startTime : 0);
   useEffect(() => {
@@ -55,39 +120,12 @@ function useElapsedWithPause(session) {
   return elapsed;
 }
 const LS_SESSION_KEY = 'LE_PLAN_ACTIVE_SESSION';
-// Consentement bien-être (art. 9 RGPD) — lecture réactive pour l'UI.
-function useHealthConsent() {
-  const [, force] = useState(0);
-  useEffect(() => onConsentChange(() => force(x => x + 1)), []);
-  return hasHealthConsent();
-}
-// Affiché à la place des jauges bien-être tant que le consentement art. 9 n'est pas donné.
-function HealthConsentPrompt() {
-  const [busy, setBusy] = useState(false);
-  const grant = async () => {
-    setBusy(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) await setHealthConsent(user.id, true);
-    } catch (e) { console.error(e); }
-    setBusy(false);
-  };
-  return (
-    <div style={{ padding: "16px 18px", background: C.surface2, border: `1px dashed ${C.borderMid}`, borderRadius: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Suivi bien-être désactivé</div>
-      <p style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, margin: "0 0 12px" }}>
-        Les jauges énergie, focus, stress et bonheur sont des <b style={{ color: C.text }}>données de bien-être</b> (données
-        de santé au sens de l'art. 9 RGPD). Elles nécessitent ton consentement explicite, retirable à tout moment
-        dans « Le Poste ». <a href="/confidentialite" target="_blank" rel="noreferrer" style={{ color: C.accent }}>En savoir plus</a>
-      </p>
-      <button onClick={grant} disabled={busy} style={{
-        padding: "9px 16px", borderRadius: 10, border: "none", background: GRAD, color: "#fff",
-        fontSize: 12.5, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "wait" : "pointer", opacity: busy ? 0.6 : 1,
-      }}>{busy ? "Activation…" : "J'active le suivi bien-être (je consens)"}</button>
-    </div>
-  );
-}
-// Store personnalisation (P + applyPerso) → src/state/perso.js
+const _perso0 = getLS("lp_personalization", {});
+const _D_DOMAINES = ["BUSINESS","MASTER","PRÉPA","STAGE","MÉMOIRE","FORMATIONS PP","PROJET PERSO","PERSO","CLIENT","OPTIMISATION","AUTRE"];
+const _D_WP_TYPES = ["DEEP","SHALLOW","COURS","GROUPE"];
+const _D_DJ_TYPES = ["Journée classique","Journée libre","Weekend","Voyage","Jour off","Jour spécial"];
+const _D_SPHERES  = { business:{label:"💸 Business",c:"#8b5cf6"}, master:{label:"📚 Master",c:"#3b82f6"}, sport:{label:"⚡ Sport",c:"#10b981"}, perso:{label:"👁 Perso",c:"#f59e0b"}, pro:{label:"🧑‍💻 Pro",c:"#ec4899"} };
+let WP_CATEGORIES = _perso0.domaines || _D_DOMAINES;
 function getISOWeekId(date = new Date()) {
   const d = new Date(date); d.setHours(0,0,0,0);
   d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
@@ -119,15 +157,93 @@ const calcStreak = habits => {
   }
   return streak;
 };
-// cycleHabitStatus, HabitToggle, HabitChip → src/ui/primitives.jsx
+function cycleHabitStatus(current) {
+  if (current === null || current === undefined) return 'validated';
+  if (current === 'validated') return 'invalidated';
+  return null;
+}
+function HabitToggle({ status, onToggle }) {
+  const cfg = status === 'validated'
+    ? { bg: '#10b981', border: '#10b981', icon: '✓', glow: '0 0 16px rgba(16,185,129,0.5)', cls: 'habit-pulse' }
+    : status === 'invalidated'
+    ? { bg: '#ef4444', border: '#ef4444', icon: '✕', glow: '0 0 16px rgba(239,68,68,0.5)', cls: 'habit-shake' }
+    : { bg: 'transparent', border: 'rgba(139,92,246,0.4)', icon: null, glow: 'none', cls: '' };
+  return (
+    <button onClick={e=>{e.stopPropagation();onToggle();}} className={cfg.cls}
+      style={{ width:36,height:36,borderRadius:'50%',background:cfg.bg,border:`2px solid ${cfg.border}`,boxShadow:cfg.glow,
+        color:'#fff',fontWeight:700,fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',
+        transition:'all 0.25s cubic-bezier(0.4,0,0.2,1)',cursor:'pointer',flexShrink:0 }}>
+      {cfg.icon}
+    </button>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DESIGN
 // ─────────────────────────────────────────────────────────────────────────────
-// Tokens design (C, GRAD, GLOW, GLOW_SM, TR) → src/ui/tokens.js
+const C = {
+  bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830", surface3: "#201e38",
+  border: "rgba(139,92,246,0.15)", borderMid: "rgba(139,92,246,0.4)",
+  accent: "#8b5cf6", accent2: "#6366f1", accentBg: "rgba(139,92,246,0.12)",
+  text: "#f1f0ff", muted: "#9391b5", faint: "#524f72",
+  green: "#10b981", greenBg: "rgba(16,185,129,0.12)",
+  red: "#ef4444", redBg: "rgba(239,68,68,0.12)",
+  blue: "#6366f1", blueBg: "rgba(99,102,241,0.12)",
+  purple: "#8b5cf6", purpleBg: "rgba(139,92,246,0.12)",
+  amber: "#f59e0b", amberBg: "rgba(245,158,11,0.12)",
+  orange: "#f97316", pink: "#f472b6",
+};
+const GRAD = "linear-gradient(135deg, #8b5cf6, #6366f1)";
+const GLOW = "0 0 24px rgba(139,92,246,0.35)";
+const GLOW_SM = "0 0 12px rgba(139,92,246,0.2)";
+const TR = "0.18s cubic-bezier(0.4,0,0.2,1)";
 
-// SPACES, STATUTS, OBJ_STATUSES, OBJ_CLOSED, isObjClosed/isObjAchieved,
-// STATUS_MIGRATE, normObjStatus → src/ui/tokens.js
+const SPACES = {
+  "Sport & Santé": { c: C.green,  icon: "⚡" },
+  "Business":      { c: C.blue,   icon: "💼" },
+  "Etudes et Pro": { c: C.orange, icon: "📚" },
+  "Relations":     { c: C.purple, icon: "🤝" },
+};
+const STATUTS = {
+  "Dans les blocs": { c: C.faint,  label: "À planifier" },
+  "Pas commencé":   { c: C.faint,  label: "Pas commencé" },
+  "En cours":       { c: C.blue,   label: "En cours" },
+  "On-track":       { c: C.green,  label: "On track" },
+  "On track":       { c: C.green,  label: "On track" },
+  "Off-track":      { c: C.amber,  label: "Off track" },
+  "Off track":      { c: C.amber,  label: "Off track" },
+  "At-risk":        { c: C.orange, label: "At risk" },
+  "At risk":        { c: C.orange, label: "At risk" },
+  "Partiel":        { c: C.purple, label: "Partiel" },
+  "Terminé":        { c: C.green,  label: "Terminé" },
+  "Échoué":         { c: C.red,    label: "Échoué" },
+  "Echoué":         { c: C.red,    label: "Échoué" },
+  // Statuts objectifs (DA 2026)
+  "Ça arrive":      { c: C.faint,  label: "Ça arrive" },
+  "C'est chaud":    { c: C.purple, label: "C'est chaud" },
+  "Atteint":        { c: C.green,  label: "Atteint" },
+  "Abandonné":      { c: C.red,    label: "Abandonné" },
+};
+// Jeu de statuts pour les objectifs (toutes temporalités) — ordre + icône + couleur
+const OBJ_STATUSES = [
+  { k: "Ça arrive",   c: C.faint,  icon: "💤" },
+  { k: "En cours",    c: C.blue,   icon: "🚀" },
+  { k: "C'est chaud", c: C.purple, icon: "🔥" },
+  { k: "Atteint",     c: C.green,  icon: "🏆" },
+  { k: "Échoué",      c: C.red,    icon: "💥" },
+  { k: "Abandonné",   c: C.red,    icon: "🏳️" },
+];
+const OBJ_CLOSED = ["Terminé", "Atteint", "Échoué", "Echoué", "Abandonné"];
+const isObjClosed   = s => OBJ_CLOSED.includes(s);
+const isObjAchieved = s => s === "Atteint" || s === "Terminé";
+// Migration anciens statuts → nouveau jeu
+const STATUS_MIGRATE = {
+  "Dans les blocs":"Ça arrive", "Pas commencé":"Ça arrive",
+  "On-track":"En cours", "On track":"En cours", "Partiel":"En cours",
+  "Off-track":"C'est chaud", "Off track":"C'est chaud", "At-risk":"C'est chaud", "At risk":"C'est chaud",
+  "Terminé":"Atteint", "Echoué":"Échoué",
+};
+const normObjStatus = s => OBJ_STATUSES.find(o => o.k === s) ? s : (STATUS_MIGRATE[s] || "Ça arrive");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DATA
@@ -174,14 +290,29 @@ const NOTION_GOALS = {
   if (!stored || !hasLT) setLS("lp_goals", NOTION_GOALS);
 })();
 
-// LEVELS, LEVEL_PARENT, LEVEL_CHILD, STATUS_OPTIONS_BASE → src/ui/tokens.js
+const LEVELS = [
+  { id: "lt",          label: "Long Terme",   icon: "👁️", c: C.purple },
+  { id: "annuel",      label: "Annuel",       icon: "🌌", c: C.blue },
+  { id: "trimestriel", label: "Trimestriel",  icon: "🌍", c: C.green },
+  { id: "mensuel",     label: "Mensuel",      icon: "🗻", c: C.amber },
+];
+const LEVEL_PARENT = { annuel:"lt", trimestriel:"annuel", mensuel:"trimestriel" };
+const LEVEL_CHILD  = { lt:"annuel", annuel:"trimestriel", trimestriel:"mensuel" };
+const STATUS_OPTIONS_BASE = OBJ_STATUSES.map(s => s.k);
 
-// WP_EFFICIENCE, WP_TYPE_C → src/ui/tokens.js ; WP_TYPES/WP_DOMAINES → state/perso (P)
+let WP_TYPES     = _perso0.wpTypes  || _D_WP_TYPES;
+let WP_DOMAINES  = _perso0.domaines || _D_DOMAINES;
+const WP_EFFICIENCE= ["💡","💡💡","💡💡💡","💡💡💡💡","💡💡💡💡💡"];
+const WP_TYPE_C    = { DEEP: C.purple, SHALLOW: C.blue, COURS: C.amber, GROUPE: C.green };
 
-// DJ_ENERGY/DJ_FOCUS/DJ_STRESS/DJ_HAPPY → src/ui/tokens.js ; DJ_TYPES → state/perso (P)
+const DJ_ENERGY  = ["⚡","⚡⚡","⚡⚡⚡","⚡⚡⚡⚡","⚡⚡⚡⚡⚡"];
+const DJ_FOCUS   = ["❖","❖❖","❖❖❖","❖❖❖❖","❖❖❖❖❖"];
+const DJ_STRESS  = ["✶","✶✶","✶✶✶","✶✶✶✶","✶✶✶✶✶"];
+const DJ_HAPPY   = ["☺","☺☺","☺☺☺","☺☺☺☺","☺☺☺☺☺"];
+let DJ_TYPES   = _perso0.djTypes  || _D_DJ_TYPES;
 const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",happy:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
 const djEntry    = raw => !raw ? DJ_EMPTY() : typeof raw === "string" ? { ...DJ_EMPTY(), reflexions: raw } : { ...DJ_EMPTY(), ...raw };
-// ITEM_COLORS → src/ui/tokens.js
+const ITEM_COLORS = ["#10b981","#ef4444","#3b82f6","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
 
 const QUICK_ADDS = [
   { label: "💼 Business", prefix: "Business — " },
@@ -190,6 +321,113 @@ const QUICK_ADDS = [
   { label: "🏋️ Sport",   prefix: "Sport — " },
   { label: "🧘 Perso",   prefix: "Perso — " },
 ];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRIMITIVES
+// ─────────────────────────────────────────────────────────────────────────────
+function CircularProgress({ value, max, size = 52, strokeWidth = 4, color = C.accent }) {
+  const r = (size - strokeWidth * 2) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = max === 0 ? 0 : clamp(value / max, 0, 1);
+  const offset = circ * (1 - filled);
+  return (
+    <div style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: "rotate(-90deg)", display: "block" }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--c-ring-track)" strokeWidth={strokeWidth} />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={strokeWidth}
+          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+          style={{ transition: "stroke-dashoffset 0.5s ease" }} />
+      </svg>
+      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color }}>
+        {value}/{max}
+      </div>
+    </div>
+  );
+}
+
+const Pill = ({ label, color }) => (
+  <span style={{
+    display: "inline-flex", alignItems: "center", padding: "3px 10px",
+    borderRadius: 999, fontSize: 11, fontWeight: 500, letterSpacing: "0.04em",
+    background: color + "20", color, border: `1px solid ${color}35`,
+  }}>{label}</span>
+);
+const StatusPill = ({ statut }) => { const s = STATUTS[statut] || { c: C.muted, label: statut }; return <Pill label={s.label} color={s.c} />; };
+const SpacePill  = ({ space })  => { const sp = SPACES[space] || { c: C.muted, icon: "•" }; return <Pill label={`${sp.icon} ${space}`} color={sp.c} />; };
+
+const ProgressBar = ({ value, color, height = 6 }) => (
+  <div style={{ height, background: "rgba(139,92,246,0.1)", borderRadius: height }}>
+    <div style={{
+      height: "100%", width: `${clamp(value, 0, 100)}%`,
+      background: color ? `linear-gradient(90deg, ${color}99, ${color})` : GRAD,
+      borderRadius: height, transition: "width 0.5s ease",
+    }} />
+  </div>
+);
+
+const Select = ({ value, options, onChange, style }) => (
+  <select value={value} onChange={e => onChange(e.target.value)} style={{
+    background: "var(--c-surface-2)", border: `1px solid var(--c-border)`, color: "var(--c-text)",
+    padding: "8px 10px", borderRadius: 10, fontSize: 13, fontFamily: "inherit",
+    outline: "none", cursor: "pointer", ...style,
+  }}>
+    {options.map(o => <option key={o} value={o}>{o}</option>)}
+  </select>
+);
+
+const Input = ({ value, onChange, onKeyDown, placeholder, style, type = "text", autoFocus }) => (
+  <input type={type} autoFocus={autoFocus}
+    value={value} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown}
+    placeholder={placeholder}
+    style={{
+      background: "var(--c-surface-2)", border: `1px solid var(--c-border)`, color: "var(--c-text)",
+      padding: "10px 14px", borderRadius: 12, fontSize: 14, fontFamily: "inherit",
+      outline: "none", width: "100%", boxSizing: "border-box",
+      minHeight: 44, transition: TR, ...style,
+    }}
+  />
+);
+
+const Btn = ({ children, onClick, variant = "default", style, disabled }) => (
+  <button onClick={onClick} disabled={disabled} style={{
+    padding: "10px 18px", borderRadius: 12, fontSize: 13, fontFamily: "inherit",
+    fontWeight: 600, transition: TR, border: "none", minHeight: 44,
+    opacity: disabled ? 0.5 : 1, cursor: disabled ? "default" : "pointer",
+    ...(variant === "accent"
+      ? { background: "var(--c-grad)", color: "#fff", boxShadow: "var(--c-glow-sm)" }
+      : variant === "ghost"
+      ? { background: "transparent", color: "var(--c-accent)", border: `1px solid var(--c-border-mid)` }
+      : { background: "var(--c-surface-2)", color: "var(--c-text)", border: `1px solid var(--c-border)` }),
+    ...style,
+  }}>{children}</button>
+);
+
+const Card = ({ children, style, onClick, className }) => (
+  <div onClick={onClick} className={className} style={{
+    background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 18,
+    padding: 16, ...(onClick ? { cursor: "pointer" } : {}), ...style,
+  }}>{children}</div>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAGE HEADER (non-dashboard pages)
+// ─────────────────────────────────────────────────────────────────────────────
+function PageHeader({ title, onBack, action }) {
+  return (
+    <div style={{
+      position: "sticky", top: 0, zIndex: 20,
+      background: "rgba(13,13,26,0.95)", backdropFilter: "blur(20px)",
+      borderBottom: `1px solid ${C.border}`, padding: "14px 16px",
+      display: "flex", alignItems: "center", gap: 12,
+    }}>
+      {onBack && (
+        <span onClick={onBack} style={{ cursor: "pointer", color: C.muted, fontSize: 22, lineHeight: 1 }}>←</span>
+      )}
+      <span style={{ fontSize: 17, fontWeight: 700, color: C.text, flex: 1 }}>{title}</span>
+      {action}
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BOTTOM NAV
@@ -205,115 +443,81 @@ const BOTTOM_NAV = [
   { id: "finances",  icon: "💰", label: "Finances" },
 ];
 
-// Onglets épinglés en mode compact (2 à gauche, 2 à droite du hub)
-const NAV_PINNED_LEFT  = ["dashboard", "todo"];
-const NAV_PINNED_RIGHT = ["daily", "habitudes"];
-
 function BottomNav({ current, onNav, mobile, onPerso }) {
-  const [vw, setVw] = useState(window.innerWidth);
-  const [hubOpen, setHubOpen] = useState(false);
-  useEffect(() => {
-    const h = () => setVw(window.innerWidth);
-    window.addEventListener("resize", h);
-    return () => window.removeEventListener("resize", h);
-  }, []);
-  const compact = mobile || vw < 600; // canvas 390 simulé OU vrai téléphone
-  const pos = mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 };
-  const go = id => { setHubOpen(false); onNav(id); };
-
-  const tab = n => {
-    const active = current === n.id;
-    return (
-      <div key={n.id} onClick={() => go(n.id)} style={{
-        flex: 1, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", gap: 2,
-        cursor: "pointer", position: "relative", transition: TR,
-        userSelect: "none",
-      }}>
-        {active && (
-          <div style={{
-            position: "absolute", top: 6, width: 20, height: 3,
-            background: GRAD, borderRadius: 2,
-            boxShadow: GLOW_SM,
-          }} />
-        )}
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: 10 }}>{n.icon}</span>
-        <span style={{
-          fontSize: 9, fontWeight: active ? 600 : 400,
-          color: active ? C.accent : C.faint,
-          letterSpacing: "0.01em",
-        }}>{n.label}</span>
-      </div>
-    );
-  };
-
-  const barSt = {
-    position: "fixed", bottom: 0, zIndex: 50, ...pos,
-    height: 64, background: "rgba(13,13,26,0.96)", backdropFilter: "blur(24px)",
-    borderTop: `1px solid ${C.border}`,
-    display: "flex", alignItems: "stretch",
-    paddingBottom: "env(safe-area-inset-bottom)",
-  };
-
-  // ── Desktop large : les 8 onglets tiennent, barre inchangée ──
-  if (!compact) return <div style={barSt}>{BOTTOM_NAV.map(tab)}</div>;
-
-  // ── Compact : 4 onglets + hub central ✦ (launcher plein écran) ──
-  const byId = id => BOTTOM_NAV.find(n => n.id === id);
   return (
-    <>
-      {/* Launcher */}
-      {hubOpen && (
-        <div onClick={() => setHubOpen(false)} style={{ position:"fixed", inset:0, zIndex:49, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(10px)" }}>
-          <div className="slide-up" onClick={e=>e.stopPropagation()} style={{
-            position:"absolute", bottom:64, ...(mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 }),
-            padding:"22px 18px calc(18px + env(safe-area-inset-bottom))",
-            background:"rgba(13,13,26,0.97)", borderTop:`1px solid ${C.borderMid}`,
-            borderRadius:"22px 22px 0 0", boxShadow:"0 -18px 60px rgba(0,0,0,0.55)",
+    <div style={{
+      position: "fixed", bottom: 0, zIndex: 50,
+      ...(mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 }),
+      height: 64, background: "rgba(13,13,26,0.96)", backdropFilter: "blur(24px)",
+      borderTop: `1px solid ${C.border}`,
+      display: "flex", alignItems: "stretch",
+      paddingBottom: "env(safe-area-inset-bottom)",
+    }}>
+      {BOTTOM_NAV.map(n => {
+        const active = current === n.id;
+        return (
+          <div key={n.id} onClick={() => onNav(n.id)} style={{
+            flex: 1, display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center", gap: 2,
+            cursor: "pointer", position: "relative", transition: TR,
+            userSelect: "none",
           }}>
-            <div style={{ fontSize:10, color:C.accent, textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700, marginBottom:14, textAlign:"center" }}>✦ Toutes les pages</div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10 }}>
-              {BOTTOM_NAV.map(n => {
-                const active = current === n.id;
-                return (
-                  <div key={n.id} onClick={() => go(n.id)} style={{
-                    display:"flex", flexDirection:"column", alignItems:"center", gap:6,
-                    padding:"14px 4px", borderRadius:14, cursor:"pointer", userSelect:"none",
-                    background: active ? C.accentBg : C.surface2,
-                    border: `1px solid ${active ? C.accent : C.border}`,
-                    boxShadow: active ? GLOW_SM : "none",
-                  }}>
-                    <span style={{ fontSize:22, lineHeight:1 }}>{n.icon}</span>
-                    <span style={{ fontSize:10, fontWeight:active?700:500, color:active?C.accent:C.muted }}>{n.label}</span>
-                  </div>
-                );
-              })}
-            </div>
+            {active && (
+              <div style={{
+                position: "absolute", top: 6, width: 20, height: 3,
+                background: GRAD, borderRadius: 2,
+                boxShadow: GLOW_SM,
+              }} />
+            )}
+            <span style={{ fontSize: 16, lineHeight: 1, marginTop: 10 }}>{n.icon}</span>
+            <span style={{
+              fontSize: 9, fontWeight: active ? 600 : 400,
+              color: active ? C.accent : C.faint,
+              letterSpacing: "0.01em",
+            }}>{n.label}</span>
           </div>
-        </div>
-      )}
-      {/* Barre 2+hub+2 */}
-      <div style={barSt}>
-        {NAV_PINNED_LEFT.map(id => tab(byId(id)))}
-        <div onClick={() => setHubOpen(o => !o)} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", userSelect:"none" }}>
-          <div style={{
-            width:46, height:46, borderRadius:"50%", marginTop:-14,
-            background:GRAD, boxShadow:GLOW_SM,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            fontSize:19, color:"#fff", lineHeight:1,
-            border:"2px solid rgba(13,13,26,0.9)",
-            transform: hubOpen ? "rotate(180deg) scale(1.06)" : "none", transition:"transform 0.25s ease",
-          }}>✦</div>
-        </div>
-        {NAV_PINNED_RIGHT.map(id => tab(byId(id)))}
-      </div>
-    </>
+        );
+      })}
+    </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DASHBOARD
 // ─────────────────────────────────────────────────────────────────────────────
+function HabitChip({ habit, status, onToggle, animating }) {
+  const done = status === 'validated';
+  const inv  = status === 'invalidated';
+  return (
+    <div onClick={onToggle} style={{
+      display: "flex", alignItems: "center", gap: 14,
+      padding: "13px 14px", marginBottom: 8, borderRadius: 14,
+      background: done ? "rgba(52,211,153,0.12)" : inv ? "rgba(251,113,133,0.10)" : "var(--c-surface-2)",
+      border: `1px solid ${done ? "rgba(52,211,153,0.35)" : inv ? "rgba(251,113,133,0.30)" : "var(--c-border)"}`,
+      boxShadow: "var(--c-item-shadow)",
+      cursor: "pointer", transition: TR, minHeight: 52,
+    }}>
+      <span style={{ fontSize: 22, flexShrink: 0, opacity: done ? 0.5 : 1 }}>{habit.emoji}</span>
+      <span style={{
+        flex: 1, fontSize: 15, fontWeight: 500,
+        color: done ? "var(--c-muted)" : inv ? "#ef4444" : "var(--c-text)",
+        textDecoration: done ? "line-through" : "none",
+        transition: TR,
+      }}>{habit.name}</span>
+      <div className={animating ? "habit-pop" : ""} style={{
+        width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+        background: done ? "linear-gradient(135deg,#10b981,#059669)" : inv ? "#ef4444" : "transparent",
+        border: `2px solid ${done ? "#10b981" : inv ? "#ef4444" : "var(--c-border-mid)"}`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        boxShadow: done ? "0 0 12px rgba(16,185,129,0.4)" : inv ? "0 0 12px rgba(239,68,68,0.4)" : "none",
+        transition: TR,
+      }}>
+        {done && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✓</span>}
+        {inv  && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700, lineHeight: 1 }}>✕</span>}
+      </div>
+    </div>
+  );
+}
 
 // ── MonthCalendar ──
 function MonthCalendar() {
@@ -1421,11 +1625,8 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-          <div style={{fontSize:10,color:level?.c,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em"}}>{level?.icon} {level?.label}</div>
-          <button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface2,color:C.muted,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:0}}>✕</button>
-        </div>
-        <input value={titre} onChange={e=>setTitre(e.target.value)}
+        <div style={{fontSize:10,color:level?.c,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>{level?.icon} {level?.label}</div>
+        <input autoFocus value={titre} onChange={e=>setTitre(e.target.value)}
           style={{width:"100%",background:"transparent",border:"none",borderBottom:`2px solid ${C.accent}`,color:C.text,fontSize:17,fontWeight:700,fontFamily:"inherit",outline:"none",padding:"4px 0",boxSizing:"border-box",marginBottom:18}}/>
 
         {/* % global de l'objectif (live, moyenne KR + bonus complétion) */}
@@ -2058,9 +2259,11 @@ function MiroRoadmap({ name = "Roadmap", emoji = "🗺", onMeta }) {
         <button onClick={() => { setDraft(raw); setEditing(true); }} style={{ background: C.surface2, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Changer le tableau</button>
       </div>
       <div style={{ position: "relative", width: "100%", height: "72vh", borderRadius: 18, overflow: "hidden", border: `1px solid ${C.borderMid}`, background: C.surface2 }}>
-        <LazyEmbed
-          src={embed} title="Roadmap Miro" provider="Miro"
+        <iframe
+          src={embed} title="Roadmap Miro"
+          style={{ width: "100%", height: "100%", border: "none", display: "block" }}
           allow="fullscreen; clipboard-read; clipboard-write"
+          allowFullScreen
         />
       </div>
     </div>
@@ -2224,11 +2427,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // TODO — GTD v2 + CALENDAR
 // ─────────────────────────────────────────────────────────────────────────────
-let SPHERES       = P.spheres;
-let WP_CATEGORIES = P.wpCategories;
-let WP_DOMAINES   = P.domaines;
-let WP_TYPES      = P.wpTypes;
-let DJ_TYPES      = P.djTypes;
+let SPHERES = _perso0.spheres || _D_SPHERES;
 const MATRICES = {
   ui:   { label: "🔴 Urgent · Important",     short: "UI" },
   uni:  { label: "🟡 Urgent · Secondaire",    short: "U·S" },
@@ -4386,33 +4585,6 @@ function DJRating({ label, options, value, onChange }) {
   );
 }
 
-// Carte de ressenti — jauge équalizer 5 crans, un tap règle le niveau (re-tap efface).
-// Chaque métrique a sa teinte : le ressenti du jour se lit d'un coup d'œil en couleur.
-function RitualGauge({ glyph, label, color, options, value, onChange }) {
-  const C = CF;
-  const idx = options.indexOf(value); // -1 si vide
-  const set = idx >= 0;
-  return (
-    <div style={{background:C.surface2,border:`1px solid ${set?`${color}44`:C.border}`,borderRadius:14,padding:"10px 12px",transition:"border-color 0.2s"}}>
-      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-        <span style={{fontSize:13,color:set?color:C.faint,lineHeight:1}}>{glyph}</span>
-        <span style={{flex:1,fontSize:11,color:C.muted,fontWeight:600}}>{label}</span>
-        <span style={{fontFamily:CF_FONT,fontSize:11,fontWeight:800,color:set?color:C.faint,fontVariantNumeric:"tabular-nums"}}>{set?`${idx+1}/5`:"—"}</span>
-      </div>
-      <div style={{display:"flex",gap:4,alignItems:"flex-end",height:24}}>
-        {options.map((o,i)=>(
-          <div key={i} onClick={()=>onChange(value===o?"":o)} style={{
-            flex:1,height:9+i*3.5,borderRadius:3,cursor:"pointer",
-            background:set&&idx>=i?(i===idx?color:`${color}88`):C.surface3,
-            boxShadow:set&&i===idx?`0 0 10px ${color}66`:"none",
-            transition:"background 0.15s, box-shadow 0.15s",
-          }} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem, onNav }) {
   const C = CF;
   const [showItemModal, setShowItemModal] = useState(false);
@@ -4442,7 +4614,7 @@ function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCust
         color,
         <span style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.12em'}}>{icon} {label}</span>,
         entry[key]||'', e=>onFieldChange(key,e.target.value),
-        key==='win'?'Qu\'est-ce qui t\'a rendu fier aujourd\'hui ?':key==='loss'?'Qu\'est-ce qui n\'a pas marché ?':'Que feras-tu mieux demain ?'
+        key==='win'?'Victoires de la journée...':key==='loss'?'Ce qui n\'a pas marché...':'Ce que tu veux améliorer...'
       ))}
       {todayCustomFull.map(item=>block(
         item.color,
@@ -4558,170 +4730,7 @@ function EditGlobalItemModal({ item, onClose, onSave }) {
   );
 }
 
-// Panorama d'ascension — crêtes sous ciel de nuit, corde de progression vers le sommet.
-// Écho direct du LevelArt mensuel (🗻) : ambre en montée, vert au sommet.
-function AscentPanorama({ p, idKey }) {
-  const C = CF;
-  const reached = p >= 100;
-  const lc = reached ? C.green : C.amber;
-  const cp = clamp(p, 0, 100);
-  const trailRef = useRef(null);
-  const [climber, setClimber] = useState(null);
-  useEffect(() => {
-    const el = trailRef.current;
-    if (!el) return;
-    const q = el.getPointAtLength(el.getTotalLength() * cp / 100);
-    setClimber({ x: q.x, y: q.y });
-  }, [cp]);
-  const gid = `asc-${idKey}`;
-  const TRAIL = "M12,80 L48,62 L84,68 L122,42 L154,54 L196,22";
-  return (
-    <svg viewBox="0 0 300 84" preserveAspectRatio="xMidYMax slice" style={{ display:"block", width:"100%", height:"100%" }}>
-      <defs>
-        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={`${lc}4d`} /><stop offset="100%" stopColor={`${lc}0a`} />
-        </linearGradient>
-      </defs>
-      {/* crête arrière */}
-      <path d="M0,84 L58,48 L108,64 L160,36 L214,60 L262,42 L300,62 L300,84 Z" fill={`${lc}12`} />
-      {/* crête principale */}
-      <path d="M0,84 L48,58 L100,32 L150,52 L196,20 L246,50 L300,38 L300,84 Z" fill={`url(#${gid})`} stroke={`${lc}40`} strokeWidth="0.7" />
-      {/* neige au sommet */}
-      <path d="M196,20 L188,32 L204,32 Z" fill={reached ? C.green : `${C.amber}cc`} opacity="0.95" />
-      {/* sentier complet en pointillé */}
-      <path d={TRAIL} fill="none" stroke={`${lc}38`} strokeWidth="1.4" strokeDasharray="2.5 4" strokeLinecap="round" />
-      {/* corde de progression */}
-      <path ref={trailRef} d={TRAIL} fill="none" stroke={lc} strokeWidth="2.2" strokeLinecap="round" pathLength="100"
-        strokeDasharray={`${cp} ${101 - cp}`} opacity="0.95"
-        style={{ transition:"stroke-dasharray 0.5s ease, stroke 0.3s" }} />
-      {/* grimpeur */}
-      {climber && cp > 0 && (
-        <g>
-          <circle cx={climber.x} cy={climber.y} r="6.5" fill={`${lc}2e`} style={{ transition:"cx 0.5s ease, cy 0.5s ease" }} />
-          <circle cx={climber.x} cy={climber.y} r="3" fill={lc} style={{ transition:"cx 0.5s ease, cy 0.5s ease" }} />
-          <circle cx={climber.x} cy={climber.y} r="1.3" fill="#fff" opacity="0.9" style={{ transition:"cx 0.5s ease, cy 0.5s ease" }} />
-        </g>
-      )}
-      {/* fanion planté à 100% */}
-      {reached && (
-        <g>
-          <line x1="196" y1="20" x2="196" y2="6" stroke={C.green} strokeWidth="1.4" />
-          <path d="M196,6 L207,9.5 L196,13 Z" fill={C.green} />
-        </g>
-      )}
-    </svg>
-  );
-}
-
-// Suivi des Key Results mensuels — lit/écrit lp_goals (source de vérité partagée avec Objectifs)
-function MonthlyKRTracker({ onNav }) {
-  const C = CF, FONT_D = CF_FONT;
-  const [goals, setGoals] = useState(() => getLS("lp_goals", NOTION_GOALS));
-  const [drafts, setDrafts] = useState({});
-  const [openId, setOpenId] = useState(null); // accordéon : un seul panorama déplié
-  const saveGoals = g => { setGoals(g); setLS("lp_goals", g); };
-  const monthlyWithKR = (goals.mensuel || []).filter(o => !o.archived && (o.krs || []).length > 0);
-
-  const updateKR = (objId, krIndex, newActuelle) => {
-    saveGoals({ ...goals, mensuel: (goals.mensuel || []).map(o => o.id !== objId ? o
-      : { ...o, krs: o.krs.map((k, i) => i === krIndex ? { ...k, actuelle: newActuelle } : k) }) });
-  };
-
-  const stepBtn = (onClick, sym) => (
-    <button onClick={onClick} style={{width:26,height:26,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface3,color:C.text,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,flexShrink:0,padding:0}}>{sym}</button>
-  );
-
-  return (
-    <div style={{marginBottom:20}}>
-      <div style={{fontSize:10,color:C.amber,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>🗻 Ascension du mois</div>
-      {monthlyWithKR.length === 0 && (
-        <div onClick={()=>onNav?.("objectifs:mensuel")} style={{fontSize:12,color:C.faint,padding:"2px 0 6px",cursor:"pointer"}}>
-          Aucun KR mensuel à suivre · <span style={{color:C.amber}}>→ Objectifs</span>
-        </div>
-      )}
-      {monthlyWithKR.map(o => {
-        const p = krsProgress(o.krs);
-        const reached = p >= 100;
-        const lc = reached ? C.green : C.amber;
-        const open = openId === o.id;
-        return (
-          <div key={o.id} style={{marginBottom:8,background:C.surface2,borderRadius:open?16:12,border:`1px solid ${reached?"rgba(52,211,153,0.28)":"rgba(251,191,36,0.20)"}`,overflow:"hidden",transition:"border-radius 0.2s"}}>
-            {/* Rangée compacte — toujours visible, tap pour déplier */}
-            <div onClick={()=>setOpenId(open?null:o.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none"}}>
-              {/* mini sommet */}
-              <svg viewBox="0 0 20 14" style={{width:20,height:14,flexShrink:0,display:"block"}}>
-                <path d="M0,14 L7,4 L11,9 L15,3 L20,14 Z" fill={`${lc}33`} stroke={`${lc}88`} strokeWidth="0.8" />
-                <path d="M15,3 L13,6.2 L17,6.2 Z" fill={lc} />
-              </svg>
-              <span style={{flex:1,fontSize:13,fontWeight:600,color:C.text,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{o.titre}</span>
-              {/* jauge fine */}
-              <div style={{width:56,height:5,borderRadius:2,background:C.surface3,overflow:"hidden",flexShrink:0}}>
-                <div style={{height:"100%",width:`${Math.min(p,100)}%`,background:lc,transition:"width 0.3s"}} />
-              </div>
-              <span style={{fontFamily:FONT_D,fontSize:13,fontWeight:800,color:lc,fontVariantNumeric:"tabular-nums",flexShrink:0,minWidth:38,textAlign:"right"}}>{p}%</span>
-              <span style={{fontSize:10,color:C.faint,flexShrink:0,transform:open?"rotate(180deg)":"none",transition:"transform 0.2s"}}>▼</span>
-            </div>
-            {open && <>
-            {/* Panorama — le titre et l'altitude vivent dans le ciel */}
-            <div style={{position:"relative",height:88}}>
-              <div style={{position:"absolute",inset:0}}><AscentPanorama p={p} idKey={o.id} /></div>
-              <div style={{position:"absolute",top:10,left:14,right:14,display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}>
-                <div style={{fontSize:9,letterSpacing:"0.14em",textTransform:"uppercase",fontWeight:700,color:lc,opacity:0.85}}>
-                  {reached ? "Sommet atteint" : "En ascension"}
-                </div>
-              </div>
-            </div>
-            {/* Key Results — jauges graduées façon altimètre */}
-            <div style={{padding:"6px 16px 14px"}}>
-              {o.krs.map((kr, i) => {
-                const kp = krPct(kr);
-                const kc = kp >= 100 ? C.green : C.amber;
-                const key = `${o.id}:${i}`;
-                const cur = kr.actuelle ?? kr.depart ?? 0;
-                const shown = drafts[key] !== undefined ? drafts[key] : String(cur);
-                const commit = raw => {
-                  if (raw.trim() === "" || raw === "-") return; // vide toléré pendant la frappe
-                  const n = Number(raw);
-                  if (Number.isFinite(n)) updateKR(o.id, i, n);
-                };
-                return (
-                  <div key={i} style={{marginTop:i===0?0:12}}>
-                    <div style={{display:"flex",justifyContent:"space-between",gap:8,marginBottom:5}}>
-                      <span style={{fontSize:12,color:C.muted,minWidth:0,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{kr.nom}</span>
-                      <span style={{fontSize:11,color:kp>=100?C.green:C.muted,fontVariantNumeric:"tabular-nums",flexShrink:0}}>
-                        <b style={{color:C.text}}>{cur}</b> / {kr.cible} · {kp}%
-                      </span>
-                    </div>
-                    <div style={{display:"flex",alignItems:"center",gap:10}}>
-                      <div style={{flex:1,position:"relative",height:9,borderRadius:2,background:C.surface3,overflow:"hidden"}}>
-                        <div style={{height:"100%",width:`${Math.min(kp,100)}%`,background:`linear-gradient(90deg,${C.amber}77,${kc})`,transition:"width 0.3s"}} />
-                        {/* graduations d'altimètre : ticks tous les 10 % */}
-                        <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),${C.surface2} calc(10% - 1px) 10%)`}} />
-                      </div>
-                      {stepBtn(()=>updateKR(o.id,i,cur-1),"−")}
-                      <input
-                        value={shown}
-                        inputMode="decimal"
-                        onChange={e=>{ setDrafts(d=>({...d,[key]:e.target.value})); commit(e.target.value); }}
-                        onBlur={()=>setDrafts(d=>{ const {[key]:_,...rest}=d; return rest; })}
-                        style={{width:52,textAlign:"center",background:C.surface3,border:`1px solid ${C.border}`,color:C.text,padding:"5px 4px",borderRadius:9,fontSize:12,fontFamily:"inherit",outline:"none",fontVariantNumeric:"tabular-nums"}}
-                      />
-                      {stepBtn(()=>updateKR(o.id,i,cur+1),"+")}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            </>}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function DailyPaperModule({ onNav }) {
-  const healthConsent = useHealthConsent();
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [daily, setDaily]     = useState(() => getLS("lp_daily", {}));
   const [customGlobalItems, setCustomGlobalItems] = useState(() => getLS("lp_custom_items", []));
@@ -4761,61 +4770,37 @@ function DailyPaperModule({ onNav }) {
     <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
       <CFHeader eyebrow="Journal" title="Daily Paper" />
       <div style={{padding:"4px 16px 100px"}}>
-        {/* Date nav + progression du rituel */}
-        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6,justifyContent:"center"}}>
+        {/* Date nav */}
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16,justifyContent:"center"}}>
           <button onClick={prevDay} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"8px 16px",borderRadius:12,cursor:"pointer",fontFamily:"inherit",fontSize:16}}>←</button>
           <span style={{fontSize:14,fontWeight:600,color:isToday?C.accent:C.text,flex:1,textAlign:"center"}}>
             {fmtDate(selDate)}{isToday?" · Aujourd'hui":""}
           </span>
           <button onClick={nextDay} disabled={isToday} style={{background:C.surface2,border:`1px solid ${C.border}`,color:isToday?C.muted:C.text,padding:"8px 16px",borderRadius:12,cursor:isToday?"default":"pointer",fontFamily:"inherit",fontSize:16,opacity:isToday?0.35:1}}>→</button>
         </div>
-        {(() => {
-          const steps = [entry.morning, entry.focus, entry.stress, entry.happy, entry.win, entry.loss, entry.ameliorer];
-          const done = steps.filter(s => s && String(s).trim()).length;
-          const full = done === steps.length;
-          return (
-            <div style={{display:"flex",alignItems:"center",gap:5,justifyContent:"center",marginBottom:16}}>
-              {steps.map((s,i)=>(
-                <span key={i} style={{width:5,height:5,borderRadius:"50%",background:(s&&String(s).trim())?(full?C.green:C.accent):C.surface3,transition:"background 0.2s"}} />
-              ))}
-              <span style={{fontSize:10,color:full?C.green:C.faint,marginLeft:4,letterSpacing:"0.06em"}}>
-                {full ? "Rituel complet ✦" : `Rituel ${done}/${steps.length}`}
-              </span>
-            </div>
-          );
-        })()}
 
-        {/* Key Results mensuels */}
-        <MonthlyKRTracker onNav={onNav} />
-
-        {/* Type de journée — un tap, pas de menu */}
-        <div style={{marginBottom:16}}>
-          <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,marginBottom:8}}>
-            {DJ_TYPES.map(t=>{
-              const on = entry.type === t;
-              return (
-                <button key={t} onClick={()=>setField("type",t)} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${on?C.accent:C.border}`,background:on?C.accentBg:"transparent",color:on?C.accent:C.muted,fontSize:12,fontWeight:on?700:400,fontFamily:"inherit",cursor:"pointer",transition:"all 0.15s"}}>{t}</button>
-              );
-            })}
-          </div>
-          <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Une remarque sur la journée ?" style={{width:"100%"}} />
-        </div>
-
-        {/* Énergie & ressenti — grille 2×2, un tap par jauge. Gated art. 9 RGPD. */}
+        {/* Indicators — boxless */}
         <div style={{marginBottom:20}}>
+          <div style={{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}}>
+            <Select value={entry.type} options={DJ_TYPES} onChange={v=>setField("type",v)} style={{flex:1,minWidth:140}} />
+            <Input value={entry.remark} onChange={v=>setField("remark",v)} placeholder="Remarque..." style={{flex:1}} />
+          </div>
           <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Énergie &amp; ressenti</div>
-          {healthConsent ? (
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-              <RitualGauge glyph="⚡" label="Énergie" color={C.amber}  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
-              <RitualGauge glyph="❖" label="Focus"   color={C.accent} options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
-              <RitualGauge glyph="✶" label="Stress"  color={C.red}    options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
-              <RitualGauge glyph="☺" label="Bonheur" color={C.green}  options={DJ_HAPPY}  value={entry.happy}   onChange={v=>setField("happy",v)} />
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+              <DJRating label="Matin"  options={DJ_ENERGY} value={entry.morning} onChange={v=>setField("morning",v)} />
+              <DJRating label="Midi"   options={DJ_ENERGY} value={entry.noon}    onChange={v=>setField("noon",v)} />
+              <DJRating label="Soir"   options={DJ_ENERGY} value={entry.evening} onChange={v=>setField("evening",v)} />
             </div>
-          ) : <HealthConsentPrompt />}
+            <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+              <DJRating label="Focus"  options={DJ_FOCUS}  value={entry.focus}   onChange={v=>setField("focus",v)} />
+              <DJRating label="Stress" options={DJ_STRESS} value={entry.stress}  onChange={v=>setField("stress",v)} />
+              <DJRating label="Bonheur" options={DJ_HAPPY} value={entry.happy}   onChange={v=>setField("happy",v)} />
+            </div>
+          </div>
         </div>
 
         {/* Win/Loss/Améliorer + custom items */}
-        <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Rétro du jour</div>
         <RetrospectiveCards
           entry={entry}
           onFieldChange={setField}
@@ -4862,7 +4847,6 @@ function DailyPaperModule({ onNav }) {
 // LOGS
 // ─────────────────────────────────────────────────────────────────────────────
 function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteDaily, onUpdateDaily }) {
-  const healthConsent = useHealthConsent();
   const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM;
   const [open, setOpen]     = useState(false);
   const [editing, setEditing] = useState(false);
@@ -4924,14 +4908,12 @@ function DayLogCard({ date, habits, daily, sessions=[], onToggleHabit, onDeleteD
               <Select value={editEntry.type} options={DJ_TYPES} onChange={v=>onUpdateDaily(date,"type",v)} />
               <Input value={editEntry.remark} onChange={v=>onUpdateDaily(date,"remark",v)} placeholder="Remarque..." style={{flex:1}} />
             </div>
-            {healthConsent && (
             <div style={{display:"flex",gap:8,flexWrap:"wrap",marginBottom:10}}>
-              <DJRating label="Énergie" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
+              <DJRating label="Matin" options={DJ_ENERGY} value={editEntry.morning} onChange={v=>onUpdateDaily(date,"morning",v)} />
               <DJRating label="Focus" options={DJ_FOCUS}  value={editEntry.focus}   onChange={v=>onUpdateDaily(date,"focus",v)} />
               <DJRating label="Stress" options={DJ_STRESS} value={editEntry.stress} onChange={v=>onUpdateDaily(date,"stress",v)} />
               <DJRating label="Bonheur" options={DJ_HAPPY} value={editEntry.happy} onChange={v=>onUpdateDaily(date,"happy",v)} />
             </div>
-            )}
             <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10}}>
               {[{key:"win",ph:"Victoires..."},{key:"loss",ph:"Ce qui n'a pas marché..."},{key:"ameliorer",ph:"À améliorer..."}].map(({key,ph})=>(
                 <textarea key={key} value={editEntry[key]||""} onChange={e=>onUpdateDaily(date,key,e.target.value)} placeholder={ph}
@@ -5134,10 +5116,15 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 
   // Daily averages
   const energyVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.morning)).filter(v=>v!=null);
+  const noonVals   = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.noon)).filter(v=>v!=null);
+  const eveVals    = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.evening)).filter(v=>v!=null);
   const focusVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_FOCUS,  e.focus)).filter(v=>v!=null);
   const stressVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_STRESS, e.stress)).filter(v=>v!=null);
   const happyVals  = dailyEntries.map(({entry:e}) => emojiVal(DJ_HAPPY,  e.happy)).filter(v=>v!=null);
   const avgEnergy  = avg(energyVals);
+  const avgNoon    = avg(noonVals);
+  const avgEve     = avg(eveVals);
+  const avgEnergyDay = avg([...energyVals,...noonVals,...eveVals]); // moyenne globale journée
   const avgFocus   = avg(focusVals);
   const avgStress  = avg(stressVals);
   const avgHappy   = avg(happyVals);
@@ -5296,13 +5283,34 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           {dailyCount > 0 && (
             <WRSection title="Daily Tracker">
               {/* Moyennes */}
-              {(avgEnergy||avgFocus||avgStress||avgHappy) && (
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1.6fr",gap:12,marginBottom:16}}>
-                  {/* Énergie — une seule mesure par jour */}
-                  <div style={{padding:"16px 12px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
-                    backgroundImage:`linear-gradient(135deg, ${C.amber}10, transparent 60%)`,
-                    display:"flex",alignItems:"center",justifyContent:"center"}}>
-                    <RingGauge val={avgEnergy} color={C.amber} size={84} stroke={8} label="Énergie" icon="⚡" />
+              {(avgEnergyDay||avgFocus||avgStress||avgHappy) && (
+                <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:12,marginBottom:16}}>
+                  {/* Énergie unifiée — matin / midi / soir */}
+                  <div style={{padding:"16px 18px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
+                    backgroundImage:`linear-gradient(135deg, ${C.amber}10, transparent 60%)`}}>
+                    <div style={{fontSize:11,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:12,display:"flex",alignItems:"center",gap:5}}>
+                      <span style={{color:C.amber}}>⚡</span> Énergie — journée
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:18}}>
+                      <RingGauge val={avgEnergyDay} color={C.amber} size={84} stroke={8} />
+                      <div style={{flex:1,display:"flex",flexDirection:"column",gap:10}}>
+                        {[
+                          {l:"Matin",v:avgEnergy,n:energyVals.length},
+                          {l:"Midi", v:avgNoon, n:noonVals.length},
+                          {l:"Soir", v:avgEve,  n:eveVals.length},
+                        ].map(({l,v,n})=>(
+                          <div key={l}>
+                            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                              <span style={{fontSize:10,color:C.muted,fontWeight:600}}>{l}</span>
+                              <span style={{fontSize:10,color:C.amber,fontWeight:700}}>{v!=null?v.toFixed(1):"—"}<span style={{color:C.faint,fontWeight:400}}>/5</span></span>
+                            </div>
+                            <div style={{height:5,borderRadius:3,background:C.surface3,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${v!=null?(v/5)*100:0}%`,background:`linear-gradient(90deg,${C.amber}99,${C.amber})`,borderRadius:3,transition:"width 0.4s"}} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                   {/* Focus / Stress / Bonheur — anneaux */}
                   <div style={{padding:"16px 12px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
@@ -5564,13 +5572,8 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   );
 }
 
-function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeeklyReview, onPerso }) {
+function LogsModule({ onBack, viewMode, onSetViewMode, onSignOut, onOpenWeeklyReview, onPerso }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
-  const healthConsent = useHealthConsent();
-  const [exporting, setExporting]   = useState(false);
-  const [consentBusy, setConsentBusy] = useState(false);
-  const [showWipeOffer, setShowWipeOffer] = useState(false);
-  const [showDelete, setShowDelete] = useState(false);
   const { todos: allTodos, restoreTodo } = useTodos();
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
   const [daily, setDaily]   = useState(() => getLS("lp_daily", {}));
@@ -5690,88 +5693,42 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
   });
   const sortedWRQ = Object.keys(wrByQ).sort((a,b)=>b.localeCompare(a));
 
-  // « Aujourd'hui » — état du rituel du jour + avancement des KR mensuels actifs
-  const [showDayLogs, setShowDayLogs] = useState(false);
-  const tEntry = djEntry(daily[todayStr()]);
-  const ritualSteps = [tEntry.morning, tEntry.focus, tEntry.stress, tEntry.happy, tEntry.win, tEntry.loss, tEntry.ameliorer];
-  const ritualDone = ritualSteps.filter(s => s && String(s).trim()).length;
-  const goalsLS = getLS("lp_goals", {});
-  const activeKRObjs = (goalsLS.mensuel || []).filter(o => !o.archived && (o.krs || []).length > 0);
-  const krAvg = activeKRObjs.length ? Math.round(activeKRObjs.reduce((s, o) => s + krsProgress(o.krs), 0) / activeKRObjs.length) : null;
-  const wrDoneThisWeek = weeklyReviews.some(r => r.weekStart === todayWk);
-
-  // Export JSON de toutes les données locales (lp_* / leplan_*) — filet de sécurité
-  const exportData = () => {
-    const dump = {};
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith("lp_") || k.startsWith("leplan_"))) {
-        try { dump[k] = JSON.parse(localStorage.getItem(k)); } catch { dump[k] = localStorage.getItem(k); }
-      }
-    }
-    const blob = new Blob([JSON.stringify({ app: "POLARIS", exportedAt: new Date().toISOString(), data: dump }, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `polaris-backup-${todayStr()}.json`;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="theme-light" style={{minHeight:"100%",display:"flex",flexDirection:"column",fontFamily:"var(--font-body)",color:C.text}}>
-      {/* Identité — avatar + email + déconnexion */}
-      <div style={{padding:"18px 16px 14px",display:"flex",alignItems:"center",gap:12,borderBottom:`1px solid ${C.border}`}}>
+      <div style={{padding:"20px 16px 10px",display:"flex",alignItems:"center",gap:12}}>
         <span onClick={onBack} style={{cursor:"pointer",color:C.muted,fontSize:24,lineHeight:1}}>←</span>
-        <div style={{width:36,height:36,borderRadius:"50%",background:GRAD,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,color:"#fff",fontWeight:800,flexShrink:0,boxShadow:GLOW_SM}}>{(email||"P")[0].toUpperCase()}</div>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.18em",fontWeight:700,marginBottom:2}}>Le Poste</div>
-          <div style={{fontSize:12,fontWeight:600,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{email||"Hors ligne"}</div>
+        <div>
+          <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.18em",fontWeight:700,marginBottom:4}}>Archives</div>
+          <div style={{fontFamily:FONT_D,fontSize:26,fontWeight:800,color:C.text,letterSpacing:"-0.02em",lineHeight:1}}>Logs</div>
         </div>
-        {onSignOut && <button onClick={onSignOut} title="Déconnexion" style={{width:34,height:34,borderRadius:"50%",border:`1px solid ${C.red}55`,background:"transparent",color:C.red,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>⏻</button>}
       </div>
 
-      <div style={{padding:"16px 16px 100px"}}>
-        {/* AUJOURD'HUI */}
-        <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",marginBottom:10}}>Aujourd'hui</div>
-        <div onClick={()=>onNavModule?.("daily")} style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:C.surface2,border:`1px solid ${ritualDone===7?"rgba(52,211,153,0.3)":C.border}`,borderRadius:14,cursor:"pointer",marginBottom:8,userSelect:"none"}}>
-          <span style={{fontSize:16}}>✦</span>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:13,fontWeight:600,color:C.text}}>{ritualDone===7?"Rituel complet":"Rituel du soir"}</div>
-            <div style={{display:"flex",gap:4,marginTop:6}}>{ritualSteps.map((s,i)=><span key={i} style={{width:5,height:5,borderRadius:"50%",background:s&&String(s).trim()?(ritualDone===7?C.green:C.accent):C.surface3}} />)}</div>
-          </div>
-          <span style={{fontFamily:FONT_D,fontSize:14,fontWeight:800,color:ritualDone===7?C.green:C.accent,fontVariantNumeric:"tabular-nums"}}>{ritualDone}/7</span>
-          <span style={{color:C.faint,fontSize:12}}>→</span>
-        </div>
-        {krAvg!=null && (
-          <div onClick={()=>onNavModule?.("daily")} style={{display:"flex",alignItems:"center",gap:10,padding:"13px 16px",background:C.surface2,border:`1px solid ${krAvg>=100?"rgba(52,211,153,0.3)":"rgba(251,191,36,0.2)"}`,borderRadius:14,cursor:"pointer",userSelect:"none"}}>
-            <span style={{fontSize:16}}>🗻</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:600,color:C.text}}>KR du mois</div>
-              <div style={{height:5,borderRadius:2,background:C.surface3,overflow:"hidden",marginTop:7}}><div style={{height:"100%",width:`${Math.min(krAvg,100)}%`,background:krAvg>=100?C.green:C.amber,transition:"width 0.3s"}} /></div>
-            </div>
-            <span style={{fontFamily:FONT_D,fontSize:14,fontWeight:800,color:krAvg>=100?C.green:C.amber,fontVariantNumeric:"tabular-nums"}}>{krAvg}%</span>
-            <span style={{color:C.faint,fontSize:12}}>→</span>
-          </div>
-        )}
-
-        {/* RITUELS & BILANS */}
-        <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",margin:"26px 0 10px"}}>Rituels &amp; bilans</div>
+      {/* Weekly Review button */}
+      <div style={{padding:"12px 16px 0"}}>
         <button
           onClick={()=>openReview(todayWk)}
-          style={{width:"100%",padding:"15px 20px",borderRadius:16,background:GRAD,color:"#fff",fontSize:15,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",boxShadow:GLOW,display:"flex",alignItems:"center",justifyContent:"center",gap:10,letterSpacing:"0.02em"}}
+          style={{width:"100%",padding:"16px 20px",borderRadius:16,background:GRAD,color:"#fff",fontSize:15,fontWeight:700,fontFamily:"inherit",border:"none",cursor:"pointer",boxShadow:GLOW,display:"flex",alignItems:"center",justifyContent:"center",gap:10,letterSpacing:"0.02em"}}
         >
           <span style={{fontSize:20}}>📊</span>
           Weekly Review
-          {wrDoneThisWeek
-            ? <span style={{fontSize:11,background:"rgba(0,0,0,0.25)",padding:"2px 8px",borderRadius:999}}>✓ Faite</span>
-            : isWeekLocked(todayWk)
-              ? <span style={{fontSize:11,background:"rgba(0,0,0,0.25)",padding:"2px 8px",borderRadius:999}}>🔒</span>
-              : <span style={{fontSize:11,background:"rgba(0,0,0,0.25)",padding:"2px 8px",borderRadius:999}}>● À faire</span>}
+          {isWeekLocked(todayWk)&&<span style={{fontSize:11,background:"rgba(0,0,0,0.25)",padding:"2px 8px",borderRadius:999}}>🔒</span>}
         </button>
+      </div>
 
-        {/* Historique des reviews */}
-        <div style={{marginTop:20}}>
-          <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>🗂 Historique reviews</div>
+      <div style={{padding:"12px 16px 100px"}}>
+        {/* Controls: vue + déconnexion */}
+        {onSetViewMode&&(
+          <div style={{display:"flex",gap:6,marginBottom:16,alignItems:"center",flexWrap:"wrap"}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",alignSelf:"center",marginRight:4}}>Vue</div>
+            {[["pc","🖥 PC"],["mobile","📱 Mobile"]].map(([v,lbl])=>(
+              <button key={v} onClick={()=>onSetViewMode(v)} style={{padding:"6px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${viewMode===v?C.accent:C.border}`,background:viewMode===v?C.accentBg:"transparent",color:viewMode===v?C.accent:C.muted,fontWeight:viewMode===v?600:400}}>{lbl}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Weekly Reviews log */}
+        <div style={{marginTop:28}}>
+          <div style={{fontSize:10,color:C.accent,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>📊 Weekly Reviews</div>
           {sortedWRQ.length===0
             ? <div style={{fontSize:12,color:C.faint,textAlign:"center",padding:"24px 0"}}>Aucune weekly review enregistrée.</div>
             : sortedWRQ.map(qk=>{
@@ -5824,168 +5781,25 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
               })
           }
         </div>
+      </div>
 
-        {/* Logs journaliers — repliés par défaut */}
-        <div style={{marginTop:20}}>
-          <div onClick={()=>setShowDayLogs(o=>!o)} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none",marginBottom:showDayLogs?12:0}}>
-            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em"}}>📓 Logs journaliers</div>
-            <span style={{fontSize:9,color:C.faint}}>{showDayLogs?"▼":"▶"}</span>
-          </div>
-          {showDayLogs && logsContent}
-        </div>
-
-        {/* RÉGLAGES */}
-        <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",margin:"26px 0 10px"}}>Réglages</div>
+      {/* Bas de side — Personnalisation + Déconnexion */}
+      <div style={{marginTop:"auto",padding:"12px 16px",borderTop:`1px solid ${C.border}`,display:"flex",gap:10}}>
         {onPerso && (
           <button onClick={onPerso} style={{
-            width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,
-            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,minHeight:44,marginBottom:8,
+            flex:1,padding:"12px 16px",borderRadius:14,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,
+            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,
           }}>
             <span style={{fontSize:16}}>⚙️</span>Personnalisation
-            <span style={{marginLeft:"auto",color:C.faint}}>→</span>
           </button>
         )}
-        <button
-          onClick={async ()=>{
-            if (!userId) { exportData(); return; }
-            setExporting(true);
-            try { await exportAllData(userId, email); } catch (e) { console.error(e); exportData(); }
-            setExporting(false);
-          }}
-          disabled={exporting}
-          style={{
-            width:"100%",padding:"13px 16px",borderRadius:14,background:C.surface2,color:C.text,fontSize:13,fontWeight:600,
-            fontFamily:"inherit",border:`1px solid ${C.border}`,cursor:exporting?"wait":"pointer",display:"flex",alignItems:"center",gap:10,minHeight:44,opacity:exporting?0.6:1,
+        {onSignOut && (
+          <button onClick={onSignOut} style={{
+            flex:1,padding:"12px 16px",borderRadius:14,background:"transparent",color:C.red,fontSize:13,fontWeight:600,
+            fontFamily:"inherit",border:`1px solid ${C.red}55`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:8,minHeight:44,
           }}>
-          <span style={{fontSize:16}}>☁️</span>{exporting?"Export en cours…":"Exporter mes données (JSON complet)"}
-          <span style={{marginLeft:"auto",color:C.faint}}>↓</span>
-        </button>
-
-        {/* CONFIDENTIALITÉ & COMPTE — droits RGPD exerçables in-app */}
-        <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",margin:"26px 0 10px"}}>Confidentialité &amp; compte</div>
-
-        {/* Consentement bien-être (art. 9) : état + retrait */}
-        <div style={{padding:"13px 16px",borderRadius:14,background:C.surface2,border:`1px solid ${C.border}`,marginBottom:8}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:16}}>🩺</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:13,fontWeight:600,color:C.text}}>Suivi bien-être</div>
-              <div style={{fontSize:11,color:C.faint,marginTop:2}}>Énergie, focus, stress, bonheur — consentement explicite (art. 9 RGPD)</div>
-            </div>
-            <button
-              disabled={consentBusy || !userId}
-              onClick={async ()=>{
-                if (!userId) return;
-                setConsentBusy(true);
-                try {
-                  await setHealthConsent(userId, !healthConsent);
-                  if (healthConsent) setShowWipeOffer(true); // on vient de retirer → proposer la suppression
-                } catch (e) { console.error(e); }
-                setConsentBusy(false);
-              }}
-              style={{
-                padding:"7px 14px",borderRadius:999,fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:consentBusy?"wait":"pointer",
-                border:`1px solid ${healthConsent?C.green:C.borderMid}`,
-                background:healthConsent?"rgba(16,185,129,0.12)":"transparent",
-                color:healthConsent?C.green:C.muted,opacity:consentBusy?0.6:1,flexShrink:0,
-              }}>
-              {healthConsent?"Actif ✓":"Inactif"}
-            </button>
-          </div>
-          {showWipeOffer && !healthConsent && (
-            <div style={{marginTop:12,padding:"12px 14px",background:C.surface3,borderRadius:10,border:`1px solid ${C.border}`}}>
-              <div style={{fontSize:12,color:C.muted,lineHeight:1.55,marginBottom:10}}>
-                Consentement retiré : les jauges sont désactivées et ces données ne sont plus traitées.
-                Veux-tu aussi <b style={{color:C.text}}>supprimer les évaluations déjà enregistrées</b> (énergie, focus, stress, bonheur de toutes tes journées) ?
-              </div>
-              <div style={{display:"flex",gap:8}}>
-                <button onClick={()=>{
-                  const cleaned = {};
-                  Object.entries(daily).forEach(([d,raw])=>{
-                    const e = djEntry(raw);
-                    cleaned[d] = { ...e, morning:"", focus:"", stress:"", happy:"" };
-                  });
-                  saveDaily(cleaned);
-                  setShowWipeOffer(false);
-                }} style={{padding:"8px 14px",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>
-                  Supprimer ces données
-                </button>
-                <button onClick={()=>setShowWipeOffer(false)} style={{padding:"8px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>
-                  Conserver
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Suppression de compte — réelle et complète (art. 17, Apple 5.1.1(v)) */}
-        <button onClick={()=>setShowDelete(true)} style={{
-          width:"100%",padding:"13px 16px",borderRadius:14,background:"transparent",color:C.red,fontSize:13,fontWeight:600,
-          fontFamily:"inherit",border:`1px solid ${C.red}55`,cursor:"pointer",display:"flex",alignItems:"center",gap:10,minHeight:44,
-        }}>
-          <span style={{fontSize:16}}>🗑️</span>Supprimer mon compte et toutes mes données
-          <span style={{marginLeft:"auto",color:C.red}}>→</span>
-        </button>
-        <div style={{fontSize:10.5,color:C.faint,lineHeight:1.5,marginTop:8}}>
-          Suppression immédiate et définitive de ton compte et de toutes tes données (journal, habitudes, finances, notes).
-          Les copies de sauvegarde techniques sont écrasées sous 30 jours maximum. <a href="/confidentialite" target="_blank" rel="noreferrer" style={{color:C.accent}}>Politique de confidentialité</a>
-        </div>
-
-        {showDelete && <DeleteAccountModal email={email} onClose={()=>setShowDelete(false)} />}
-      </div>
-    </div>
-  );
-}
-
-// Confirmation de suppression : re-saisie du mot de passe (exigence CNIL / Apple 5.1.1(v)).
-function DeleteAccountModal({ email, onClose }) {
-  const [pw, setPw]       = useState("");
-  const [busy, setBusy]   = useState(false);
-  const [err, setErr]     = useState("");
-  const [done, setDone]   = useState(false);
-  const submit = async e => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true); setErr("");
-    const res = await deleteAccount(email, pw);
-    if (res.error) { setErr(res.error); setBusy(false); return; }
-    setDone(true);
-    setTimeout(()=>{ window.location.replace("/"); }, 2500);
-  };
-  return (
-    <div style={{position:"fixed",inset:0,zIndex:400,background:"rgba(0,0,0,0.65)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={done?undefined:onClose}>
-      <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:400,background:C.surface,border:`1px solid ${C.red}55`,borderRadius:16,padding:24}}>
-        {done ? (
-          <div style={{textAlign:"center",padding:"12px 0"}}>
-            <div style={{fontSize:28,marginBottom:10}}>✓</div>
-            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:6}}>Compte supprimé</div>
-            <div style={{fontSize:12.5,color:C.muted,lineHeight:1.6}}>Toutes tes données ont été effacées. Les sauvegardes techniques seront écrasées sous 30 jours. Au revoir 👋</div>
-          </div>
-        ) : (
-          <>
-            <div style={{fontSize:16,fontWeight:800,color:C.red,marginBottom:8}}>Supprimer définitivement ton compte ?</div>
-            <div style={{fontSize:12.5,color:C.muted,lineHeight:1.6,marginBottom:16}}>
-              Cette action est <b style={{color:C.text}}>irréversible</b>. Ton compte et l'intégralité de tes données
-              (journal bien-être, habitudes, objectifs, finances, notes, bases partagées) seront supprimés immédiatement.
-              Pense à <b style={{color:C.text}}>exporter tes données</b> avant si tu veux les conserver.
-            </div>
-            <form onSubmit={submit} style={{display:"flex",flexDirection:"column",gap:10}}>
-              <input
-                type="password" placeholder="Confirme ton mot de passe" value={pw} autoFocus
-                onChange={e=>setPw(e.target.value)} required
-                style={{background:C.bg,border:`1px solid ${C.borderMid}`,borderRadius:8,padding:"10px 14px",color:C.text,fontSize:14,outline:"none",fontFamily:"inherit"}}
-              />
-              {err && <p style={{color:C.red,fontSize:12,margin:0}}>{err}</p>}
-              <div style={{display:"flex",gap:8,marginTop:4}}>
-                <button type="submit" disabled={busy||!pw} style={{flex:1,padding:"11px 0",borderRadius:8,border:"none",background:C.red,color:"#fff",fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:busy?"wait":"pointer",opacity:(busy||!pw)?0.6:1}}>
-                  {busy?"Suppression…":"Supprimer définitivement"}
-                </button>
-                <button type="button" onClick={onClose} style={{flex:1,padding:"11px 0",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:13,fontWeight:600,fontFamily:"inherit",cursor:"pointer"}}>
-                  Annuler
-                </button>
-              </div>
-            </form>
-          </>
+            <span style={{fontSize:15}}>⏻</span>Déconnexion
+          </button>
         )}
       </div>
     </div>
@@ -6110,9 +5924,7 @@ export default function App({ session, signOut }) {
     setModule(id);
   };
   const [logsOpen, setLogsOpen] = useState(false);
-  // Toggle Vue PC/Mobile retiré de la sidebar : on force "pc" (le vrai mobile
-  // passe par la largeur d'écran), sinon un "mobile" stocké bloquerait le canvas 390px.
-  const [viewMode, setViewMode] = useState("pc");
+  const [viewMode, setViewMode] = useState(()=>getLS("lp_view_mode","pc"));
   const [syncStatus, setSyncStatus] = useState(null);
   const [wrModal, setWrModal] = useState(null);
   const [showSessionChoice, setShowSessionChoice] = useState(false);
@@ -6129,7 +5941,6 @@ export default function App({ session, signOut }) {
 
   const handleSavePerso = (p) => {
     setLS("lp_personalization", p);
-    applyPerso(p);
     WP_CATEGORIES = p.domaines;
     WP_DOMAINES   = p.domaines;
     WP_TYPES      = p.wpTypes;
@@ -6142,7 +5953,8 @@ export default function App({ session, signOut }) {
   useEffect(() => { setLS("lp_active_module", module); }, [module]);
 
   useEffect(() => {
-    setSyncContext(session?.user?.id ?? null, setSyncStatus);
+    _userId = session?.user?.id ?? null;
+    _onSyncStatus = setSyncStatus;
   }, [session]);
 
   const handleSessionStart = (s) => {
@@ -6219,19 +6031,7 @@ export default function App({ session, signOut }) {
         {module === "todo"      && <TodoModule />}
         {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
         {module === "finances"  && <FinancesModule userId={session?.user?.id ?? null} />}
-        <LegalFooter />
       </div>
-      {/* Bouton « Le Poste » — accessible depuis toutes les pages */}
-      {!logsOpen && (
-        <div onClick={()=>setLogsOpen(true)} title="Le Poste" style={{
-          position:"fixed", top:"calc(env(safe-area-inset-top) + 10px)", right:12, zIndex:45,
-          width:34, height:34, borderRadius:"50%",
-          background:"rgba(13,13,26,0.72)", backdropFilter:"blur(12px)",
-          border:`1px solid ${C.borderMid}`, boxShadow:"0 4px 16px rgba(0,0,0,0.35)",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          cursor:"pointer", fontSize:13, color:C.accent, userSelect:"none",
-        }}>◉</div>
-      )}
       <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} onPause={handleSessionPause} onResume={handleSessionResume} />
       {stopModal && <LiveStopModal session={activeSession} elapsed={stopModal.elapsed} onConfirm={handleConfirmStop} onCancel={()=>setStopModal(null)} />}
       <BottomNav current={module} onNav={setModule} mobile={mobile} onPerso={()=>setShowPerso(true)} />
@@ -6251,7 +6051,7 @@ export default function App({ session, signOut }) {
           }}
           style={{ position:"absolute", top:0, right:0, bottom:0, width:"92%", maxWidth:500, background:"#0B0714", transform:logsOpen?"translateX(0)":"translateX(100%)", transition:"transform 0.3s cubic-bezier(0.4,0,0.2,1)", overflowY:"auto" }}
         >
-          <LogsModule onBack={()=>setLogsOpen(false)} email={session?.user?.email} userId={session?.user?.id} onNavModule={id=>{setLogsOpen(false);navTo(id);}} onSignOut={signOut} onOpenWeeklyReview={setWrModal} onPerso={()=>{setLogsOpen(false);setShowPerso(true);}} />
+          <LogsModule onBack={()=>setLogsOpen(false)} viewMode={viewMode} onSetViewMode={setView} onSignOut={signOut} onOpenWeeklyReview={setWrModal} onPerso={()=>{setLogsOpen(false);setShowPerso(true);}} />
         </div>
       </div>
       {/* Weekly Review modal — rendered at root so it covers everything */}

@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+/* Space Grotesk auto-hébergée via @fontsource (importée dans main.jsx) —
+   plus d'appel à fonts.googleapis.com : aucune IP transmise à Google. */
 
 *, *::before, *::after {
   box-sizing: border-box;

@@ -23,18 +23,18 @@ export function useShareBase(baseId, userId) {
   useEffect(() => { fetchMembers(); }, [fetchMembers]);
 
   const addMember = async (email, role) => {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", email.trim().toLowerCase())
-      .single();
+    // RPC security definer : ne renvoie qu'un id (ou null) — la table
+    // profiles n'est plus lisible en masse (migration 009).
+    const { data: targetId, error: lookupErr } = await supabase
+      .rpc("find_user_id_by_email", { lookup_email: email });
 
-    if (!profile) return { error: "Utilisateur introuvable" };
-    if (profile.id === userId) return { error: "C'est toi !" };
+    if (lookupErr) return { error: lookupErr.message };
+    if (!targetId) return { error: "Utilisateur introuvable" };
+    if (targetId === userId) return { error: "C'est toi !" };
 
     const { error } = await supabase
       .from("knowledge_base_members")
-      .insert({ base_id: baseId, user_id: profile.id, role, invited_by: userId });
+      .insert({ base_id: baseId, user_id: targetId, role, invited_by: userId });
 
     if (error) {
       if (error.code === "23505") return { error: "Déjà membre" };

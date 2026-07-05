@@ -3,6 +3,18 @@ import { supabase, loadUserData, hydrateLocalStorage, syncToSupabase } from "./s
 import PolarisLogo from "./PolarisLogo";
 import { LegalFooter } from "./components/legal/LegalPages";
 import { loadConsents, storePendingConsents } from "./state/consent";
+import { purgeAppData, purgeLocalData } from "./state/account";
+
+// Messages d'erreur auth en français, sans détail interne.
+const frError = msg => {
+  if (!msg) return "Une erreur est survenue. Réessaie.";
+  if (msg.includes("Invalid login credentials")) return "Email ou mot de passe incorrect.";
+  if (msg.includes("already registered"))        return "Un compte existe déjà avec cet email.";
+  if (msg.includes("at least"))                  return "Mot de passe trop court (8 caractères minimum).";
+  if (msg.includes("Email not confirmed"))       return "Confirme ton email avant de te connecter.";
+  if (msg.includes("valid email"))               return "Adresse email invalide.";
+  return "Une erreur est survenue. Réessaie.";
+};
 
 const C = {
   bg: "#0d0d1a", surface: "#12112a", surface2: "#1a1830",
@@ -66,6 +78,13 @@ export default function AuthGate({ children }) {
     setLoading(true);
     sessionRef.current = session;
     try {
+      // Machine partagée : si le localStorage appartient à un autre compte,
+      // purge avant toute hydratation/synchro (sinon les données de A
+      // seraient téléversées dans le compte de B).
+      const lastUser = localStorage.getItem("lp_last_user");
+      if (lastUser && lastUser !== session.user.id) purgeAppData();
+      localStorage.setItem("lp_last_user", session.user.id);
+
       await loadConsents(session.user.id).catch(() => {});
       const data = await loadUserData(session.user.id);
       if (data) {
@@ -97,7 +116,7 @@ export default function AuthGate({ children }) {
       if (error) {
         const sec = error.message.match(/(\d+) seconds?/)?.[1];
         if (sec) setCooldown(parseInt(sec));
-        else setError(error.message);
+        else setError(frError(error.message));
       }
     } else {
       if (!cguOk) { setError("Tu dois accepter les CGU et la politique de confidentialité."); return; }
@@ -105,7 +124,7 @@ export default function AuthGate({ children }) {
       if (error) {
         const sec = error.message.match(/(\d+) seconds?/)?.[1];
         if (sec) setCooldown(parseInt(sec));
-        else setError(error.message);
+        else setError(frError(error.message));
       } else {
         // Preuve d'accountability : horodatage capturé au moment du clic,
         // matérialisé en base au premier login (RLS exige une session).
@@ -125,7 +144,7 @@ export default function AuthGate({ children }) {
     if (error) {
       const sec = error.message.match(/(\d+) seconds?/)?.[1];
       if (sec) setCooldown(parseInt(sec));
-      else setError(error.message);
+      else setError(frError(error.message));
     } else setInfo("Lien de réinitialisation envoyé. Vérifie ton email.");
   }
 
@@ -133,7 +152,7 @@ export default function AuthGate({ children }) {
     e.preventDefault();
     setError(""); setInfo("");
     const { error } = await supabase.auth.updateUser({ password });
-    if (error) { setError(error.message); return; }
+    if (error) { setError(frError(error.message)); return; }
     setRecovery(false);
     setPassword("");
     setInfo("Mot de passe mis à jour. Connecte-toi.");
@@ -155,7 +174,7 @@ export default function AuthGate({ children }) {
         <form onSubmit={handleUpdatePassword} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <input
             type="password" placeholder="Nouveau mot de passe" value={password}
-            onChange={e => setPassword(e.target.value)} required minLength={6}
+            onChange={e => setPassword(e.target.value)} required minLength={8}
             style={inputStyle}
           />
           {error && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{error}</p>}
@@ -229,7 +248,14 @@ export default function AuthGate({ children }) {
     </div>
   );
 
-  return children({ session, signOut: () => supabase.auth.signOut() });
+  // Déconnexion : purge locale complète après signOut (données + session) —
+  // rien ne doit rester lisible sur un poste partagé.
+  const signOut = async () => {
+    await supabase.auth.signOut().catch(() => {});
+    purgeLocalData();
+    window.location.replace("/");
+  };
+  return children({ session, signOut });
 }
 
 const inputStyle = {

@@ -54,15 +54,26 @@ export async function exportAllData(userId, email) {
   URL.revokeObjectURL(url);
 }
 
-/** Purge toute trace locale (données + session + consentements). */
-export function purgeLocalData() {
+/** Purge les données applicatives locales (garde le jeton de session Supabase). */
+export function purgeAppData() {
   const doomed = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && (k.startsWith("lp_") || k.startsWith("leplan_") || k.startsWith("LE_PLAN_") || k.startsWith("sb-"))) doomed.push(k);
+    if (k && (k.startsWith("lp_") || k.startsWith("leplan_") || k.startsWith("LE_PLAN_"))) doomed.push(k);
   }
   doomed.forEach(k => localStorage.removeItem(k));
   clearConsentCache();
+}
+
+/** Purge toute trace locale (données + session + consentements). */
+export function purgeLocalData() {
+  purgeAppData();
+  const doomed = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("sb-")) doomed.push(k);
+  }
+  doomed.forEach(k => localStorage.removeItem(k));
 }
 
 /**

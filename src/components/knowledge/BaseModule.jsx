@@ -7,6 +7,7 @@ import {
   syncWikilinks, usePageSearch, useGraphData,
 } from "./hooks/useKnowledgePages";
 import { uid } from "../../utils/id";
+import LazyEmbed from "../../ui/LazyEmbed";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
@@ -429,10 +430,8 @@ function BlockEditor({ block, onChange, onDelete, onAddBelow, onMoveUp, onMoveDo
             style={{ width: "100%", background: C.surface3, border: `1px solid ${C.border}`, color: C.text, padding: "10px 12px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
         ) : (
           <div style={{ borderRadius: 10, overflow: "hidden", height: 220 }}>
-            <iframe src={`https://www.youtube.com/embed/${videoId}`}
-              style={{ width: "100%", height: "100%", border: "none" }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen />
+            <LazyEmbed src={`https://www.youtube-nocookie.com/embed/${videoId}`} provider="YouTube"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
           </div>
         )}
       </div>
@@ -589,10 +588,8 @@ function SourceMetaPanel({ meta, onChange }) {
     <div style={{ background: C.surface2, border: `1px solid ${C.border}`, borderRadius: 16, padding: 16, marginBottom: 20 }}>
       {ytId && (
         <div style={{ borderRadius: 10, overflow: "hidden", height: 200, marginBottom: 14 }}>
-          <iframe src={`https://www.youtube.com/embed/${ytId}`}
-            style={{ width: "100%", height: "100%", border: "none" }}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen />
+          <LazyEmbed src={`https://www.youtube-nocookie.com/embed/${ytId}`} provider="YouTube"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
         </div>
       )}
       <div style={{ display: "grid", gap: 10 }}>
