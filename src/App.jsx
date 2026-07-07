@@ -352,7 +352,7 @@ function MonthCalendar() {
   const monthFirst = `${year}-${pad(month+1)}-01`;
   const monthLast  = `${year}-${pad(month+1)}-${pad(new Date(year,month+1,0).getDate())}`;
   const recurByDate = {};
-  todos.filter(t=>t.recurrence?.enabled&&!t.done).forEach(t => {
+  todos.filter(t=>t.recurrence?.enabled&&!t.done&&t.gtd!=="check").forEach(t => {
     getRecurOccurrences(t, monthFirst, monthLast).forEach(ds => {
       if (!recurByDate[ds]) recurByDate[ds] = [];
       recurByDate[ds].push(t);
@@ -431,6 +431,13 @@ function MonthCalendar() {
   );
 }
 
+// ── Helpers dates ISO (YYYY-MM-DD) pour drag & drop calendrier
+const addDaysISO = (ds, n) => {
+  const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+};
+const diffDaysISO = (a, b) => Math.round((new Date(a + "T12:00:00") - new Date(b + "T12:00:00")) / 86400000);
+
 function WeeklyCalendar() {
   const { todos, addTodo, updateTodo, deleteTodo, toggleDone, toggleSousTache } = useTodos();
   const today = todayStr();
@@ -441,6 +448,12 @@ function WeeklyCalendar() {
   const [expandedSpan, setExpandedSpan] = useState(null);
   const [toast, setToast] = useState(null); // { id, name }
   const toastTimer = useRef(null);
+  // DnD : payload dans un ref (dataTransfer illisible pendant dragover)
+  const dragRef = useRef(null); // { kind:'move'|'resize-start'|'resize-end', id, originDay }
+  const boardRef = useRef(null);
+  const [dragOverDay, setDragOverDay] = useState(null);
+  const [overCheck, setOverCheck] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const editItem = editId ? todos.find(t => t.id === editId) : null;
   const closeModal = () => { setEditId(null); setEditMode(false); };
   const toggleSub = (todoId, stId) => {
@@ -500,13 +513,13 @@ function WeeklyCalendar() {
   };
   const closureKind = lv => lv.has("annuel") ? "annee" : lv.has("trimestriel") ? "trimestre" : "mois";
 
-  const typeLabel = it => it.gtd === "projet" ? "Projet" : it.gtd === "memo" ? "Mémo" : it.recurrence?.enabled ? "Récurrent" : "Tâche";
-  const colorOf = it => SPHERES[it.sphere]?.c || (it.gtd === "memo" ? "#4F46E5" : it.gtd === "projet" ? "#7C5CFC" : "#0EA0BD");
+  const typeLabel = it => it.gtd === "projet" ? "Projet" : it.gtd === "memo" ? "Mémo" : it.gtd === "check" ? "Check" : it.recurrence?.enabled ? "Récurrent" : "Tâche";
+  const colorOf = it => SPHERES[it.sphere]?.c || (it.gtd === "memo" ? "#4F46E5" : it.gtd === "projet" ? "#7C5CFC" : it.gtd === "check" ? "#34D399" : "#0EA0BD");
 
-  // ── Rubans multi-jours : projets datés (dateDebut→dateFin) qui chevauchent la semaine
-  // (ISO YYYY-MM-DD → comparaison lexicographique sûre)
+  // ── Rubans multi-jours : toute tâche datée (dateDebut→dateFin) qui chevauche la semaine
+  // (projets + tâches étendues par drag ; ISO YYYY-MM-DD → comparaison lexicographique sûre)
   const spanItems = todos
-    .filter(it => it.gtd === "projet" && it.dateDebut && it.dateFin && !it.done)
+    .filter(it => it.gtd !== "check" && !it.recurrence?.enabled && it.dateDebut && it.dateFin && !it.done)
     .filter(it => it.dateFin >= weekStart && it.dateDebut <= weekEnd)
     .map(it => {
       let startCol = days7.findIndex(ds => ds >= it.dateDebut);   // 0-based, premier jour visible couvert
@@ -532,15 +545,81 @@ function WeeklyCalendar() {
   });
   const laneCount = lanes.length;
 
-  // ── Tâches simples par jour : non-projet daté (dateAssignee) + récurrences
+  // ── Tâches simples par jour : daté (dateAssignee) sans span + récurrences.
+  // Exclut check tasks (panneau de gauche) et tâches étendues (rubans).
   const dayTasks = Object.fromEntries(days7.map(ds => [ds, []]));
   todos.forEach(it => {
-    if (it.done || it.gtd === "projet" || it.recurrence?.enabled) return;
+    if (it.done || it.gtd === "projet" || it.gtd === "check" || it.recurrence?.enabled || (it.dateDebut && it.dateFin)) return;
     if (it.dateAssignee && dayTasks[it.dateAssignee] !== undefined) dayTasks[it.dateAssignee].push(it);
   });
-  todos.filter(it => it.recurrence?.enabled && !it.done).forEach(it => {
+  todos.filter(it => it.recurrence?.enabled && !it.done && it.gtd !== "check").forEach(it => {
     getRecurOccurrences(it, weekStart, weekEnd).forEach(ds => { if (dayTasks[ds] !== undefined) dayTasks[ds].push(it); });
   });
+
+  // ── Check tasks (panneau de gauche, à cocher)
+  const checkTasks = todos.filter(t => t.gtd === "check" && !t.done)
+    .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+
+  // ── Drag & drop ───────────────────────────────────────────────
+  const startDrag = (e, payload) => {
+    dragRef.current = payload;
+    setDragging(true);
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", payload.id); } catch {}
+  };
+  const endDrag = () => { dragRef.current = null; setDragging(false); setDragOverDay(null); setOverCheck(false); };
+  // Colonne (0-6) sous le curseur — pour connaître le jour saisi sur un ruban
+  const colFromEvent = e => {
+    const el = boardRef.current; if (!el) return 0;
+    const r = el.getBoundingClientRect();
+    return Math.max(0, Math.min(6, Math.floor((e.clientX - r.left) / (r.width / 7))));
+  };
+
+  const dropOnDay = ds => {
+    const d = dragRef.current; if (!d) return;
+    const it = todos.find(t => t.id === d.id); if (!it) return;
+    const hasSpan = !!(it.dateDebut && it.dateFin);
+
+    if (d.kind === "move") {
+      if (it.recurrence?.enabled) {
+        // Récurrente : décale l'ancre de la série du même delta que l'occurrence déplacée
+        const delta = diffDaysISO(ds, d.originDay);
+        if (delta !== 0 && it.dateAssignee) updateTodo(it.id, { dateAssignee: addDaysISO(it.dateAssignee, delta) });
+      } else if (hasSpan) {
+        const delta = diffDaysISO(ds, d.originDay);
+        if (delta !== 0) updateTodo(it.id, { dateDebut: addDaysISO(it.dateDebut, delta), dateFin: addDaysISO(it.dateFin, delta) });
+      } else {
+        updateTodo(it.id, { dateAssignee: ds });
+      }
+    } else if (d.kind === "resize-end") {
+      const start = hasSpan ? it.dateDebut : (it.dateAssignee || d.originDay);
+      if (ds === start && it.gtd !== "projet") {
+        // Réduit à un seul jour → redevient une simple tâche
+        updateTodo(it.id, { dateDebut: undefined, dateFin: undefined, dateAssignee: start });
+      } else if (ds < start) {
+        updateTodo(it.id, { dateDebut: ds, dateFin: start });
+      } else {
+        updateTodo(it.id, { dateDebut: start, dateFin: ds });
+      }
+    } else if (d.kind === "resize-start") {
+      const end = it.dateFin || d.originDay;
+      if (ds === end && it.gtd !== "projet") {
+        updateTodo(it.id, { dateDebut: undefined, dateFin: undefined, dateAssignee: end });
+      } else if (ds > end) {
+        updateTodo(it.id, { dateDebut: end, dateFin: ds });
+      } else {
+        updateTodo(it.id, { dateDebut: ds, dateFin: end });
+      }
+    }
+    endDrag();
+  };
+
+  const dropOnCheck = () => {
+    const d = dragRef.current; if (!d) return;
+    const it = todos.find(t => t.id === d.id); if (!it) return;
+    updateTodo(it.id, { gtd: "check", dateDebut: undefined, dateFin: undefined });
+    endDrag();
+  };
 
   const wkLabel = offset === 0 ? "Cette semaine"
     : offset === 1 ? "Semaine prochaine"
@@ -564,8 +643,23 @@ function WeeklyCalendar() {
     const subs = s.it.sousTaches || [];
     const done = subs.filter(x => x.done).length;
     const isOpen = expandedSpan === s.it.id;
+    const Grip = ({ kind, edge }) => (
+      <span
+        draggable
+        onDragStart={e => { e.stopPropagation(); startDrag(e, { kind, id: s.it.id, originDay: kind === "resize-end" ? s.it.dateFin : s.it.dateDebut }); }}
+        onDragEnd={endDrag}
+        onClick={e => e.stopPropagation()}
+        title={kind === "resize-end" ? "Étirer la fin" : "Étirer le début"}
+        className="cal-drag-handle"
+        style={{ flexShrink:0, width:10, alignSelf:"stretch", display:"inline-flex", alignItems:"center", justifyContent:"center",
+          color:col, fontSize:10, fontWeight:900, [edge === "left" ? "marginLeft" : "marginRight"]:-6 }}>⋮</span>
+    );
     return (
       <div
+        className="cal-ribbon"
+        draggable
+        onDragStart={e => startDrag(e, { kind:"move", id: s.it.id, originDay: days7[colFromEvent(e)] })}
+        onDragEnd={endDrag}
         onClick={() => setEditId(s.it.id)}
         title={s.it.name}
         style={{
@@ -573,7 +667,7 @@ function WeeklyCalendar() {
           gridRow: s.lane + 1,
           display:"flex", alignItems:"center", gap:6,
           margin:"0 3px", padding:"0 8px 0 10px", height:26, minWidth:0,
-          fontFamily:"inherit", cursor:"pointer", textAlign:"left",
+          fontFamily:"inherit", cursor:"grab", textAlign:"left",
           color:"var(--c-text)",
           background:`linear-gradient(90deg, ${col}33, ${col}1f)`,
           border:`1px solid ${col}66`,
@@ -582,6 +676,7 @@ function WeeklyCalendar() {
           borderTopRightRadius: cr ? 0 : 8, borderBottomRightRadius: cr ? 0 : 8,
           boxShadow:`inset 3px 0 0 ${cl ? "transparent" : col}, 0 0 12px ${col}33`,
         }}>
+        {!cl && <Grip kind="resize-start" edge="left" />}
         {cl && <span style={{ color:col, fontSize:11, marginLeft:-4 }}>‹</span>}
         <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 6px ${col}`, flexShrink:0 }} />
         <span style={{ fontSize:11.5, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", flex:1, minWidth:0 }}>{s.it.name}</span>
@@ -597,26 +692,32 @@ function WeeklyCalendar() {
             style={{ flexShrink:0, width:18, height:18, borderRadius:5, display:"inline-flex", alignItems:"center", justifyContent:"center",
               background:`${col}33`, border:"none", color:col, cursor:"pointer", fontSize:10, fontFamily:"inherit", transform:isOpen?"rotate(90deg)":"none", transition:"transform 0.15s" }}>▸</button>
         )}
+        {!cr && <Grip kind="resize-end" edge="right" />}
       </div>
     );
   };
 
   // ── Chip tâche simple (cyber neon compact). Mémo = style "note" dissocié (pointillé + icône).
   const ICONS = { memo:"📝", waiting:"⏳" };
-  const TaskChip = ({ it }) => {
+  const TaskChip = ({ it, day }) => {
     const col = colorOf(it);
     const isMemo = it.gtd === "memo";
     const isRecur = it.recurrence?.enabled;
     const icon = isRecur ? "🔄" : ICONS[it.gtd] || "•";
     return (
-      <button onClick={e => { e.stopPropagation(); setEditId(it.id); }} title={it.name} style={{
+      <div className="cal-chip-wrap"
+        draggable
+        onDragStart={e => { e.stopPropagation(); startDrag(e, { kind:"move", id: it.id, originDay: day }); }}
+        onDragEnd={endDrag}
+        onClick={e => { e.stopPropagation(); setEditId(it.id); }} title={it.name} style={{
+        position:"relative",
         display:"flex", flexDirection:"column", gap:4,
-        padding:"7px 9px", borderRadius:10, width:"100%", textAlign:"left",
+        padding:"7px 9px", borderRadius:10, width:"100%", textAlign:"left", boxSizing:"border-box",
         background: isMemo
           ? `repeating-linear-gradient(135deg, ${col}14, ${col}14 6px, ${col}0a 6px, ${col}0a 12px)`
           : `linear-gradient(180deg, ${col}1a, var(--c-surface-2))`,
         border:`1px ${isMemo ? "dashed" : "solid"} ${col}${isMemo ? "66" : "40"}`,
-        cursor:"pointer", fontFamily:"inherit",
+        cursor:"grab", fontFamily:"inherit",
         boxShadow:`0 0 10px ${col}1f`,
       }}>
         <span style={{ display:"flex", alignItems:"flex-start", gap:6, minWidth:0 }}>
@@ -632,7 +733,18 @@ function WeeklyCalendar() {
           padding:"1px 6px", borderRadius:999, background:`${col}22`,
           border:`1px ${isMemo ? "dashed" : "solid"} ${col}40`,
         }}>{typeLabel(it)}</span>
-      </button>
+        {!isRecur && (
+          <span
+            draggable
+            onDragStart={e => { e.stopPropagation(); startDrag(e, { kind:"resize-end", id: it.id, originDay: day }); }}
+            onDragEnd={endDrag}
+            onClick={e => e.stopPropagation()}
+            title="Étendre sur plusieurs jours"
+            className="cal-drag-handle"
+            style={{ position:"absolute", right:0, top:0, bottom:0, width:12, display:"inline-flex", alignItems:"center", justifyContent:"center",
+              color:col, fontSize:10, fontWeight:900, borderRadius:"0 10px 10px 0", background:`${col}1a` }}>⋮</span>
+        )}
+      </div>
     );
   };
 
@@ -644,8 +756,53 @@ function WeeklyCalendar() {
           <div style={{ display:"flex", gap:8 }}><NavBtn dir={-1} /><NavBtn dir={1} /></div>
         </div>
 
-        <div className="cal-board-wrap">
-          <div className="cal-board">
+        <div className="cal-layout">
+          {/* Panneau Check Tasks — à cocher, drop target */}
+          <div
+            className={`check-panel${overCheck && dragging ? " drag-over" : ""}`}
+            onDragOver={e => { if (dragRef.current) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setOverCheck(true); } }}
+            onDragLeave={() => setOverCheck(false)}
+            onDrop={e => { e.preventDefault(); dropOnCheck(); }}
+          >
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <span style={{ fontSize:10, color:"#34D399", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.14em" }}>✓ Check Tasks</span>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontSize:11, color:"var(--c-muted)", fontVariantNumeric:"tabular-nums" }}>{checkTasks.length}</span>
+                <button onClick={() => setAddDate(today)} title="Nouvelle tâche"
+                  style={{ width:22, height:22, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:13, lineHeight:1,
+                    display:"inline-flex", alignItems:"center", justifyContent:"center",
+                    background:"rgba(52,211,153,0.14)", border:"1px solid rgba(52,211,153,0.4)", color:"#34D399" }}>+</button>
+              </div>
+            </div>
+            <div className="check-panel-list">
+              {checkTasks.map(it => {
+                const col = colorOf(it);
+                return (
+                  <div key={it.id} onClick={() => setEditId(it.id)} title={it.name} style={{
+                    display:"flex", alignItems:"center", gap:9, padding:"8px 9px", borderRadius:10,
+                    cursor:"pointer", background:"var(--c-surface-3, rgba(255,255,255,0.03))",
+                    border:`1px solid ${col}33`,
+                  }}>
+                    <span onClick={e => { e.stopPropagation(); markDone(it); }} title="Cocher"
+                      style={{ flexShrink:0, width:17, height:17, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
+                        border:`1.5px solid #34D399`, color:"#34D399", fontSize:9, lineHeight:1, cursor:"pointer" }} />
+                    <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:600, color:"var(--c-text)", lineHeight:1.3,
+                      overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}</span>
+                    {it.recurrence?.enabled && <span style={{ fontSize:10, flexShrink:0 }}>🔄</span>}
+                    <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 5px ${col}`, flexShrink:0 }} />
+                  </div>
+                );
+              })}
+              {checkTasks.length === 0 && (
+                <div style={{ fontSize:11.5, color:"var(--c-faint)", lineHeight:1.5, padding:"8px 4px" }}>
+                  Aucune check task.<br />Glisse une tâche du calendrier ici, ou crée-en une avec +.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="cal-board-wrap">
+          <div className="cal-board" ref={boardRef}>
             {/* En-tête jours */}
             <div className="cal-head">
               {days7.map((ds, i) => {
@@ -739,23 +896,28 @@ function WeeklyCalendar() {
               );
             })()}
 
-            {/* Corps : tâches simples par jour */}
+            {/* Corps : tâches simples par jour (drop targets) */}
             <div className="cal-grid">
               {days7.map(ds => {
                 const isToday = ds === today;
                 const items = dayTasks[ds] || [];
                 return (
-                  <div key={ds} className="cal-day cal-day-add" onClick={() => setAddDate(ds)}
+                  <div key={ds} className={`cal-day cal-day-add${dragOverDay === ds && dragging ? " drag-over" : ""}`}
+                    onClick={() => setAddDate(ds)}
+                    onDragOver={e => { if (dragRef.current) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverDay(ds); } }}
+                    onDragLeave={() => setDragOverDay(d => d === ds ? null : d)}
+                    onDrop={e => { e.preventDefault(); dropOnDay(ds); }}
                     title="Ajouter une tâche ce jour"
                     style={{ background: isToday ? "var(--c-accent-soft)" : "transparent", cursor:"pointer" }}>
                     <div className="cal-body">
-                      {items.map((it, k) => <TaskChip key={it.id + "_" + k} it={it} />)}
+                      {items.map((it, k) => <TaskChip key={it.id + "_" + k} it={it} day={ds} />)}
                       <span className="cal-add-hint" style={{ fontSize:12, color:"var(--c-faint)", textAlign:"center", padding:"4px 0" }}>+</span>
                     </div>
                   </div>
                 );
               })}
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -2254,7 +2416,7 @@ const migrateOneTodo = raw => {
   // already new format
   if (raw.gtd && ("createdAt" in raw) && !("text" in raw) && !("domaine" in raw)) return raw;
   // old format
-  const gtdMap = { projet:"projet", memo:"memo", someday:"someday", waiting:"waiting", highlight:"inbox", inbox:"inbox" };
+  const gtdMap = { projet:"projet", memo:"memo", check:"check", someday:"someday", waiting:"waiting", highlight:"inbox", inbox:"inbox" };
   return {
     id: raw.id || uid(),
     name: raw.name || raw.text || "",
@@ -2337,6 +2499,7 @@ function DayCreateModal({ date, onCreate, onClose }) {
     name:"", sphere:null, matrice:null,
     dateDebut:date, dateFin:date, dateFinType:"duedate",
     dateAssignee:date, waitingFor:"", waitingNote:"",
+    recurrence:null,
   });
   const set = p => setForm(f => ({ ...f, ...p }));
   const dateLong = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" });
@@ -2345,6 +2508,7 @@ function DayCreateModal({ date, onCreate, onClose }) {
     ["projet",  "🔴", "Projet",      C.red   ],
     ["memo",    "📝", "Mémo",        C.blue  ],
     ["waiting", "⏳", "Waiting For", C.amber ],
+    ["check",   "✅", "Check Task",  C.green ],
   ];
   const tc = (TYPES.find(t => t[0] === gtd) || [,,,C.accent])[3];
 
@@ -2357,7 +2521,9 @@ function DayCreateModal({ date, onCreate, onClose }) {
     const u = { name:form.name.trim(), gtd, sphere:form.sphere || undefined };
     if (gtd === "projet")  Object.assign(u, { matrice:form.matrice, dateDebut:form.dateDebut || undefined, dateFin:form.dateFin, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[] });
     else if (gtd === "memo")    u.dateAssignee = form.dateAssignee || undefined;
+    else if (gtd === "check")   u.dateAssignee = form.dateAssignee || undefined;
     else if (gtd === "waiting") Object.assign(u, { waitingFor:form.waitingFor.trim(), waitingNote:form.waitingNote || undefined, dateAssignee:form.dateAssignee || undefined });
+    if (form.recurrence?.enabled) u.recurrence = form.recurrence;
     onCreate(u);
   };
 
@@ -2446,7 +2612,13 @@ function DayCreateModal({ date, onCreate, onClose }) {
 
             {gtd === "memo" && (
               <div style={{ marginBottom:14 }}>
-                <DateField label="Date assignée *" k="dateAssignee" />
+                <DateField label={form.recurrence?.enabled ? "Date de la 1ère récurrence *" : "Date assignée *"} k="dateAssignee" />
+              </div>
+            )}
+
+            {gtd === "check" && (
+              <div style={{ marginBottom:14 }}>
+                <DateField label={form.recurrence?.enabled ? "Date de la 1ère récurrence" : "Date (optionnel)"} k="dateAssignee" />
               </div>
             )}
 
@@ -2463,6 +2635,9 @@ function DayCreateModal({ date, onCreate, onClose }) {
                 <Input value={form.waitingNote} onChange={v => set({ waitingNote:v })} placeholder="Contexte..." />
               </div>
             </>)}
+
+            {/* Récurrente ? */}
+            <RecurrenceToggle value={form.recurrence} onChange={r => set({ recurrence:r })} />
 
             <Btn onClick={handleCreate} variant="accent" disabled={!canCreate} style={{ width:"100%", marginTop:4 }}>Créer la tâche</Btn>
           </>)}
@@ -2485,11 +2660,12 @@ function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
   const pct = subs.length ? Math.round(doneSubs.length / subs.length * 100) : 0;
 
   const TYPE_META = {
-    projet:  { l:"Projet",   c:C.purple },
-    memo:    { l:"Mémo",     c:C.blue   },
-    waiting: { l:"Waiting",  c:C.amber  },
-    someday: { l:"Someday",  c:C.faint  },
-    inbox:   { l:"Inbox",    c:C.muted  },
+    projet:  { l:"Projet",     c:C.purple },
+    memo:    { l:"Mémo",       c:C.blue   },
+    waiting: { l:"Waiting",    c:C.amber  },
+    someday: { l:"Someday",    c:C.faint  },
+    inbox:   { l:"Inbox",      c:C.muted  },
+    check:   { l:"Check Task", c:C.green  },
   };
   const tm = TYPE_META[item.gtd] || { l:"Tâche", c:C.accent };
   const sc = SPHERES[item.sphere]?.c || tm.c;
@@ -2572,7 +2748,7 @@ function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
           })()}
 
           {/* Memo date / waiting */}
-          {item.gtd === "memo" && item.dateAssignee && (
+          {(item.gtd === "memo" || item.gtd === "check") && item.dateAssignee && (
             <div style={{ marginBottom:14, padding:"10px 14px", borderRadius:12, background:C.surface2, border:`1px solid ${C.border}` }}>
               <span style={{ fontSize:11, color:C.muted }}>Assigné au </span>
               <span style={{ fontSize:13, color:C.text, fontWeight:600 }}>{fmtD(item.dateAssignee)}</span>
@@ -2716,6 +2892,7 @@ function ClarifyModal({item, onSave, onClose}) {
     const u={gtd:form.gtd,name:form.name,sphere:form.sphere||undefined};
     if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin,dateFinType:form.dateFinType,statut:form.statut,sousTaches:item.sousTaches||[]});
     else if(form.gtd==="memo") Object.assign(u,{dateAssignee:form.dateAssignee});
+    else if(form.gtd==="check") Object.assign(u,{dateAssignee:form.dateAssignee||undefined});
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
     onSave(u); onClose();
   };
@@ -2726,7 +2903,7 @@ function ClarifyModal({item, onSave, onClose}) {
         <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{item.name}</div>
         <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Quel type ?</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
-          {[["projet","🔴 Projet",C.red],["memo","📝 Mémo","#6366f1"],["waiting","⏳ Waiting For",C.amber],["someday","💭 Someday-Maybe",C.faint]].map(([k,l,c])=>(
+          {[["projet","🔴 Projet",C.red],["memo","📝 Mémo","#6366f1"],["waiting","⏳ Waiting For",C.amber],["check","✅ Check Task",C.green],["someday","💭 Someday-Maybe",C.faint]].map(([k,l,c])=>(
             <button key={k} onClick={()=>set({gtd:k})} style={{padding:14,borderRadius:14,border:`1px solid ${form.gtd===k?c:C.border}`,background:form.gtd===k?c+"22":C.surface2,color:form.gtd===k?c:C.muted,fontSize:14,fontFamily:"inherit",textAlign:"center",cursor:"pointer",transition:TR}}>{l}</button>
           ))}
         </div>
@@ -2768,9 +2945,9 @@ function ClarifyModal({item, onSave, onClose}) {
               ))}
             </div>
           </>)}
-          {form.gtd==="memo"&&(
+          {(form.gtd==="memo"||form.gtd==="check")&&(
             <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence *":"Date assignée *"}</div>
+              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence *":form.gtd==="check"?"Date (optionnel)":"Date assignée *"}</div>
               <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
             </div>
           )}
@@ -2808,7 +2985,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
   const handleSave = () => {
     const u={name:form.name,gtd:form.gtd,sphere:form.sphere||undefined};
     if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifMensuelId:form.objectifMensuelId||undefined});
-    else if(form.gtd==="memo") u.dateAssignee=form.dateAssignee||undefined;
+    else if(form.gtd==="memo"||form.gtd==="check") u.dateAssignee=form.dateAssignee||undefined;
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
     onSave(u); onClose();
   };
@@ -2817,7 +2994,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
     set({sousTaches:[...form.sousTaches,{id:uid(),name:newSubName.trim(),done:false}]});
     setNewSubName("");
   };
-  const GTD_TYPES=[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting For"],["someday","💭 Someday"]];
+  const GTD_TYPES=[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["check","✅ Check Task"],["waiting","⏳ Waiting For"],["someday","💭 Someday"]];
 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
@@ -2892,9 +3069,9 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
           </div>
         </>)}
 
-        {form.gtd==="memo"&&(
+        {(form.gtd==="memo"||form.gtd==="check")&&(
           <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence":"Date assignée"}</div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence":form.gtd==="check"?"Date (optionnel)":"Date assignée"}</div>
             <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
           </div>
         )}
