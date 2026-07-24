@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { supabase, loadUserData, hydrateLocalStorage, syncToSupabase } from "./supabase";
 import PolarisLogo from "./PolarisLogo";
 import { LegalFooter } from "./components/legal/LegalPages";
-import { loadConsents, storePendingConsents } from "./state/consent";
+import { loadConsents, storePendingConsents, clearPendingConsents } from "./state/consent";
 import { purgeAppData, purgeLocalData } from "./state/account";
 
 // Messages d'erreur auth en français, sans détail interne.
@@ -32,6 +32,8 @@ export default function AuthGate({ children }) {
   const [error, setError] = useState("");
   const [info, setInfo] = useState("");
   const [migrating, setMigrating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [recovery, setRecovery] = useState(false);
   const [cguOk, setCguOk]       = useState(false);   // case 1 : CGU + politique (obligatoire)
@@ -39,9 +41,14 @@ export default function AuthGate({ children }) {
   const sessionRef = useRef(null);
 
   useEffect(() => {
+    // `onAuthStateChange` émet déjà INITIAL_SESSION à l'abonnement : sans ce
+    // garde, getSession + le listener déclenchent deux handleSession
+    // concurrents (double loadUserData, double migration au 1er login).
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) handleSession(session);
-      else setLoading(false);
+      if (session) {
+        if (sessionRef.current?.user?.id === session.user.id) return;
+        handleSession(session);
+      } else if (!sessionRef.current) setLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
@@ -76,6 +83,7 @@ export default function AuthGate({ children }) {
 
   async function handleSession(session) {
     setLoading(true);
+    setLoadError(false);
     sessionRef.current = session;
     try {
       // Machine partagée : si le localStorage appartient à un autre compte,
@@ -95,11 +103,21 @@ export default function AuthGate({ children }) {
         setMigrating(false);
       }
     } catch (e) {
+      // Ne PAS ouvrir l'app sur un échec de chargement : le localStorage est
+      // alors vide (ou celui d'un autre compte) et la première écriture
+      // déclencherait un upsert qui écrase la ligne serveur. Cf. setLS().
       console.error("Load error:", e);
+      setMigrating(false);
+      setSession(null);
+      setLoadError(true);
+      setLoading(false);
+      return;
     }
     setSession(session);
     setLoading(false);
   }
+
+  const retryLoad = () => { if (sessionRef.current) handleSession(sessionRef.current); };
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -107,57 +125,98 @@ export default function AuthGate({ children }) {
     return () => clearTimeout(t);
   }, [cooldown]);
 
+  // Les espaces de collage/autofill font échouer l'auth silencieusement.
+  const cleanEmail = () => email.trim().toLowerCase();
+
+  // Rate limit Supabase : "…only request this after N seconds."
+  const applyAuthError = message => {
+    const sec = message.match(/(\d+) seconds?/)?.[1];
+    if (sec) setCooldown(parseInt(sec));
+    else setError(frError(message));
+  };
+
   async function handleSubmit(e) {
     e.preventDefault();
-    if (cooldown > 0) return;
-    setError("");
-    if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        const sec = error.message.match(/(\d+) seconds?/)?.[1];
-        if (sec) setCooldown(parseInt(sec));
-        else setError(frError(error.message));
+    if (cooldown > 0 || busy) return;
+    setError(""); setInfo("");
+    setBusy(true);
+    try {
+      if (mode === "login") {
+        const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail(), password });
+        if (error) applyAuthError(error.message);
+        return;
       }
-    } else {
+
       if (!cguOk) { setError("Tu dois accepter les CGU et la politique de confidentialité."); return; }
-      const { error } = await supabase.auth.signUp({ email, password });
+
+      // Preuve d'accountability : horodatage capturé au moment du clic, écrit
+      // AVANT signUp — si la confirmation d'email est désactivée, signUp ouvre
+      // la session et handleSession lit le pending dans la foulée.
+      storePendingConsents({ cgu: true, health: healthOk });
+      const { data, error } = await supabase.auth.signUp({ email: cleanEmail(), password });
       if (error) {
-        const sec = error.message.match(/(\d+) seconds?/)?.[1];
-        if (sec) setCooldown(parseInt(sec));
-        else setError(frError(error.message));
-      } else {
-        // Preuve d'accountability : horodatage capturé au moment du clic,
-        // matérialisé en base au premier login (RLS exige une session).
-        storePendingConsents({ cgu: true, health: healthOk });
-        setError("Vérifie ton email pour confirmer le compte.");
+        clearPendingConsents();
+        applyAuthError(error.message);
+        return;
       }
+      // Email déjà inscrit : Supabase renvoie un succès avec `identities: []`
+      // (anti-énumération). Message neutre, on ne garde pas le consentement.
+      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        clearPendingConsents();
+        setInfo("Si cette adresse est disponible, un lien de confirmation vient d'être envoyé.");
+        setPassword(""); setCguOk(false); setHealthOk(false); setMode("login");
+        return;
+      }
+      // Session immédiate (confirmation d'email désactivée) : handleSession a
+      // déjà pris le relais, ne rien afficher de contradictoire.
+      if (data?.session) return;
+      setInfo("Vérifie ton email pour confirmer le compte.");
+      setPassword(""); setCguOk(false); setHealthOk(false); setMode("login");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function handleReset(e) {
     e.preventDefault();
-    if (cooldown > 0) return;
+    if (cooldown > 0 || busy) return;
     setError(""); setInfo("");
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: window.location.origin,
-    });
-    if (error) {
-      const sec = error.message.match(/(\d+) seconds?/)?.[1];
-      if (sec) setCooldown(parseInt(sec));
-      else setError(frError(error.message));
-    } else setInfo("Lien de réinitialisation envoyé. Vérifie ton email.");
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail(), {
+        redirectTo: window.location.origin,
+      });
+      if (error) applyAuthError(error.message);
+      else setInfo("Lien de réinitialisation envoyé. Vérifie ton email.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleUpdatePassword(e) {
     e.preventDefault();
+    if (busy) return;
     setError(""); setInfo("");
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) { setError(frError(error.message)); return; }
-    setRecovery(false);
-    setPassword("");
-    setInfo("Mot de passe mis à jour. Connecte-toi.");
-    await supabase.auth.signOut();
+    setBusy(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) { setError(frError(error.message)); return; }
+      setRecovery(false);
+      setPassword("");
+      setInfo("Mot de passe mis à jour. Connecte-toi.");
+      await supabase.auth.signOut();
+    } finally {
+      setBusy(false);
+    }
   }
+
+  // Déconnexion : purge locale complète après signOut (données + session) —
+  // rien ne doit rester lisible sur un poste partagé.
+  const signOut = async () => {
+    await supabase.auth.signOut().catch(() => {});
+    purgeLocalData();
+    window.location.replace("/");
+  };
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg, color: C.muted, fontSize: 14 }}>
@@ -180,6 +239,23 @@ export default function AuthGate({ children }) {
           {error && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{error}</p>}
           <button type="submit" style={btnStyle}>Mettre à jour</button>
         </form>
+      </div>
+    </div>
+  );
+
+  // Chargement échoué : on garde la session ouverte mais on n'entre pas dans
+  // l'app — sinon la synchro débouncée réécrirait un état local vide.
+  if (loadError) return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
+      <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}`, textAlign: "center" }}>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><PolarisLogo size={72} /></div>
+        <h2 style={{ color: C.text, fontSize: 20, fontWeight: 800, letterSpacing: "0.04em", marginBottom: 10 }}>Connexion impossible</h2>
+        <p style={{ color: C.muted, fontSize: 13, lineHeight: 1.6, marginBottom: 24 }}>
+          Tes données n'ont pas pu être chargées. Pour éviter toute perte, l'application reste fermée.
+          Vérifie ta connexion puis réessaie.
+        </p>
+        <button onClick={retryLoad} style={{ ...btnStyle, width: "100%" }}>Réessayer</button>
+        <p style={{ color: C.muted, fontSize: 12, marginTop: 16, cursor: "pointer" }} onClick={signOut}>Se déconnecter</p>
       </div>
     </div>
   );
@@ -226,12 +302,20 @@ export default function AuthGate({ children }) {
               </label>
             </div>
           )}
-          {error && <p style={{ color: error.includes("Vérifie") ? C.green : C.red, fontSize: 12, margin: 0 }}>{error}</p>}
+          {error && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{error}</p>}
           {info && <p style={{ color: C.green, fontSize: 12, margin: 0 }}>{info}</p>}
           {cooldown > 0 && <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>Patiente {cooldown}s…</p>}
-          <button type="submit" disabled={cooldown > 0 || (mode === "signup" && !cguOk)} style={{ ...btnStyle, opacity: (cooldown > 0 || (mode === "signup" && !cguOk)) ? 0.5 : 1, cursor: (cooldown > 0 || (mode === "signup" && !cguOk)) ? "not-allowed" : "pointer" }}>
-            {cooldown > 0 ? `Patiente ${cooldown}s` : mode === "login" ? "Se connecter" : mode === "signup" ? "Créer le compte" : "Envoyer le lien"}
-          </button>
+          {(() => {
+            const blocked = cooldown > 0 || busy || (mode === "signup" && !cguOk);
+            return (
+              <button type="submit" disabled={blocked} style={{ ...btnStyle, opacity: blocked ? 0.5 : 1, cursor: blocked ? "not-allowed" : "pointer" }}>
+                {cooldown > 0 ? `Patiente ${cooldown}s`
+                  : busy ? "…"
+                  : mode === "login" ? "Se connecter"
+                  : mode === "signup" ? "Créer le compte" : "Envoyer le lien"}
+              </button>
+            );
+          })()}
         </form>
         {mode === "login" && (
           <p style={{ color: C.muted, fontSize: 12, textAlign: "center", marginTop: 16, cursor: "pointer" }}
@@ -248,13 +332,6 @@ export default function AuthGate({ children }) {
     </div>
   );
 
-  // Déconnexion : purge locale complète après signOut (données + session) —
-  // rien ne doit rester lisible sur un poste partagé.
-  const signOut = async () => {
-    await supabase.auth.signOut().catch(() => {});
-    purgeLocalData();
-    window.location.replace("/");
-  };
   return children({ session, signOut });
 }
 

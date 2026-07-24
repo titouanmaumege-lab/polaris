@@ -34,9 +34,10 @@ export async function syncToSupabase(userId) {
   if (error) {
     console.error("Supabase sync error:", error);
     window._syncStatus = "error: " + error.message;
-  } else {
-    window._syncStatus = "ok @ " + new Date().toLocaleTimeString();
+    // Propagé : sans ça, setLS() affichait « ok » sur un upsert échoué.
+    throw error;
   }
+  window._syncStatus = "ok @ " + new Date().toLocaleTimeString();
 }
 
 const hasContent = v => {

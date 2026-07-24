@@ -1,7 +1,7 @@
 // Droits RGPD exercés in-app : export complet (art. 20) et suppression de
 // compte réelle (art. 17 + Apple 5.1.1(v), RPC delete_account — migration 008).
 import { supabase } from "../supabase";
-import { clearConsentCache } from "./consent";
+import { clearConsentCache, PENDING_KEY } from "./consent";
 
 // table → colonne propriétaire (pour l'export ; RLS filtre déjà côté serveur)
 const EXPORT_TABLES = {
@@ -54,11 +54,16 @@ export async function exportAllData(userId, email) {
   URL.revokeObjectURL(url);
 }
 
-/** Purge les données applicatives locales (garde le jeton de session Supabase). */
+/**
+ * Purge les données applicatives locales (garde le jeton de session Supabase).
+ * `PENDING_KEY` est épargnée : elle porte la preuve horodatée d'acceptation des
+ * CGU d'une inscription en cours, matérialisée en base à la première session.
+ */
 export function purgeAppData() {
   const doomed = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
+    if (k === PENDING_KEY) continue;
     if (k && (k.startsWith("lp_") || k.startsWith("leplan_") || k.startsWith("LE_PLAN_"))) doomed.push(k);
   }
   doomed.forEach(k => localStorage.removeItem(k));
@@ -68,7 +73,7 @@ export function purgeAppData() {
 /** Purge toute trace locale (données + session + consentements). */
 export function purgeLocalData() {
   purgeAppData();
-  const doomed = [];
+  const doomed = [PENDING_KEY];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (k && k.startsWith("sb-")) doomed.push(k);

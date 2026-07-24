@@ -6,7 +6,11 @@
 import { supabase } from "../supabase";
 
 const LS_KEY = "lp_consents";
-const LS_PENDING = "lp_pending_consents"; // consentements donnés au signup, avant la 1re session
+// Consentements donnés au signup, avant la 1re session. Exporté car la purge
+// locale (compte différent sur la même machine) doit explicitement l'épargner :
+// sinon la preuve d'acceptation des CGU est détruite avant d'être matérialisée.
+export const PENDING_KEY = "lp_pending_consents";
+const LS_PENDING = PENDING_KEY;
 
 let _cache = null;
 try { _cache = JSON.parse(localStorage.getItem(LS_KEY)); } catch { _cache = null; }
@@ -35,6 +39,9 @@ export const storePendingConsents = ({ cgu, health }) => {
     health_consent_at: health ? now : null,
   }));
 };
+
+/** Annule un pending (inscription échouée / email déjà utilisé). */
+export const clearPendingConsents = () => localStorage.removeItem(LS_PENDING);
 
 /** À l'ouverture de session : charge la ligne, applique un éventuel pending signup. */
 export async function loadConsents(userId) {
