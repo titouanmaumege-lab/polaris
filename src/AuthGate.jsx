@@ -13,6 +13,21 @@ const frError = msg => {
   if (msg.includes("at least"))                  return "Mot de passe trop court (8 caractères minimum).";
   if (msg.includes("Email not confirmed"))       return "Confirme ton email avant de te connecter.";
   if (msg.includes("valid email"))               return "Adresse email invalide.";
+  // Quota SMTP du projet Supabase (2 emails/h sur le mailer par défaut).
+  if (/email rate limit|over_email_send_rate_limit/i.test(msg))
+    return "Trop d'emails envoyés depuis ce projet. Réessaie dans une heure.";
+  if (/rate limit|too many requests/i.test(msg))
+    return "Trop de tentatives. Patiente quelques minutes.";
+  if (/Signups not allowed|signup_disabled/i.test(msg))
+    return "Les inscriptions sont désactivées sur ce projet.";
+  if (/Error sending confirmation email|error sending/i.test(msg))
+    return "L'email de confirmation n'a pas pu être envoyé (SMTP). Réessaie plus tard.";
+  if (/Database error saving new user|unexpected_failure/i.test(msg))
+    return "Création du compte impossible côté serveur. Contacte le support.";
+  if (/pwned|compromis/i.test(msg))
+    return "Mot de passe trop courant. Choisis-en un autre.";
+  if (/Failed to fetch|NetworkError/i.test(msg))
+    return "Serveur injoignable. Vérifie ta connexion.";
   return "Une erreur est survenue. Réessaie.";
 };
 
@@ -129,7 +144,10 @@ export default function AuthGate({ children }) {
   const cleanEmail = () => email.trim().toLowerCase();
 
   // Rate limit Supabase : "…only request this after N seconds."
-  const applyAuthError = message => {
+  // Le message brut part en console : l'UI reste neutre, mais un « une erreur
+  // est survenue » sans trace rend le diagnostic impossible.
+  const applyAuthError = (message, status) => {
+    console.error("[auth]", status ?? "", message);
     const sec = message.match(/(\d+) seconds?/)?.[1];
     if (sec) setCooldown(parseInt(sec));
     else setError(frError(message));
@@ -143,7 +161,7 @@ export default function AuthGate({ children }) {
     try {
       if (mode === "login") {
         const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail(), password });
-        if (error) applyAuthError(error.message);
+        if (error) applyAuthError(error.message, error.status);
         return;
       }
 
@@ -156,7 +174,7 @@ export default function AuthGate({ children }) {
       const { data, error } = await supabase.auth.signUp({ email: cleanEmail(), password });
       if (error) {
         clearPendingConsents();
-        applyAuthError(error.message);
+        applyAuthError(error.message, error.status);
         return;
       }
       // Email déjà inscrit : Supabase renvoie un succès avec `identities: []`
@@ -172,6 +190,12 @@ export default function AuthGate({ children }) {
       if (data?.session) return;
       setInfo("Vérifie ton email pour confirmer le compte.");
       setPassword(""); setCguOk(false); setHealthOk(false); setMode("login");
+    } catch (e) {
+      // Réseau coupé / CORS / clé anon absente : le SDK jette au lieu de
+      // renvoyer { error }. Sans ce catch, la promesse partait dans le vide et
+      // le formulaire restait muet.
+      clearPendingConsents();
+      applyAuthError(e?.message ?? String(e));
     } finally {
       setBusy(false);
     }
@@ -186,8 +210,10 @@ export default function AuthGate({ children }) {
       const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail(), {
         redirectTo: window.location.origin,
       });
-      if (error) applyAuthError(error.message);
+      if (error) applyAuthError(error.message, error.status);
       else setInfo("Lien de réinitialisation envoyé. Vérifie ton email.");
+    } catch (e) {
+      applyAuthError(e?.message ?? String(e));
     } finally {
       setBusy(false);
     }
