@@ -13,8 +13,10 @@ const frError = msg => {
   if (msg.includes("at least"))                  return "Mot de passe trop court (8 caractères minimum).";
   if (msg.includes("Email not confirmed"))       return "Confirme ton email avant de te connecter.";
   if (msg.includes("valid email"))               return "Adresse email invalide.";
-  if (/rate limit|too many requests/i.test(msg))
-    return "Trop de tentatives. Patiente quelques minutes.";
+  // Le serveur (GoTrue) limite toujours la cadence ; on affiche son refus
+  // sans imposer de compte à rebours côté client.
+  if (/rate limit|too many requests|only request this after/i.test(msg))
+    return "Trop de tentatives. Patiente quelques instants.";
   if (/Signups not allowed|signup_disabled/i.test(msg))
     return "Les inscriptions sont désactivées sur ce projet.";
   if (/Error sending confirmation email|error sending/i.test(msg))
@@ -46,7 +48,6 @@ export default function AuthGate({ children }) {
   const [migrating, setMigrating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
   const [recovery, setRecovery] = useState(false);
   const [cguOk, setCguOk]       = useState(false);   // case 1 : CGU + politique (obligatoire)
   const [healthOk, setHealthOk] = useState(false);   // case 2 : bien-être art. 9 (optionnelle, découplée)
@@ -131,28 +132,21 @@ export default function AuthGate({ children }) {
 
   const retryLoad = () => { if (sessionRef.current) handleSession(sessionRef.current); };
 
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const t = setTimeout(() => setCooldown(c => c - 1), 1000);
-    return () => clearTimeout(t);
-  }, [cooldown]);
-
   // Les espaces de collage/autofill font échouer l'auth silencieusement.
   const cleanEmail = () => email.trim().toLowerCase();
 
-  // Rate limit Supabase : "…only request this after N seconds."
-  // Le message brut part en console : l'UI reste neutre, mais un « une erreur
-  // est survenue » sans trace rend le diagnostic impossible.
+  // Aucun verrou côté client : le nombre de tentatives n'est plus bridé ici.
+  // La limitation de cadence reste appliquée par Supabase, dont le refus est
+  // simplement affiché. Le message brut part en console : sans trace, un
+  // « une erreur est survenue » rend le diagnostic impossible.
   const applyAuthError = (message, status) => {
     console.error("[auth]", status ?? "", message);
-    const sec = message.match(/(\d+) seconds?/)?.[1];
-    if (sec) setCooldown(parseInt(sec));
-    else setError(frError(message));
+    setError(frError(message));
   };
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (cooldown > 0 || busy) return;
+    if (busy) return;
     setError(""); setInfo("");
     setBusy(true);
     try {
@@ -200,7 +194,7 @@ export default function AuthGate({ children }) {
 
   async function handleReset(e) {
     e.preventDefault();
-    if (cooldown > 0 || busy) return;
+    if (busy) return;
     setError(""); setInfo("");
     setBusy(true);
     try {
@@ -327,13 +321,12 @@ export default function AuthGate({ children }) {
           )}
           {error && <p style={{ color: C.red, fontSize: 12, margin: 0 }}>{error}</p>}
           {info && <p style={{ color: C.green, fontSize: 12, margin: 0 }}>{info}</p>}
-          {cooldown > 0 && <p style={{ color: C.muted, fontSize: 12, margin: 0 }}>Patiente {cooldown}s…</p>}
           {(() => {
-            const blocked = cooldown > 0 || busy || (mode === "signup" && !cguOk);
+            // Seuls la requête en vol et les CGU non cochées bloquent le bouton.
+            const blocked = busy || (mode === "signup" && !cguOk);
             return (
               <button type="submit" disabled={blocked} style={{ ...btnStyle, opacity: blocked ? 0.5 : 1, cursor: blocked ? "not-allowed" : "pointer" }}>
-                {cooldown > 0 ? `Patiente ${cooldown}s`
-                  : busy ? "…"
+                {busy ? "…"
                   : mode === "login" ? "Se connecter"
                   : mode === "signup" ? "Créer le compte" : "Envoyer le lien"}
               </button>
