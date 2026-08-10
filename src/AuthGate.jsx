@@ -13,9 +13,6 @@ const frError = msg => {
   if (msg.includes("at least"))                  return "Mot de passe trop court (8 caractères minimum).";
   if (msg.includes("Email not confirmed"))       return "Confirme ton email avant de te connecter.";
   if (msg.includes("valid email"))               return "Adresse email invalide.";
-  // Quota SMTP du projet Supabase (2 emails/h sur le mailer par défaut).
-  if (/email rate limit|over_email_send_rate_limit/i.test(msg))
-    return "Trop d'emails envoyés depuis ce projet. Réessaie dans une heure.";
   if (/rate limit|too many requests/i.test(msg))
     return "Trop de tentatives. Patiente quelques minutes.";
   if (/Signups not allowed|signup_disabled/i.test(msg))
