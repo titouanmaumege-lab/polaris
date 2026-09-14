@@ -8,7 +8,7 @@ import { supabase } from "./supabase";
 import LazyEmbed from "./ui/LazyEmbed";
 import PolarisLogo from "./PolarisLogo";
 import {
-  pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked,
+  pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked, isReviewLocked,
   DAY_LABELS, MONTH_FR, MONTHS_FR, QUARTERS_FR, monthDates, fmtDate,
   periodeTypeForLevel, lastDayOfMonth, computeCloture, periodeLabel, defaultPeriode,
   fmtMin, fmtHM, formatElapsed,
@@ -5258,11 +5258,12 @@ function WRSection({ title, children }) {
 function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const wkEnd = weekEnd(wkStart);
-  const locked = isWeekLocked(wkStart);
   const reviewedWeekId = getISOWeekId(new Date(wkStart + 'T12:00:00'));
   const targetWeekId = getNextWeekId(reviewedWeekId);
   const [reviews, setReviews] = useState(() => getLS("lp_weekly_reviews", []));
   const existing = reviews.find(r => r.weekStart === wkStart);
+  const late = existing?.late ?? isWeekLocked(wkStart); // rattrapage d'une semaine passée
+  const locked = isReviewLocked(wkStart, existing);
   const [note, setNote] = useState(existing?.note || "");
   const [wrWin, setWrWin] = useState(existing?.win || "");
   const [wrLoss, setWrLoss] = useState(existing?.loss || "");
@@ -5335,7 +5336,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
       summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress, avgHappy },
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      locked: isWeekLocked(wkStart),
+      late,
     };
     const updated = existing ? reviews.map(r => r.weekStart===wkStart ? review : r) : [...reviews, review];
     setLS("lp_weekly_reviews", updated);
@@ -5382,7 +5383,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           </div>
           {locked
             ? <span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.amber}`,fontWeight:600}}>🔒 Verrouillée</span>
-            : <span style={{fontSize:11,color:C.green,background:C.greenBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.green}`}}>Modifiable jusqu'au dimanche</span>
+            : <span style={{fontSize:11,color:C.green,background:C.greenBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.green}`}}>{late?"Rattrapage · modifiable jusqu'à dimanche":"Modifiable jusqu'au dimanche"}</span>
           }
           <button onClick={onClose} style={{background:"none",border:"none",color:C.muted,fontSize:26,cursor:"pointer",padding:"0 0 0 8px",lineHeight:1,flexShrink:0}}>×</button>
         </div>
@@ -5876,6 +5877,12 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
   const activeKRObjs = (goalsLS.mensuel || []).filter(o => !o.archived && (o.krs || []).length > 0);
   const krAvg = activeKRObjs.length ? Math.round(activeKRObjs.reduce((s, o) => s + krsProgress(o.krs), 0) / activeKRObjs.length) : null;
   const wrDoneThisWeek = weeklyReviews.some(r => r.weekStart === todayWk);
+  // 8 dernières semaines passées (lundi), la plus récente d'abord
+  const pastWeeks = Array.from({ length: 8 }, (_, i) => {
+    const d = new Date(todayWk + "T12:00:00"); d.setDate(d.getDate() - 7 * (i + 1));
+    return d.toISOString().split("T")[0];
+  });
+  const lastPastDay = (() => { const d = new Date(todayWk + "T12:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })();
 
   // Export JSON de toutes les données locales (lp_* / leplan_*) — filet de sécurité
   const exportData = () => {
@@ -5946,6 +5953,27 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
               : <span style={{fontSize:11,background:"rgba(0,0,0,0.25)",padding:"2px 8px",borderRadius:999}}>● À faire</span>}
         </button>
 
+        {/* Semaine passée — rattrapage ou relecture */}
+        <div style={{marginTop:14}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>⏪ Semaine passée</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {pastWeeks.map(wk=>{
+              const done=weeklyReviews.some(r=>r.weekStart===wk);
+              return (
+                <button key={wk} onClick={()=>openReview(wk)} title={done?"Review faite — ouvrir":"Pas de review — la rattraper"}
+                  style={{padding:"7px 11px",borderRadius:999,border:`1px solid ${done?"rgba(52,211,153,0.35)":C.border}`,background:done?C.greenBg:C.surface2,color:done?C.green:C.text,fontSize:11,fontWeight:600,fontFamily:"inherit",cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {done?"✓ ":""}{fmtWkShort(wk)}
+                </button>
+              );
+            })}
+          </div>
+          <label style={{display:"flex",alignItems:"center",gap:8,marginTop:10,fontSize:11,color:C.faint}}>
+            Plus ancienne :
+            <input type="date" max={lastPastDay} onChange={e=>{ if(e.target.value) openReview(weekStart(e.target.value)); e.target.value=""; }}
+              style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,borderRadius:8,padding:"4px 8px",fontSize:11,fontFamily:"inherit"}} />
+          </label>
+        </div>
+
         {/* Historique des reviews */}
         <div style={{marginTop:20}}>
           <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>🗂 Historique reviews</div>
@@ -5973,7 +6001,7 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
                             <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{reviews.length} review{reviews.length>1?"s":""}</span>
                           </div>
                           {mOpen&&reviews.map(r=>{
-                            const lk=r.locked||isWeekLocked(r.weekStart);
+                            const lk=isReviewLocked(r.weekStart,r);
                             return (
                               <div key={r.id} onClick={()=>openReview(r.weekStart)} style={{marginLeft:12,marginBottom:6,padding:"12px 14px",background:C.surface2,border:`1px solid ${lk?C.border:C.borderMid}`,borderRadius:12,cursor:"pointer",transition:TR}}>
                                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
