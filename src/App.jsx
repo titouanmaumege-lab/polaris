@@ -16,6 +16,11 @@ import {
 import { uid } from "./utils/id";
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
+import { resolveHighlight, makeHighlightRef } from "./utils/highlight";
+import {
+  cumulTotal, startDay, habitUnit,
+  heatmapData, rollingRateSeries, rate28WithDelta, rattrapage, weakestWeekday, topLinks,
+} from "./utils/cumul";
 import { P, applyPerso } from "./state/perso";
 import {
   C, GRAD, GLOW, GLOW_SM, TR, SPACES, STATUTS, OBJ_STATUSES, OBJ_CLOSED,
@@ -25,7 +30,7 @@ import {
 } from "./ui/tokens";
 import {
   CircularProgress, Pill, StatusPill, SpacePill, ProgressBar, Select, Input, Btn, Card,
-  PageHeader, cycleHabitStatus, HabitToggle, HabitChip,
+  PageHeader, cycleHabitStatus, HabitToggle,
 } from "./ui/primitives";
 // Helpers date/semaine/mois/période/format → src/utils/date.js
 // Helpers numériques + progression OKR → src/utils/math.js
@@ -107,19 +112,7 @@ const habitValidated = (h, date) => {
   if (h.dailyStatus) return h.dailyStatus[date] === 'validated';
   return (h.logs || []).includes(date);
 };
-const calcStreak = habits => {
-  if (!habits.length) return 0;
-  const t = todayStr(); let streak = 0;
-  const d = new Date();
-  if (!habits.every(h => habitValidated(h, t))) d.setDate(d.getDate() - 1);
-  for (let i = 0; i < 365; i++) {
-    const ds = d.toISOString().split("T")[0];
-    if (!habits.every(h => habitValidated(h, ds))) break;
-    streak++; d.setDate(d.getDate() - 1);
-  }
-  return streak;
-};
-// cycleHabitStatus, HabitToggle, HabitChip → src/ui/primitives.jsx
+// cycleHabitStatus, HabitToggle → src/ui/primitives.jsx
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DESIGN
@@ -182,14 +175,6 @@ const NOTION_GOALS = {
 const DJ_EMPTY   = () => ({ morning:"",noon:"",evening:"",focus:"",stress:"",happy:"",type:"Journée classique",remark:"",win:"",loss:"",ameliorer:"",customItems:[] });
 const djEntry    = raw => !raw ? DJ_EMPTY() : typeof raw === "string" ? { ...DJ_EMPTY(), reflexions: raw } : { ...DJ_EMPTY(), ...raw };
 // ITEM_COLORS → src/ui/tokens.js
-
-const QUICK_ADDS = [
-  { label: "💼 Business", prefix: "Business — " },
-  { label: "📚 Master",   prefix: "Master — " },
-  { label: "⚽ Prépa",    prefix: "Prépa — " },
-  { label: "🏋️ Sport",   prefix: "Sport — " },
-  { label: "🧘 Perso",   prefix: "Perso — " },
-];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BOTTOM NAV
@@ -972,159 +957,265 @@ function WeeklyCalendar() {
   );
 }
 
-function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
-  // ── Lumen Protocol — palette claire locale (scope Dashboard uniquement).
-  // Shadow l'objet `C` global (sombre) sans impacter les autres écrans.
-  const C = {
-    bg:"#0B0714", surface:"#181225", surface2:"#181225", surface3:"#221A36",
-    border:"rgba(168,85,247,0.18)", borderMid:"rgba(168,85,247,0.38)",
-    accent:"#A855F7", accent2:"#EC4899", accentBg:"rgba(168,85,247,0.16)",
-    text:"#F4F2FF", muted:"#9990C0", faint:"#6B6390",
-    green:"#34D399", greenBg:"rgba(52,211,153,0.14)",
-    red:"#FB7185", redBg:"rgba(251,113,133,0.14)",
-    blue:"#60A5FA", blueBg:"rgba(96,165,250,0.14)",
-    purple:"#A855F7", purpleBg:"rgba(168,85,247,0.16)",
-    amber:"#FBBF24", amberBg:"rgba(251,191,36,0.16)",
-    orange:"#FB923C", pink:"#EC4899",
-  };
-  const GRAD = "linear-gradient(135deg,#A855F7,#EC4899)";
-  const GLOW = "0 0 28px rgba(168,85,247,0.45)";
-  const GLOW_SM = "0 0 16px rgba(168,85,247,0.40)";
-  const SHADOW_CARD = "0 2px 16px rgba(0,0,0,0.40)";
-  const ITEM_SH = "0 2px 12px rgba(0,0,0,0.35)";
-  const FONT_D = "var(--font-display)";
+// ─────────────────────────────────────────────────────────────────────────────
+// HOME — Highlight relié à la Todo
+// ─────────────────────────────────────────────────────────────────────────────
 
+// Sélecteur de tâche (bottom-sheet). On ne stocke qu'un pointeur : la Todo
+// (leplan_todos) reste la source de vérité unique.
+function HighlightPickerSheet({ todos, onPick, onCreateTask, onClose }) {
+  const C = CF, GRAD = CF_GRAD, FONT_D = CF_FONT;
   const t = todayStr();
-  const [habits, setHabits]     = useState(() => getLS("lp_habits", []));
-  const [sessions, setSessions]  = useState(() => getLS("lp_workperf", []));
-  const [todos, setTodos]        = useState(loadTodos);
-  const [goals, setGoals]        = useState(() => getLS("lp_goals", NOTION_GOALS));
-  const [weeklyObjs, setWeeklyObjs] = useState(() => getLS("lp_weekly_objectives", []));
-  const [showAddWeek, setShowAddWeek] = useState(false);
-  const [weekText, setWeekText]  = useState("");
-  const [highlight, setHighlight]= useState(() => getLS("lp_highlight", {}));
-  const [editingHL, setEditingHL]= useState(false);
-  const [qAction, setQAction]    = useState(null);
-  const [appName, setAppName]    = useState(() => { const v = getLS("lp_app_name", "POLARIS"); return (v === "LE PLAN" || v === "Le Plan") ? "POLARIS" : v; });
-  const [mantra, setMantra]      = useState(() => getLS("lp_mantra", "Per Aspera Ad Astra"));
-  const [editingName, setEditingName] = useState(false);
+  const [q, setQ] = useState("");
+  const [openProj, setOpenProj] = useState(null);
+  const [creating, setCreating] = useState(false);
+
+  const norm  = s => (s || "").toLowerCase();
+  const query = norm(q.trim());
+  const openSubs = p => (p.sousTaches || []).filter(s => !s.done);
+  const matches  = x => !query || norm(x.name).includes(query) || openSubs(x).some(s => norm(s.name).includes(query));
+
+  // Candidats : actionnables uniquement (on exclut waiting / memo / someday).
+  const pool = todos.filter(x => !x.done && ["inbox", "projet", "check"].includes(x.gtd)).filter(matches);
+
+  const taken = new Set();
+  const take = list => { list.forEach(x => taken.add(x.id)); return list; };
+  const secToday   = take(pool.filter(x => x.dateAssignee === t || (x.dateFin && x.dateFin <= t)));
+  const secProjets = take(pool.filter(x => !taken.has(x.id) && x.gtd === "projet" && (x.statut === "en_cours" || getProjectStatus(x) === "en_cours")));
+  const secInbox   = take(pool.filter(x => !taken.has(x.id) && x.gtd === "inbox"));
+  const secAutres  = pool.filter(x => !taken.has(x.id));
+
+  const Row = ({ item, sub, indent }) => {
+    const sc = SPHERES[item.sphere]?.c || C.accent;
+    const label = sub ? sub.name : item.name;
+    return (
+      <button
+        onClick={() => onPick(item.id, sub?.id)}
+        style={{
+          display:"flex", alignItems:"center", gap:10, width:"100%", minHeight:46,
+          padding:`10px 12px 10px ${indent ? 30 : 12}px`, borderRadius:12, marginBottom:4,
+          background:C.surface2, border:`1px solid ${C.border}`, borderLeft:`3px solid ${sc}`,
+          color:C.text, fontFamily:"inherit", fontSize:14, textAlign:"left", cursor:"pointer",
+        }}>
+        <span style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub ? `↳ ${label}` : label}</span>
+        {item.sphere && <span style={{ flexShrink:0, fontSize:10, color:sc, fontWeight:600 }}>{SPHERES[item.sphere]?.label}</span>}
+      </button>
+    );
+  };
+
+  const ProjectRow = ({ item }) => {
+    const subs = openSubs(item);
+    const open = openProj === item.id;
+    return (
+      <div>
+        <div style={{ display:"flex", gap:6, alignItems:"stretch" }}>
+          <div style={{ flex:1, minWidth:0 }}><Row item={item} /></div>
+          {subs.length > 0 && (
+            <button onClick={() => setOpenProj(open ? null : item.id)} title={open ? "Replier" : "Voir les sous-tâches"}
+              style={{ flexShrink:0, width:44, minHeight:46, marginBottom:4, borderRadius:12, background:C.surface3,
+                border:`1px solid ${C.border}`, color:C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer" }}>
+              {open ? "▲" : `▼ ${subs.length}`}
+            </button>
+          )}
+        </div>
+        {open && subs.map(s => <Row key={s.id} item={item} sub={s} indent />)}
+      </div>
+    );
+  };
+
+  // Un projet reste dépliable partout : on peut choisir le projet ou une sous-tâche.
+  const Section = ({ title, items }) => {
+    if (!items.length) return null;
+    return (
+      <div style={{ marginBottom:16 }}>
+        <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:8 }}>{title}</div>
+        {items.map(x => x.gtd === "projet" ? <ProjectRow key={x.id} item={x} /> : <Row key={x.id} item={x} />)}
+      </div>
+    );
+  };
+
+  const empty = !secToday.length && !secProjets.length && !secInbox.length && !secAutres.length;
+
+  const sheet = (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
+        width:"100%", maxWidth:560, maxHeight:"86vh", display:"flex", flexDirection:"column",
+        background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.borderMid}`, borderBottom:"none",
+        boxShadow:"0 -16px 60px rgba(0,0,0,0.6)",
+      }}>
+        <div style={{ padding:"16px 18px 12px", flexShrink:0 }}>
+          <div style={{ width:38, height:4, borderRadius:999, background:C.surface3, margin:"0 auto 14px" }} />
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+            <div style={{ flex:1, fontFamily:FONT_D, fontSize:18, fontWeight:800, color:C.text }}>Ma tâche du jour</div>
+            <button onClick={onClose} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+          </div>
+          <Input value={q} onChange={setQ} placeholder="Rechercher une tâche..." autoFocus />
+        </div>
+
+        <div style={{ flex:1, overflowY:"auto", padding:"4px 18px 12px" }}>
+          {empty
+            ? <div style={{ fontSize:13, color:C.faint, textAlign:"center", padding:"36px 0" }}>Aucune tâche actionnable.</div>
+            : (<>
+                <Section title="Aujourd'hui" items={secToday} />
+                <Section title="Projets en cours" items={secProjets} />
+                <Section title="Inbox" items={secInbox} />
+                <Section title="Autres" items={secAutres} />
+              </>)}
+        </div>
+
+        <div style={{ padding:"12px 18px calc(16px + env(safe-area-inset-bottom))", flexShrink:0, borderTop:`1px solid ${C.border}` }}>
+          <button onClick={() => setCreating(true)} style={{
+            width:"100%", minHeight:48, borderRadius:14, background:"transparent", border:`1px dashed ${C.borderMid}`,
+            color:C.accent, fontSize:14, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
+          }}>+ Nouvelle tâche</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Rendu hors de l'overlay : sinon fermer la création fermerait aussi la sheet.
+  return (
+    <>
+      {sheet}
+      {creating && (
+        <TaskCaptureModal
+          onCreate={o => { const created = onCreateTask(o); setCreating(false); if (created) onPick(created.id); }}
+          onClose={() => setCreating(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// Carte Highlight — 4 états : ok / done / missing / legacy (+ état vide).
+function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
+
+  const Eyebrow = (
+    <div style={{ fontSize:11, color:C.accent, textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700, marginBottom:12 }}>
+      Highlight du jour
+    </div>
+  );
+  const PickBtn = ({ label }) => (
+    <button onClick={onPick} style={{
+      width:"100%", minHeight:48, borderRadius:14, border:"none", background:GRAD, color:"#fff",
+      fontSize:14, fontWeight:700, fontFamily:"inherit", cursor:"pointer", boxShadow:GLOW_SM,
+    }}>{label}</button>
+  );
+  const title = (text, done) => (
+    <p style={{
+      fontFamily:FONT_D, fontSize:27, fontWeight:700, lineHeight:1.22, letterSpacing:"-0.01em",
+      color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none",
+    }}>{text}</p>
+  );
+
+  if (!hl) return (
+    <div>
+      {Eyebrow}
+      <p style={{ fontFamily:FONT_D, fontSize:27, fontWeight:700, color:C.faint, lineHeight:1.22, letterSpacing:"-0.01em", marginBottom:16 }}>
+        La tâche qui a le plus d'impact dans ta vie
+      </p>
+      <PickBtn label="Choisir ma tâche du jour" />
+    </div>
+  );
+
+  if (hl.status === "missing") return (
+    <div>
+      {Eyebrow}
+      <p style={{ fontSize:14, color:C.muted, marginBottom:16 }}>Tâche supprimée.</p>
+      <PickBtn label="Choisir ma tâche du jour" />
+    </div>
+  );
+
+  if (hl.status === "legacy") return (
+    <div>
+      {Eyebrow}
+      {title(hl.label, false)}
+      <div style={{ fontSize:12, color:C.faint, margin:"8px 0 16px" }}>Ancien highlight — texte libre</div>
+      <PickBtn label="Relier à une tâche" />
+    </div>
+  );
+
+  const done = hl.status === "done";
+  const sp = hl.sphere ? SPHERES[hl.sphere] : null;
+  return (
+    <div>
+      {Eyebrow}
+      <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          {hl.parentLabel && (
+            <div style={{ fontSize:11.5, color:C.faint, marginBottom:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+              ↳ {hl.parentLabel}
+            </div>
+          )}
+          <div onClick={onOpenTask} style={{ cursor:"pointer" }}>{title(hl.label, done)}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:9, flexWrap:"wrap" }}>
+            {sp && <span style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:999, color:sp.c, background:`${sp.c}1f`, border:`1px solid ${sp.c}40` }}>{sp.label}</span>}
+            {done && <span style={{ fontSize:12, fontWeight:700, color:C.green }}>Fait</span>}
+            <span onClick={onPick} style={{ fontSize:12, color:C.muted, cursor:"pointer", textDecoration:"underline" }}>Changer</span>
+          </div>
+        </div>
+        <button onClick={onToggle} title={done ? "Décocher" : "Valider"} style={{
+          flexShrink:0, width:56, height:56, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
+          fontSize:22, fontWeight:800, color:"#fff", transition:TR,
+          background: done ? "linear-gradient(135deg,#10b981,#059669)" : "transparent",
+          border: `2px solid ${done ? "#10b981" : C.borderMid}`,
+          boxShadow: done ? "0 0 18px rgba(16,185,129,0.45)" : "none",
+        }}>{done ? "✓" : ""}</button>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ onOpenLogs, onRequestSession }) {
+  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
+  const t = todayStr();
+  const { todos, addTodo, updateTodo, deleteTodo, toggleDone } = useTodos();
+  const [highlight, setHighlight] = useState(() => getLS("lp_highlight", {}));
+  const [picker, setPicker]       = useState(false);
+  const [creating, setCreating]   = useState(false);
+  const [editId, setEditId]       = useState(null);
+  const [appName, setAppName]     = useState(() => { const v = getLS("lp_app_name", "POLARIS"); return (v === "LE PLAN" || v === "Le Plan") ? "POLARIS" : v; });
+  const [mantra, setMantra]       = useState(() => getLS("lp_mantra", "Per Aspera Ad Astra"));
+  const [editingName, setEditingName]     = useState(false);
   const [editingMantra, setEditingMantra] = useState(false);
-  const [animating, setAnimating]= useState(new Set());
-  const [expandedHabitId, setExpandedHabitId] = useState(null);
-  const [wpForm, setWpForm]      = useState({ tache: "", temps: "", type: "DEEP", domaine: "BUSINESS", efficience: "💡💡💡" });
-  const [todoText, setTodoText]  = useState("");
-  const [objText, setObjText]    = useState("");
-  const [editObj, setEditObj]    = useState(null);
-  const saveGoals = d => { setGoals(d); setLS("lp_goals", d); };
-  const curWeekId = getISOWeekId();
-  const saveWeekly = d => { setWeeklyObjs(d); setLS("lp_weekly_objectives", d); };
-  const addWeekly = () => {
-    if (!weekText.trim()) return;
-    saveWeekly([...weeklyObjs, { id: uid(), weekId: curWeekId, title: weekText.trim(), completed: false, missed: false, partial: false, note: "", createdAt: new Date().toISOString() }]);
-    setWeekText(""); setShowAddWeek(false);
-  };
-  const toggleWeekly = id => saveWeekly(weeklyObjs.map(o => o.id === id ? (o.completed ? { ...o, completed: false, partial: true } : o.partial ? { ...o, partial: false, missed: true } : o.missed ? { ...o, missed: false } : { ...o, completed: true }) : o));
-  const [editWeekId, setEditWeekId] = useState(null);
-  const [editWeekText, setEditWeekText] = useState("");
-  const deleteWeekly = id => saveWeekly(weeklyObjs.filter(o => o.id !== id));
-  const startEditWeekly = o => { setEditWeekId(o.id); setEditWeekText(o.title); };
-  const commitEditWeekly = () => { saveWeekly(weeklyObjs.map(o => o.id === editWeekId ? { ...o, title: editWeekText.trim() || o.title } : o)); setEditWeekId(null); };
 
+  const hl = resolveHighlight(highlight[t], todos);
+  const saveHL = ref => { const u = { ...highlight, [t]: ref }; setHighlight(u); setLS("lp_highlight", u); };
+  const pick = (taskId, subTaskId) => { saveHL(makeHighlightRef(taskId, subTaskId)); setPicker(false); };
 
-  const hlText = highlight[t] || "";
-  const saveHL = text => { const u = { ...highlight, [t]: text }; setHighlight(u); setLS("lp_highlight", u); };
-
-  const toggleHabit = id => {
-    setAnimating(s => new Set([...s, id]));
-    setTimeout(() => setAnimating(s => { const n = new Set(s); n.delete(id); return n; }), 300);
-    const updated = habits.map(h => {
-      if (h.id !== id) return h;
-      const ds = h.dailyStatus || {};
-      const cur = ds[t] ?? null;
-      const next = cycleHabitStatus(cur);
-      const newDs = {...ds};
-      if (next === null) delete newDs[t]; else newDs[t] = next;
-      const logs = (h.logs||[]).filter(x=>x!==t);
-      if (next === 'validated') logs.push(t);
-      return {...h, dailyStatus:newDs, logs};
-    });
-    setHabits(updated); setLS("lp_habits", updated);
+  // Valider depuis Home coche la vraie tâche (ou sous-tâche) dans la Todo.
+  const toggleHL = () => {
+    if (!hl?.task) return;
+    if (hl.subTask) {
+      updateTodo(hl.task.id, { sousTaches:(hl.task.sousTaches || []).map(s => s.id === hl.subTask.id ? { ...s, done:!s.done } : s) });
+    } else {
+      toggleDone(hl.task.id);
+    }
   };
 
-  const toggleHabitItem = (habitId, itemId) => {
-    const updated = habits.map(h => {
-      if (h.id !== habitId) return h;
-      const is = { ...(h.itemStatus || {}) };
-      const dayItems = { ...(is[t] || {}) };
-      dayItems[itemId] = cycleHabitStatus(dayItems[itemId] ?? null);
-      if (dayItems[itemId] === null) delete dayItems[itemId];
-      is[t] = dayItems;
-      const items = h.items || [];
-      const allDone = items.length > 0 && items.every(it => dayItems[it.id] === 'validated');
-      const anyInvalid = items.some(it => dayItems[it.id] === 'invalidated');
-      const ds = { ...(h.dailyStatus || {}) };
-      const logs = (h.logs||[]).filter(x=>x!==t);
-      if (allDone) { ds[t] = 'validated'; logs.push(t); }
-      else if (anyInvalid) { ds[t] = 'invalidated'; }
-      else delete ds[t];
-      return { ...h, itemStatus: is, dailyStatus: ds, logs };
-    });
-    setHabits(updated); setLS("lp_habits", updated);
-  };
-
-  const addSession = () => {
-    if (!wpForm.tache.trim() || !wpForm.temps) return;
-    const s = { id: uid(), tache: wpForm.tache.trim(), date: t, temps: parseInt(wpForm.temps), type: wpForm.type, domaine: wpForm.domaine, efficience: wpForm.efficience };
-    const u = [...sessions, s]; setSessions(u); setLS("lp_workperf", u);
-    setWpForm(f => ({ ...f, tache: "", temps: "" })); setQAction(null);
-  };
-
-  const addTodo = () => {
-    if (!todoText.trim()) return;
-    const item = { id: uid(), name: todoText.trim(), gtd: "inbox", done: false, createdAt: new Date().toISOString() };
-    const u = [...todos, item];
-    setTodos(u); setLS("leplan_todos", u); setTodoText(""); setQAction(null);
-  };
-
-  const addObj = () => {
-    if (!objText.trim()) return;
-    const obj = { id: uid(), titre: objText.trim(), statut: "Ça arrive", spaces: [], krs: [], avec: "Solo" };
-    const updated = { ...goals, hebdo: [...(goals.hebdo || []), obj] };
-    setGoals(updated); setLS("lp_goals", updated); setObjText(""); setQAction(null);
-  };
-
-  const doneH = habits.filter(h => habitValidated(h, t)).length;
-  const todaySessions = sessions.filter(s => s.date === t);
-  const deepToday = todaySessions.reduce((a, s) => a + s.temps, 0);
-  const pulseObjs = [
-    ...(goals.trimestriel || []).map(o => ({ ...o, _level: "Trimestriel", _c: C.green })),
-    ...(goals.mensuel || []).map(o => ({ ...o, _level: "Mensuel", _c: C.amber })),
-    ...(goals.hebdo || []).map(o => ({ ...o, _level: "Hebdo", _c: C.orange })),
-  ].filter(o => !isObjClosed(o.statut) && !o.archived).slice(0, 3);
-
+  const editItem = editId ? todos.find(x => x.id === editId) : null;
   const now = new Date();
-  const headerDate = now.toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+  const headerDate = now.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric", month:"short" });
 
-  const QUICK_BTNS = [
-    { key: "session", icon: "⏱️", label: "Session" },
-    { key: "journal", icon: "📓",  label: "Daily Paper" },
-    { key: "todo",    icon: "+",  label: "Todo" },
-  ];
-
-  const handleQuick = key => {
-    if (key === "journal") { onNav("daily"); return; }
-    if (key === "habit") { document.getElementById("dash-habits")?.scrollIntoView({ behavior: "smooth" }); return; }
-    if (key === "session") { onRequestSession?.(); return; }
-    setQAction(qAction === key ? null : key);
-  };
+  const ActionBtn = ({ icon, label, onClick }) => (
+    <button onClick={onClick} style={{
+      flex:1, minHeight:48, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+      padding:"12px 10px", borderRadius:14, background:C.surface2, border:`1px solid ${C.borderMid}`,
+      color:C.accent, fontSize:13.5, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
+      boxShadow:"0 2px 12px rgba(0,0,0,0.35)", transition:TR,
+    }}>
+      <span style={{ fontSize:16 }}>{icon}</span><span>{label}</span>
+    </button>
+  );
 
   return (
-    <div className="theme-light" style={{ minHeight: "100dvh", fontFamily: "var(--font-body)" }}>
-      {/* HEADER — transparent, eyebrow mantra + gros titre (aucun ruban) */}
-      <div style={{ padding: "22px 16px 12px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
-        <PolarisLogo size={52} style={{ flexShrink: 0 }} />
-        <div style={{ minWidth: 0 }}>
+    <div className="theme-light" style={{ minHeight:"100dvh", fontFamily:"var(--font-body)" }}>
+      {/* HEADER — inchangé : logo + mantra + nom + date */}
+      <div style={{ padding:"22px 16px 12px", display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:14, minWidth:0 }}>
+        <PolarisLogo size={52} style={{ flexShrink:0 }} />
+        <div style={{ minWidth:0 }}>
           {editingMantra
             ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}
                 onBlur={()=>{ setLS("lp_mantra", mantra); setEditingMantra(false); }}
@@ -1143,8 +1234,8 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
           }
         </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0, paddingTop: 2 }}>
-          <span style={{ fontSize: 12, color: C.muted }}>{headerDate}</span>
+        <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0, paddingTop:2 }}>
+          <span style={{ fontSize:12, color:C.muted }}>{headerDate}</span>
           <div onClick={onOpenLogs} style={{ display:"flex", flexDirection:"column", gap:4, cursor:"pointer", padding:"4px 6px" }}>
             {[0,1,2].map(i=><div key={i} style={{width:18,height:2,background:C.muted,borderRadius:2}}/>)}
           </div>
@@ -1152,349 +1243,43 @@ function Dashboard({ onNav, onOpenLogs, onRequestSession }) {
       </div>
 
       <div className="dash-wrap" style={{ paddingTop: 8 }}>
+        <HighlightCard
+          hl={hl}
+          onPick={() => setPicker(true)}
+          onToggle={toggleHL}
+          onOpenTask={() => hl?.task && setEditId(hl.task.id)}
+        />
 
-        {/* HERO — Highlight + ring (boxless, 2-col desktop) */}
-        <div className="dash-hero">
-        <div>
-          <div style={{ fontSize: 11, color: C.accent, textTransform: "uppercase", letterSpacing: "0.16em", marginBottom: 10, fontWeight: 700 }}>
-            Highlight du jour
-          </div>
-          {editingHL ? (
-            <textarea
-              autoFocus
-              value={hlText}
-              onChange={e => saveHL(e.target.value)}
-              onBlur={() => setEditingHL(false)}
-              placeholder="La tâche qui a le plus d'impact dans ta vie"
-              style={{
-                width: "100%", background: "transparent", border: "none",
-                color: C.text, fontSize: 27, fontWeight: 700, fontFamily: FONT_D,
-                resize: "none", outline: "none", lineHeight: 1.22, minHeight: 64,
-                boxSizing: "border-box", letterSpacing: "-0.01em",
-              }}
-            />
-          ) : (
-            <div onClick={() => setEditingHL(true)} style={{ cursor: "text", minHeight: 44 }}>
-              {hlText
-                ? <p style={{ fontFamily: FONT_D, fontSize: 27, fontWeight: 700, color: C.text, lineHeight: 1.22, letterSpacing: "-0.01em" }}>{hlText}</p>
-                : <p style={{ fontFamily: FONT_D, fontSize: 27, fontWeight: 700, color: C.faint, lineHeight: 1.22, letterSpacing: "-0.01em" }}>La tâche qui a le plus d'impact dans ta vie</p>
-              }
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: C.faint, marginTop: 8 }}>La seule chose qui compte aujourd'hui</div>
+        <div style={{ display:"flex", gap:10, marginTop:20 }}>
+          <ActionBtn icon="⏱️" label="Session Deep Work" onClick={() => onRequestSession?.()} />
+          <ActionBtn icon="＋" label="Tâche" onClick={() => setCreating(true)} />
         </div>
 
-        {/* QUICK ACTIONS — colonne centrale, entre Highlight et l'anneau */}
-        <div className="dash-quick">
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {QUICK_BTNS.map(({ key, icon, label }) => (
-              <button key={key} onClick={() => handleQuick(key)} style={{
-                flexShrink: 0, display: "flex", alignItems: "center", gap: 6,
-                padding: "10px 16px", borderRadius: 999, minHeight: 44,
-                background: qAction === key ? GRAD : C.surface3, border: "none",
-                color: qAction === key ? "#fff" : C.accent,
-                fontSize: 13, fontWeight: 600, transition: TR, fontFamily: "inherit",
-                boxShadow: qAction === key ? GLOW_SM : "none",
-              }}>
-                <span>{icon}</span><span>{label}</span>
-              </button>
-            ))}
-          </div>
-          {qAction === "session_log" && (
-            <div className="slide-up" style={{ marginTop: 10, background: C.surface2, border: `1px solid ${C.borderMid}`, borderRadius: 16, padding: 14 }}>
-              <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                <Input value={wpForm.tache} onChange={v => setWpForm(f => ({...f, tache:v}))} placeholder="Tâche..." style={{ flex: 1 }} />
-                <input type="number" min="1" placeholder="min" value={wpForm.temps} onChange={e => setWpForm(f => ({...f, temps:e.target.value}))}
-                  style={{ width: 68, background: C.surface3, border: `1px solid ${C.border}`, color: C.text, padding: "10px 8px", borderRadius: 10, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                {WP_TYPES.map(tp => (
-                  <button key={tp} onClick={() => setWpForm(f=>({...f,type:tp}))} style={{
-                    padding: "5px 12px", borderRadius: 999, fontSize: 12, border: `1px solid ${wpForm.type===tp ? WP_TYPE_C[tp] : C.border}`,
-                    background: wpForm.type===tp ? WP_TYPE_C[tp]+"20" : "transparent", color: wpForm.type===tp ? WP_TYPE_C[tp] : C.muted,
-                  }}>{tp}</button>
-                ))}
-                <Select value={wpForm.domaine} options={WP_DOMAINES} onChange={v => setWpForm(f=>({...f,domaine:v}))} style={{ fontSize: 12 }} />
-              </div>
-              <Btn onClick={addSession} variant="accent" style={{ width: "100%" }}>+ Enregistrer la session</Btn>
-            </div>
-          )}
-          {qAction === "todo" && (
-            <div className="slide-up" style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Input value={todoText} onChange={setTodoText} onKeyDown={e => e.key==="Enter" && addTodo()} placeholder="Nouvelle tâche..." />
-                <Btn onClick={addTodo} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
-              </div>
-            </div>
-          )}
-          {qAction === "objectif" && (
-            <div className="slide-up" style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Input value={objText} onChange={setObjText} onKeyDown={e => e.key==="Enter" && addObj()} placeholder="Objectif hebdo..." />
-                <Btn onClick={addObj} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
-              </div>
-            </div>
-          )}
-        </div>
+        <div style={{ height:1, background:C.border, margin:"24px 0" }} />
 
-        {/* HERO RING + métriques (boxless, signature) */}
-        {(() => {
-          const dayPct = habits.length ? Math.round(doneH / habits.length * 100) : 0;
-          const RING = 132, SW = 11, RAD = (RING - SW) / 2, CIRC = 2 * Math.PI * RAD;
-          const off = CIRC * (1 - dayPct / 100);
-          const Metric = ({ value, label, color, onClick }) => (
-            <div onClick={onClick} style={{ textAlign: "center", cursor: onClick ? "pointer" : "default", minWidth: 76 }}>
-              <div style={{ fontFamily: FONT_D, fontSize: 26, fontWeight: 700, color: color || C.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 5, fontWeight: 500 }}>{label}</div>
-            </div>
-          );
-          return (
-            <div className="dash-ring" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 22, margin: "26px 0 10px" }}>
-              <Metric value={fmtMin(deepToday)} label="Deep Work" color={C.accent} onClick={() => onNav("workperf")} />
-              <div style={{ position: "relative", width: RING, height: RING, flexShrink: 0 }}>
-                <svg width={RING} height={RING} style={{ transform: "rotate(-90deg)", display: "block" }}>
-                  <defs>
-                    <linearGradient id="dashRing" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#22D3EE" />
-                      <stop offset="55%" stopColor="#A855F7" />
-                      <stop offset="100%" stopColor="#EC4899" />
-                    </linearGradient>
-                  </defs>
-                  <circle cx={RING/2} cy={RING/2} r={RAD} fill="none" stroke={C.surface3} strokeWidth={SW} />
-                  <circle cx={RING/2} cy={RING/2} r={RAD} fill="none" stroke="url(#dashRing)" strokeWidth={SW}
-                    strokeDasharray={CIRC} strokeDashoffset={off} strokeLinecap="round"
-                    style={{ transition: "stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1)", filter: "drop-shadow(0 0 6px rgba(168,85,247,0.7))" }} />
-                </svg>
-                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ fontFamily: FONT_D, fontSize: 34, fontWeight: 800, color: C.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{dayPct}<span style={{ fontSize: 18, fontWeight: 600 }}>%</span></div>
-                  <div style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginTop: 3, fontWeight: 600 }}>du jour</div>
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-        </div>{/* /dash-hero */}
-
-        {/* OBJECTIFS — bloc pleine largeur (3 chronologies + mensuels adaptatifs) */}
-        <div style={{ marginTop: 24 }}>
-          <div style={{ display:"flex", alignItems:"baseline", justifyContent:"space-between", marginBottom: 12 }}>
-            <span style={{ fontSize: 11, color: C.amber, textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 }}>⭐ Objectifs</span>
-            <span onClick={() => onNav("objectifs:mensuel")} style={{ fontSize: 12, color: C.muted, cursor: "pointer" }}>Tout voir →</span>
-          </div>
-
-          {/* Mensuels — pleine largeur, colonnes = nb d'objectifs (1 à 6) */}
-          {(() => {
-            const monthlyObjs = (goals.mensuel || []).filter(o => !o.archived);
-            // Couleur DA : terminé (Atteint ou 100%) → vert, échoué/abandonné → rouge, sinon jaune
-            return (
-              <>
-                <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:9 }}>🗻 Mensuels</div>
-                {monthlyObjs.length === 0
-                  ? <div onClick={() => onNav("objectifs:mensuel")} style={{ fontSize:12, color:C.faint, padding:"14px 0", cursor:"pointer" }}>Aucun objectif mensuel · <span style={{ color:C.amber }}>+ Ajouter</span></div>
-                  : (
-                  <div className="home-month-grid" style={{ "--cols": Math.min(monthlyObjs.length, 6) }}>
-                    {monthlyObjs.map(o => {
-                      const p = krsProgress(o.krs || []);
-                      const failedStatus = o.statut === "Échoué" || o.statut === "Echoué" || o.statut === "Abandonné";
-                      const achieved = isObjAchieved(o.statut) || (p !== null && p >= 100); // terminé = 100%
-                      const failed = failedStatus && !achieved;
-                      const col = achieved ? C.green : failed ? C.red : C.amber;
-                      return (
-                        <div key={o.id} onClick={() => setEditObj(o)} title="Cliquer pour modifier" style={{
-                          position: "relative", overflow: "hidden", minHeight: 158, padding: "13px 15px", borderRadius: 18, display: "flex", flexDirection: "column",
-                          background: "transparent", border: `1px solid ${col}33`, cursor: "pointer",
-                        }}>
-                          {/* Montagne — fondue : fade haut/gauche/droite, bas net (ancré) */}
-                          <div style={{ position: "absolute", inset: 0, zIndex: 0, WebkitMaskImage: "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)", maskImage: "radial-gradient(125% 145% at 50% 112%, #000 54%, rgba(0,0,0,0) 100%)" }}>
-                            <LevelArt levelId="mensuel" color={col} reached={achieved} idKey={`home-m-${o.id}`} fit="slice" />
-                          </div>
-                          <div style={{ position: "relative", zIndex: 1, fontSize: 13, fontWeight: 700, color: C.text, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", minHeight: 34, textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: failed ? "line-through" : "none" }}>{o.titre}</div>
-                          <div style={{ flex: 1, minHeight: 8 }} />
-                          {p !== null ? (
-                            <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8 }}>
-                              <div style={{ flex: 1, height: 5, borderRadius: 3, background: "rgba(0,0,0,0.5)", overflow: "hidden" }}>
-                                <div style={{ height: "100%", width: `${p}%`, background: col, borderRadius: 3, transition: "width 0.5s", boxShadow: `0 0 8px ${col}66` }} />
-                              </div>
-                              <span style={{ fontSize: 12, fontWeight: 800, color: col, fontVariantNumeric: "tabular-nums", textShadow: "0 1px 6px rgba(0,0,0,0.6)" }}>{achieved ? "🏔 " : failed ? "✕ " : ""}{p}%</span>
-                            </div>
-                          ) : (
-                            <div style={{ position: "relative", zIndex: 1, fontSize: 11, fontWeight:700, color: col }}>{achieved ? "🏔 Atteint" : failed ? "Échoué" : "En cours"}</div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            );
-          })()}
-
-          {/* Objectifs de la semaine (Weekly review) — DA réduite, pont Golden Gate bleu */}
-          {(() => {
-            const wObjs = weeklyObjs.filter(o => o.weekId === curWeekId);
-            const ggMask = "radial-gradient(135% 150% at 50% 116%, #000 52%, rgba(0,0,0,0) 100%)";
-            const stOf = o => o.completed ? { c: C.green, ic: "✓" } : o.missed ? { c: C.red, ic: "✕" } : o.partial ? { c: "#38BDF8", ic: "~" } : { c: "#38BDF8", ic: "○" };
-            return (
-              <div style={{ marginTop: 20 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
-                  <span style={{ fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 700 }}>🌉 Cette semaine</span>
-                  <button onClick={() => setShowAddWeek(s => !s)} title="Ajouter un objectif hebdo" style={{ width: 26, height: 26, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 13, display: "inline-flex", alignItems: "center", justifyContent: "center", border: `1px solid ${showAddWeek ? "#38BDF8" : C.border}`, background: showAddWeek ? "#38BDF822" : C.surface3, color: "#38BDF8" }}>{showAddWeek ? "✕" : "+"}</button>
-                </div>
-                {showAddWeek && (
-                  <div className="slide-up" style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                    <Input value={weekText} onChange={setWeekText} onKeyDown={e => e.key === "Enter" && addWeekly()} placeholder="Objectif de la semaine..." autoFocus />
-                    <Btn onClick={addWeekly} variant="accent" style={{ whiteSpace: "nowrap" }}>Ajouter</Btn>
-                  </div>
-                )}
-                {wObjs.length === 0
-                  ? <div style={{ fontSize: 12, color: C.faint, padding: "8px 0" }}>Aucun objectif cette semaine{showAddWeek ? "." : " · "}{!showAddWeek && <span onClick={() => setShowAddWeek(true)} style={{ color: "#38BDF8", cursor: "pointer" }}>+ Ajouter</span>}</div>
-                  : (
-                  <div className="home-week-grid" style={{ "--cols": Math.min(wObjs.length, 6) }}>
-                    {wObjs.map(o => {
-                      const s = stOf(o);
-                      const editing = editWeekId === o.id;
-                      return (
-                        <div key={o.id} onClick={() => { if (!editing) toggleWeekly(o.id); }} title={editing ? undefined : "Cliquer pour changer le statut"} style={{
-                          position: "relative", overflow: "hidden", minHeight: 110, padding: "12px 14px", borderRadius: 15,
-                          display: "flex", flexDirection: "column", cursor: editing ? "default" : "pointer",
-                          background: "transparent", border: `1px solid ${s.c}33`,
-                        }}>
-                          <div style={{ position: "absolute", inset: 0, zIndex: 0, opacity: 0.95 }}>
-                            <HikingArt idKey={o.id} fit="cover" color={s.c} />
-                          </div>
-                          {editing ? (
-                            <input autoFocus value={editWeekText} onClick={e => e.stopPropagation()}
-                              onChange={e => setEditWeekText(e.target.value)}
-                              onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") commitEditWeekly(); if (e.key === "Escape") setEditWeekId(null); }}
-                              onBlur={commitEditWeekly}
-                              style={{ position: "relative", zIndex: 1, width: "100%", boxSizing: "border-box", background: "rgba(0,0,0,0.45)", border: `1px solid #38BDF877`, color: C.text, padding: "6px 9px", borderRadius: 9, fontSize: 12.5, fontFamily: "inherit", outline: "none" }} />
-                          ) : (
-                            <div style={{ position: "relative", zIndex: 1, fontSize: 12.5, fontWeight: 600, color: C.text, lineHeight: 1.28, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textShadow: "0 1px 6px rgba(0,0,0,0.6)", textDecoration: o.completed ? "line-through" : "none" }}>{o.title}</div>
-                          )}
-                          <div style={{ flex: 1 }} />
-                          <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ width: 16, height: 16, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: s.c, border: `1.5px solid ${s.c}`, boxShadow: `0 0 6px ${s.c}66` }}>{s.ic}</span>
-                            <div style={{ flex: 1 }} />
-                            <button onClick={e => { e.stopPropagation(); editing ? commitEditWeekly() : startEditWeekly(o); }} title={editing ? "Valider" : "Renommer"} style={{ width: 22, height: 22, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.border}`, color: editing ? C.green : C.muted }}>{editing ? "✓" : "✎"}</button>
-                            <button onClick={e => { e.stopPropagation(); deleteWeekly(o.id); }} title="Supprimer" style={{ width: 22, height: 22, borderRadius: 7, cursor: "pointer", fontFamily: "inherit", fontSize: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.35)", border: `1px solid ${C.border}`, color: C.muted }}>✕</button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-        </div>
-
-        {editObj && (
-          <ObjectifEditModal
-            obj={editObj} levelId="mensuel" allGoals={goals}
-            onUpdate={u => { saveGoals({ ...goals, mensuel: (goals.mensuel || []).map(o => o.id === u.id ? u : o) }); setEditObj(null); }}
-            onDelete={id => { saveGoals({ ...goals, mensuel: (goals.mensuel || []).filter(o => o.id !== id) }); setEditObj(null); }}
-            onClose={() => setEditObj(null)}
-          />
-        )}
-
-        <div style={{ height: 1, background: C.border, margin: "24px 0" }} />
-
-        {/* WEEKLY CALENDAR — pleine largeur */}
         <WeeklyCalendar />
-
-        {/* HABITUDES (boxless, pleine largeur) */}
-        <div id="dash-habits" style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, color: C.accent, textTransform: "uppercase", letterSpacing: "0.16em", fontWeight: 700 }}>Habitudes</span>
-            <span onClick={() => onNav("habitudes")} style={{ fontFamily: FONT_D, fontSize: 13, color: C.muted, cursor: "pointer", fontVariantNumeric: "tabular-nums" }}>{doneH}/{habits.length}</span>
-          </div>
-          {habits.length > 0 && (
-            <div style={{ height: 5, borderRadius: 999, background: C.surface3, overflow: "hidden", marginBottom: 14 }}>
-              <div style={{ height: "100%", width: `${habits.length ? doneH / habits.length * 100 : 0}%`, background: GRAD, borderRadius: 999, transition: "width 0.6s cubic-bezier(0.4,0,0.2,1)" }} />
-            </div>
-          )}
-          {habits.length === 0
-            ? <p style={{ fontSize: 14, color: C.faint }}>Aucune habitude. <span onClick={() => onNav("habitudes")} style={{ color: C.accent, cursor: "pointer" }}>→ Configurer</span></p>
-            : <div className="habit-grid">{habits.map(h => {
-                const status = (h.dailyStatus||{})[t] ?? null;
-                if (h.multiple) {
-                  const isDone = status === 'validated';
-                  const isExpanded = expandedHabitId === h.id;
-                  const dayItems = (h.itemStatus||{})[t] || {};
-                  const validatedCount = (h.items||[]).filter(it=>dayItems[it.id]==='validated').length;
-                  const hasInvalid = (h.items||[]).some(it=>dayItems[it.id]==='invalidated');
-                  const total = (h.items||[]).length;
-                  const badgeColor = isDone?C.green:hasInvalid?C.red:C.accent;
-                  const badgeBg = isDone?"rgba(16,185,129,0.18)":hasInvalid?"rgba(239,68,68,0.15)":C.accentBg;
-                  const badgeBorder = isDone?"rgba(16,185,129,0.3)":hasInvalid?"rgba(239,68,68,0.3)":C.border;
-                  return (
-                    <div key={h.id} style={{marginBottom:8}}>
-                      <div onClick={()=>setExpandedHabitId(isExpanded?null:h.id)} style={{
-                        display:"flex",alignItems:"center",gap:14,padding:"13px 14px",borderRadius:14,
-                        background:isDone?"rgba(52,211,153,0.12)":hasInvalid?"rgba(251,113,133,0.10)":C.surface,
-                        border:`1px solid ${isDone?"rgba(52,211,153,0.35)":hasInvalid?"rgba(251,113,133,0.30)":C.border}`,
-                        boxShadow:ITEM_SH,
-                        cursor:"pointer",transition:TR,minHeight:52,
-                      }}>
-                        <span style={{fontSize:22,flexShrink:0,opacity:isDone?0.5:1}}>{h.emoji}</span>
-                        <span style={{flex:1,fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none",transition:TR}}>{h.name}</span>
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{padding:"3px 10px",borderRadius:999,fontSize:12,fontWeight:700,fontVariantNumeric:"tabular-nums",background:badgeBg,color:badgeColor}}>{validatedCount}/{total}</div>
-                          <span style={{fontSize:11,color:C.faint,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
-                        </div>
-                      </div>
-                      {isExpanded && (
-                        <div style={{padding:"2px 0 12px 36px"}}>
-                          {(h.items||[]).map(item=>{
-                            const itemStatus = dayItems[item.id] ?? null;
-                            const isVal = itemStatus==='validated';
-                            const isInv = itemStatus==='invalidated';
-                            return (
-                              <div key={item.id} onClick={()=>toggleHabitItem(h.id,item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",cursor:"pointer",borderBottom:`1px solid ${C.border}`}}>
-                                <div style={{width:20,height:20,borderRadius:5,flexShrink:0,background:isVal?C.green:isInv?C.red:"transparent",border:`2px solid ${isVal?C.green:isInv?C.red:C.borderMid}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,transition:TR}}>{isVal?"✓":isInv?"✕":null}</div>
-                                <span style={{fontSize:14,color:isVal?C.muted:isInv?C.red:C.text,textDecoration:isVal?"line-through":"none"}}>{item.name}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-                return <HabitChip key={h.id} habit={h} status={status} onToggle={() => toggleHabit(h.id)} animating={animating.has(h.id)} />;
-              })}</div>
-          }
-        </div>{/* /habitudes */}
-
-        {/* PROJETS EN COURS */}
-        {(() => {
-          const allTodos = getLS("leplan_todos", []);
-          const enCours = allTodos.filter(t => t.gtd === "projet" && !t.done && getProjectStatus(t) === "en_cours");
-          if (!enCours.length) return null;
-          return (
-            <div style={{ marginBottom: 28 }}>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom: 10 }}>
-                <span style={{ fontSize: 11, color: C.accent, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.16em" }}>Projets en cours</span>
-                <span onClick={() => onNav("todo")} style={{ fontSize: 12, color: C.muted, cursor: "pointer", fontWeight: 500 }}>Voir tout →</span>
-              </div>
-              {enCours.map(p => {
-                const sc = SPHERES[p.sphere]?.c || C.accent;
-                return (
-                  <div key={p.id} onClick={() => onNav("todo")} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 14px", marginBottom: 8, borderRadius: 14, background: C.surface, border: `1px solid ${C.border}`, boxShadow: ITEM_SH, borderLeft: `3px solid ${sc}`, cursor: "pointer", minHeight: 48 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 999, background: sc, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{p.name}</div>
-                      {p.dateFin && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>→ {p.dateFin}</div>}
-                    </div>
-                    {p.sphere && <span style={{ fontSize: 10, color: sc, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{SPHERES[p.sphere]?.label}</span>}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
-
       </div>
+
+      {picker && (
+        <HighlightPickerSheet
+          todos={todos}
+          onPick={pick}
+          onCreateTask={o => addTodo({ gtd:"inbox", ...o })}
+          onClose={() => setPicker(false)}
+        />
+      )}
+      {creating && (
+        <TaskCaptureModal onCreate={o => { addTodo(o); setCreating(false); }} onClose={() => setCreating(false)} />
+      )}
+      {editItem && (
+        <EditModal
+          item={editItem}
+          onSave={p => updateTodo(editItem.id, p)}
+          onDelete={id => { deleteTodo(id); setEditId(null); }}
+          onToggleDone={id => toggleDone(id)}
+          onClose={() => setEditId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1823,43 +1608,6 @@ function ClotureModal({ obj, levelId, onArchive, onClose }) {
   );
 }
 
-// Randonnée (sentier vers le sommet) bleu — visuel des objectifs hebdo, écho aux montagnes du mensuel
-function HikingArt({ idKey, fit = "cover", color = "#38BDF8" }) {
-  const c = color;
-  const id = `hk-${idKey}`;
-  const pa = fit === "contain" ? "xMidYMid meet" : "xMidYMid slice";
-  const pine = (x, y, s = 1) => (
-    <g>
-      <path d={`M${x},${y} l${-6 * s},${11 * s} l${12 * s},0 Z`} fill={`${c}88`} />
-      <path d={`M${x},${y + 6 * s} l${-7.5 * s},${11 * s} l${15 * s},0 Z`} fill={`${c}5a`} />
-      <rect x={x - 1.2} y={y + 16 * s} width="2.4" height={5 * s} fill={`${c}88`} />
-    </g>
-  );
-  // viewBox large 480x150, scène ancrée en bas, drapeau ~33% (survit au cover-crop)
-  return (
-    <svg viewBox="0 0 480 150" preserveAspectRatio={pa} style={{ display: "block", width: "100%", height: "100%" }}>
-      <defs>
-        <linearGradient id={`${id}-h`} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={`${c}66`} /><stop offset="100%" stopColor={`${c}12`} /></linearGradient>
-      </defs>
-      {/* soleil */}
-      <circle cx="410" cy="50" r="15" fill={`${c}22`} /><circle cx="410" cy="50" r="8" fill={c} opacity="0.9" />
-      {/* crête arrière */}
-      <path d="M0,150 L90,100 L170,120 L260,86 L350,116 L420,96 L480,118 L480,150 Z" fill={`${c}1c`} />
-      {/* colline avant + sommet central */}
-      <path d="M0,150 L120,116 L240,70 L360,112 L480,100 L480,150 Z" fill={`url(#${id}-h)`} stroke={`${c}44`} strokeWidth="0.9" />
-      {/* sommet enneigé */}
-      <path d="M240,70 L231,86 L249,86 Z" fill={c} opacity="0.9" />
-      {/* sentier sinueux vers le sommet */}
-      <path d="M55,150 C110,134 92,116 150,112 C205,108 188,86 240,74" fill="none" stroke={`${c}d0`} strokeWidth="2.4" strokeDasharray="4.5 4.8" strokeLinecap="round" />
-      {/* drapeau */}
-      <line x1="240" y1="72" x2="240" y2="50" stroke={c} strokeWidth="2" />
-      <path d="M240,50 L256,55.5 L240,61 Z" fill={c} />
-      {/* pins */}
-      {pine(64, 132)}{pine(352, 118, 0.95)}{pine(408, 110, 0.85)}
-    </svg>
-  );
-}
-
 // Art de fond par niveau (basé sur l'émoji du niveau). Bandeau dédié, rien ne passe dessus.
 function LevelArt({ levelId, color, reached, idKey, fit = "slice" }) {
   const lc = color;
@@ -1960,9 +1708,8 @@ function ObjectifCard({ obj, levelColor, levelId, allGoals, onOpenEdit }) {
 
       {/* Contenu par-dessus */}
       <div style={{position:"relative", zIndex:1, display:"flex", flexDirection:"column", flex:1, padding:"15px 16px 12px"}}>
-        {/* Haut : niveau + % / statut */}
-        <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:9}}>
-          <span style={{fontSize:17, lineHeight:1, filter:`drop-shadow(0 0 6px ${levelColor}aa)`}}>{LEVELS.find(l=>l.id===levelId)?.icon}</span>
+        {/* Haut : % / statut (pas d'emoji sur les cartes) */}
+        <div style={{display:"flex", alignItems:"center", justifyContent:"flex-end", marginBottom:9, minHeight:22}}>
           {avgPct!==null
             ? <span style={{fontFamily:"var(--font-display)", fontSize:22, fontWeight:800, color:accent, fontVariantNumeric:"tabular-nums", lineHeight:1, textShadow:TS}}>{reached?"🏔 ":""}{avgPct}<span style={{fontSize:13}}>%</span></span>
             : <StatusPill statut={obj.statut}/>}
@@ -1979,6 +1726,7 @@ function ObjectifCard({ obj, levelColor, levelId, allGoals, onOpenEdit }) {
             <div style={{height:"100%", width:`${avgPct}%`, background:`linear-gradient(90deg, ${levelColor}, ${accent})`, borderRadius:3, boxShadow:`0 0 8px ${accent}66`, transition:"width 0.5s"}}/>
           </div>
         )}
+
       </div>
     </div>
   );
@@ -2081,7 +1829,6 @@ function LifePlanTree({ goals, onOpenEdit }) {
                   fontFamily: "inherit", textAlign: "left", color: C.text, opacity: closed && !reached ? 0.6 : 1,
                   background: `linear-gradient(110deg, ${lv.c}2a, ${C.surface2} 72%)`, border: `1px solid ${lv.c}5a`, boxShadow: `0 0 16px ${lv.c}22`,
                 }}>
-                  <span style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 8, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 14, background: `${lv.c}26`, border: `1px solid ${lv.c}66`, boxShadow: `0 0 10px ${lv.c}55` }}>{lv.icon}</span>
                   <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textDecoration: !reached && closed ? "line-through" : "none" }}>{n.obj.titre}</span>
                   {p !== null
                     ? <span style={{ flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 800, color: ac, fontVariantNumeric: "tabular-nums" }}>{reached ? "🏆" : ""}{p}<span style={{ fontSize: 9 }}>%</span></span>
@@ -2110,7 +1857,6 @@ function LifePlanTree({ goals, onOpenEdit }) {
                 return (
                   <div key={o.id} onClick={() => onOpenEdit(o, lvl)} style={{ cursor: "pointer", borderRadius: 16, padding: "13px 15px", background: C.surface2, border: `1px solid ${C.border}`, opacity: 0.96 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <span style={{ fontSize: 15 }}>{lv?.icon}</span>
                       <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.titre}</span>
                       <StatusPill statut={o.statut} />
                     </div>
@@ -2435,9 +2181,13 @@ const loadTodos = () => {
 };
 
 // ── useTodos hook ──
+// Plusieurs écrans montent useTodos en parallèle (Home + calendrier de la semaine).
+// Sans ce registre, cocher une tâche d'un côté laissait l'autre copie périmée.
+const _todoSubs = new Set();
 function useTodos() {
   const [todos, setTodosState] = useState(loadTodos);
-  const save = d => { setTodosState(d); setLS("leplan_todos", d); };
+  useEffect(() => { _todoSubs.add(setTodosState); return () => { _todoSubs.delete(setTodosState); }; }, []);
+  const save = d => { setLS("leplan_todos", d); _todoSubs.forEach(fn => fn(d)); };
   const addTodo      = o => { const t={id:uid(),name:"",gtd:"inbox",done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); return t; };
   const updateTodo   = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
   const deleteTodo   = id => save(todos.filter(t=>t.id!==id));
@@ -3228,13 +2978,85 @@ function RecurrenceToggle({ value, onChange }) {
 }
 
 // ── TodoModule ──
+// ── TaskCaptureModal — bottom-sheet « Nouvelle tâche », Inbox par défaut.
+// Extrait de TodoModule (il y était inline) pour que Home et le sélecteur de
+// highlight ouvrent le même flux au lieu d'en dupliquer un.
+function TaskCaptureModal({ initialGTD = "inbox", initialName = "", onCreate, onClose }) {
+  const C = CF;
+  const [form, setForm] = useState({
+    name:initialName, gtd:initialGTD, sphere:null, matrice:null,
+    dateFin:"", dateFinType:"duedate", dateAssignee:"", waitingFor:"", waitingNote:"", recurrence:null,
+  });
+  const set = p => setForm(f => ({ ...f, ...p }));
+  const submit = () => {
+    if (!form.name.trim()) return;
+    const o = { name:form.name.trim(), gtd:form.gtd || "inbox", sphere:form.sphere || undefined };
+    if (o.gtd === "projet") Object.assign(o, { matrice:form.matrice, dateFin:form.dateFin || undefined, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[] });
+    else if (o.gtd === "memo")    o.dateAssignee = form.dateAssignee || undefined;
+    else if (o.gtd === "waiting") Object.assign(o, { waitingFor:form.waitingFor, waitingNote:form.waitingNote || undefined });
+    if (form.recurrence?.enabled) o.recurrence = form.recurrence;
+    onCreate(o);
+  };
+  return (
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up theme-light" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Nouvelle tâche</div>
+        <Input autoFocus value={form.name} onChange={v=>set({name:v})} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Nom de la tâche..."/>
+        <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+          {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
+            <button key={k} onClick={()=>set({gtd:k})} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${form.gtd===k?C.accent:C.border}`,background:form.gtd===k?C.accentBg:"transparent",color:form.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",minHeight:34}}>{l}</button>
+          ))}
+        </div>
+        <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
+        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+          {Object.entries(SPHERES).map(([k,v])=>(
+            <button key={k} onClick={()=>set({sphere:form.sphere===k?null:k})} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${form.sphere===k?v.c:C.border}`,background:form.sphere===k?v.c+"22":"transparent",color:form.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",minHeight:34}}>{v.label}</button>
+          ))}
+        </div>
+        {form.gtd==="projet"&&(
+          <div className="slide-up">
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Matrice</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+              {Object.entries(MATRICES).map(([k,v])=>(
+                <button key={k} onClick={()=>set({matrice:form.matrice===k?null:k})} style={{padding:"8px",borderRadius:12,border:`1px solid ${form.matrice===k?C.accent:C.border}`,background:form.matrice===k?C.accentBg:"transparent",color:form.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center",minHeight:40}}>{v.label}</button>
+              ))}
+            </div>
+            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date limite</div>
+            <input type="date" value={form.dateFin} onChange={e=>set({dateFin:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+          </div>
+        )}
+        {form.gtd==="memo"&&(
+          <div style={{marginTop:12}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence":"Date assignée"}</div>
+            <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+          </div>
+        )}
+        {form.gtd==="waiting"&&(
+          <div style={{marginTop:12}}>
+            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
+            <Input value={form.waitingFor} onChange={v=>set({waitingFor:v})} placeholder="Nom de la personne..."/>
+          </div>
+        )}
+        {(form.gtd==="projet"||form.gtd==="memo"||form.gtd==="waiting")&&(
+          <div style={{marginTop:12}}>
+            <RecurrenceToggle value={form.recurrence} onChange={rec=>set({recurrence:rec})} />
+          </div>
+        )}
+        <div style={{marginTop:16,display:"flex",gap:8}}>
+          <Btn onClick={onClose} variant="ghost" style={{flex:1}}>Annuler</Btn>
+          <Btn onClick={submit} variant="accent" style={{flex:2}}>Créer →</Btn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TodoModule() {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,getDoneItems,getByGTD} = useTodos();
   const [tab, setTab]               = useState("tout");
   const [showCapture, setShowCapture]= useState(false);
-  const [captureMode, setCaptureMode]= useState("fast");
-  const [capForm, setCapForm]       = useState({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:"",recurrence:null});
   const [clarifyId, setClarifyId]   = useState(null);
   const [editId, setEditId]         = useState(null);
   const [sphereFilter, setSphereFilter] = useState("all");
@@ -3253,29 +3075,6 @@ function TodoModule() {
   const today = todayStr();
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(null),2000); };
-  const resetCap = () => setCapForm({name:"",gtd:"inbox",sphere:null,matrice:null,dateDebut:"",dateFin:"",dateFinType:"duedate",statut:"a_planifier",dateAssignee:"",waitingFor:"",waitingNote:"",recurrence:null});
-
-  const openCapture = (gtd) => {
-    const typeToGTD = { inbox:"inbox", projets:"projet", waiting:"waiting", memo:"memo", someday:"someday", fait:"inbox" };
-    const initialGTD = typeToGTD[gtd] || "inbox";
-    setCapForm(f=>({...f, gtd:initialGTD}));
-    setCaptureMode("full");
-    setShowCapture(true);
-  };
-
-  const handleCapture = () => {
-    if(!capForm.name.trim()) return;
-    const o={name:capForm.name.trim()};
-    if(captureMode==="fast") { o.gtd="inbox"; }
-    else {
-      o.gtd=capForm.gtd||"inbox"; o.sphere=capForm.sphere||undefined;
-      if(capForm.gtd==="projet") Object.assign(o,{matrice:capForm.matrice,dateDebut:capForm.dateDebut||undefined,dateFin:capForm.dateFin||undefined,dateFinType:capForm.dateFinType,statut:capForm.statut,sousTaches:[]});
-      else if(capForm.gtd==="memo") o.dateAssignee=capForm.dateAssignee||undefined;
-      else if(capForm.gtd==="waiting") Object.assign(o,{waitingFor:capForm.waitingFor,waitingNote:capForm.waitingNote||undefined});
-      if(capForm.recurrence?.enabled) o.recurrence=capForm.recurrence;
-    }
-    addTodo(o); resetCap(); setShowCapture(false); showToast("Capturé.");
-  };
 
   const handleInboxAdd = () => {
     if(!inboxText.trim()) return;
@@ -3619,57 +3418,10 @@ function TodoModule() {
 
       {/* QUICK CAPTURE MODAL */}
       {showCapture&&(
-        <div onClick={()=>setShowCapture(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
-          <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-            <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Nouvelle tâche</div>
-            <Input autoFocus value={capForm.name} onChange={v=>setCapForm(f=>({...f,name:v}))} onKeyDown={e=>e.key==="Enter"&&handleCapture()} placeholder="Nom de la tâche..."/>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type</div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-              {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
-                <button key={k} onClick={()=>setCapForm(f=>({...f,gtd:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.gtd===k?C.accent:C.border}`,background:capForm.gtd===k?C.accentBg:"transparent",color:capForm.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
-            <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-              {Object.entries(SPHERES).map(([k,v])=>(
-                <button key={k} onClick={()=>setCapForm(f=>({...f,sphere:f.sphere===k?null:k}))} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${capForm.sphere===k?v.c:C.border}`,background:capForm.sphere===k?v.c+"22":"transparent",color:capForm.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-              ))}
-            </div>
-            {capForm.gtd==="projet"&&(
-              <div className="slide-up">
-                <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Matrice</div>
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-                  {Object.entries(MATRICES).map(([k,v])=>(
-                    <button key={k} onClick={()=>setCapForm(f=>({...f,matrice:f.matrice===k?null:k}))} style={{padding:"8px",borderRadius:12,border:`1px solid ${capForm.matrice===k?C.accent:C.border}`,background:capForm.matrice===k?C.accentBg:"transparent",color:capForm.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
-                  ))}
-                </div>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date limite</div>
-                <input type="date" value={capForm.dateFin} onChange={e=>setCapForm(f=>({...f,dateFin:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-            )}
-            {capForm.gtd==="memo"&&(
-              <div style={{marginTop:12}}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{capForm.recurrence?.enabled?"Date de la 1ère récurrence":"Date assignée"}</div>
-                <input type="date" value={capForm.dateAssignee} onChange={e=>setCapForm(f=>({...f,dateAssignee:e.target.value}))} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-            )}
-            {capForm.gtd==="waiting"&&(
-              <div style={{marginTop:12}}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
-                <Input value={capForm.waitingFor} onChange={v=>setCapForm(f=>({...f,waitingFor:v}))} placeholder="Nom de la personne..."/>
-              </div>
-            )}
-            {(capForm.gtd==="projet"||capForm.gtd==="memo"||capForm.gtd==="waiting")&&(
-              <div style={{marginTop:12}}>
-                <RecurrenceToggle value={capForm.recurrence} onChange={rec=>setCapForm(f=>({...f,recurrence:rec}))} />
-              </div>
-            )}
-            <div style={{marginTop:16,display:"flex",gap:8}}>
-              <Btn onClick={()=>setShowCapture(false)} variant="ghost" style={{flex:1}}>Annuler</Btn>
-              <Btn onClick={handleCapture} variant="accent" style={{flex:2}}>Créer →</Btn>
-            </div>
-          </div>
-        </div>
+        <TaskCaptureModal
+          onCreate={o=>{ addTodo(o); setShowCapture(false); showToast("Capturé."); }}
+          onClose={()=>setShowCapture(false)}
+        />
       )}
 
       {/* CLARIFY MODAL */}
@@ -3696,6 +3448,275 @@ function EmojiInput({ value, onSave }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // HABITUDES
 // ─────────────────────────────────────────────────────────────────────────────
+// ── Fiche habitude : régularité réelle, aucune extrapolation ────────────────
+const fmtFrDay  = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day:"numeric", month:"long" });
+const fmtNum1   = n => n.toFixed(1).replace(".", ",");
+const WEEKDAY_FR = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
+
+// Calendrier en carrés — 26 semaines, lundi→dimanche en lignes, la plus récente à droite.
+// 26×10 + 25×2 = 310 px : tient dans la sheet à 375 px sans défilement.
+function HabitHeatmap({ habit, today }) {
+  const C = CF;
+  const WEEKS = 26, CELL = 10, GAP = 2;
+  const cells = heatmapData(habit, today, WEEKS);
+  const cols  = Array.from({ length: WEEKS }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+  const MONTH_INI = ["J","F","M","A","M","J","J","A","S","O","N","D"];
+
+  const bg = st => st === "done" ? C.accent : st === "missed" ? C.surface3 : "transparent";
+  const br = st => st === "today" ? `1px solid ${C.borderMid}` : "1px solid transparent";
+
+  let prevMonth = null;
+  const heads = cols.map(col => {
+    const m = Number(col[0].date.slice(5, 7)) - 1;
+    const show = m !== prevMonth;
+    prevMonth = m;
+    return show ? MONTH_INI[m] : "";
+  });
+
+  return (
+    <div style={{ overflow:"hidden" }}>
+      <div style={{ display:"flex", gap:GAP, marginBottom:4 }}>
+        {heads.map((h, i) => (
+          <div key={i} style={{ width:CELL, fontSize:8, lineHeight:1, color:C.faint, textAlign:"center" }}>{h}</div>
+        ))}
+      </div>
+      <div style={{ display:"flex", gap:GAP }}>
+        {cols.map((col, i) => (
+          <div key={i} style={{ display:"flex", flexDirection:"column", gap:GAP }}>
+            {col.map(c => (
+              <div key={c.date} title={c.date} style={{
+                width:CELL, height:CELL, borderRadius:2, boxSizing:"border-box",
+                background:bg(c.state), border:br(c.state),
+              }} />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Régularité glissante 28 j. Pointillés tant que la fenêtre est incomplète.
+// Aucune extrapolation : la courbe s'arrête à hier.
+function RollingRateChart({ habit, today }) {
+  const C = CF, FONT_D = CF_FONT;
+  const s = rollingRateSeries(habit, today, 28);
+  if (s.length < 2) return null;
+
+  const n = s.length;
+  const H = 120;
+  const px = i => (i / (n - 1)) * 100;
+  const py = r => 100 - r * 100;
+  const pt = (p, i) => `${px(i).toFixed(2)},${py(p.rate).toFixed(2)}`;
+  const firstFull = s.findIndex(p => p.full);
+  const cutoff = firstFull < 0 ? n - 1 : firstFull;
+  const path = arr => arr.map((x, k) => `${k ? "L" : "M"}${x}`).join(" ");
+  const partial = path(s.slice(0, cutoff + 1).map(pt));
+  const full    = cutoff < n - 1 ? path(s.slice(cutoff).map((p, k) => pt(p, cutoff + k))) : "";
+
+  const last = s[n - 1];
+  const incomplete = n < 28;
+
+  return (
+    <div>
+      <div style={{ position:"relative", height:H }}>
+        <svg width="100%" height={H} viewBox="0 0 100 100" preserveAspectRatio="none" style={{ display:"block" }}>
+          <line x1="0" y1="0"  x2="100" y2="0"  stroke={C.border} strokeWidth="1" vectorEffect="non-scaling-stroke" />
+          <line x1="0" y1="50" x2="100" y2="50" stroke={C.border} strokeWidth="1" strokeDasharray="3 5" vectorEffect="non-scaling-stroke" />
+          {cutoff > 0 && <path d={partial} fill="none" stroke={C.accent} strokeWidth="2" strokeDasharray="4 4" strokeOpacity="0.7" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+          {full && <path d={full} fill="none" stroke={C.accent} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+        </svg>
+        {/* Dernier point : hors SVG pour ne pas être déformé par preserveAspectRatio="none" */}
+        <div style={{ position:"absolute", left:"100%", top:`${py(last.rate)}%`, transform:"translate(-50%,-50%)",
+          width:9, height:9, borderRadius:"50%", background:C.accent, boxShadow:`0 0 10px ${C.accent}`, pointerEvents:"none" }} />
+        <div style={{ position:"absolute", right:10, top:`${py(last.rate)}%`, transform:"translate(0,-50%)",
+          fontFamily:FONT_D, fontSize:13, fontWeight:800, color:C.accent, background:C.surface,
+          padding:"1px 6px", borderRadius:7, pointerEvents:"none", fontVariantNumeric:"tabular-nums" }}>
+          {Math.round(last.rate * 100)} %
+        </div>
+      </div>
+      <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:C.faint, marginTop:6 }}>
+        <span>{fmtFrDay(s[0].date)}</span><span>{fmtFrDay(last.date)}</span>
+      </div>
+      {incomplete && <div style={{ fontSize:10.5, color:C.faint, marginTop:4 }}>Moins de 28 j de recul</div>}
+    </div>
+  );
+}
+
+// Liens : associations observées, jamais des causes.
+function HabitLinks({ habit, habits, today, onOpenHabit }) {
+  const C = CF, FONT_D = CF_FONT;
+  const dailyEntries = (() => {
+    const raw = getLS("lp_daily", {}) || {};
+    return Object.keys(raw).map(date => {
+      const e = djEntry(raw[date]);
+      return {
+        date,
+        energy: emojiVal(DJ_ENERGY, e.morning),
+        focus:  emojiVal(DJ_FOCUS,  e.focus),
+        stress: emojiVal(DJ_STRESS, e.stress),
+        happy:  emojiVal(DJ_HAPPY,  e.happy),
+      };
+    });
+  })();
+  const links = topLinks(habit, habits || [], dailyEntries, today, 3);
+
+  const Note = () => (
+    <div style={{ fontSize:10.5, color:C.faint, marginTop:10, lineHeight:1.5 }}>
+      Associations observées dans tes données, pas des causes.
+    </div>
+  );
+
+  if (!links.length) return (
+    <div>
+      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:10 }}>Liens</div>
+      <div style={{ fontSize:12.5, color:C.faint, lineHeight:1.5 }}>Pas encore assez de données communes (minimum 10 jours de chaque côté).</div>
+      <Note />
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:10 }}>Liens</div>
+      {links.map(l => {
+        const up = l.diff > 0;
+        // Pour le stress, une valeur plus basse est la bonne.
+        const good = l.lowerIsBetter ? !up : up;
+        const col = good ? C.green : C.red;
+        const isHabit = l.kind === "habit";
+        const title = isHabit ? `${l.habit.emoji || "•"} ${l.habit.name}` : l.label;
+        const vA = isHabit ? `${Math.round(l.rateA * 100)} %` : fmtNum1(l.avgA);
+        const vB = isHabit ? `${Math.round(l.rateB * 100)} %` : fmtNum1(l.avgB);
+        return (
+          <div key={l.id}
+            onClick={isHabit && onOpenHabit ? () => onOpenHabit(l.habit.id) : undefined}
+            style={{
+              display:"flex", alignItems:"center", gap:10, minHeight:46, padding:"9px 12px", marginBottom:6,
+              borderRadius:12, background:C.surface2, border:`1px solid ${C.border}`, borderLeft:`3px solid ${col}`,
+              cursor: isHabit && onOpenHabit ? "pointer" : "default",
+            }}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontSize:13.5, color:C.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{title}</div>
+              {isHabit && <div style={{ fontSize:10, color:C.faint, marginTop:2 }}>quand tu fais ton habitude / quand tu ne la fais pas</div>}
+            </div>
+            <div style={{ flexShrink:0, display:"flex", alignItems:"center", gap:6 }}>
+              <span style={{ fontSize:12, color:col, fontWeight:800 }}>{up ? "↑" : "↓"}</span>
+              <span style={{ fontFamily:FONT_D, fontSize:13, fontWeight:800, color:col, fontVariantNumeric:"tabular-nums" }}>{vA}</span>
+              <span style={{ fontSize:11, color:C.faint }}>vs</span>
+              <span style={{ fontFamily:FONT_D, fontSize:13, fontWeight:700, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{vB}</span>
+            </div>
+          </div>
+        );
+      })}
+      <Note />
+    </div>
+  );
+}
+
+// ── Fiche habitude (bottom-sheet) — ce que l'habitude a déjà accumulé.
+function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onOpenHabit }) {
+  const C = CF, FONT_D = CF_FONT;
+  const t = todayStr();
+  const [editingWhy, setEditingWhy] = useState(false);
+  const [why, setWhy] = useState(habit.pourquoi || "");
+  const total = cumulTotal(habit, t);
+  const start = startDay(habit, t);
+  const { rate, delta } = rate28WithDelta(habit, t);
+  const rattr = rattrapage(habit, t);
+  const weak  = weakestWeekday(habit, t);
+  const goal  = habit.goalId ? (goals?.lt || []).find(g => g.id === habit.goalId) : null;
+
+  const Stat = ({ label, value, sub, badge }) => (
+    <div style={{ flex:1, minWidth:0, textAlign:"center" }}>
+      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"center", gap:5 }}>
+        <span style={{ fontFamily:FONT_D, fontSize:19, fontWeight:800, color:C.text, fontVariantNumeric:"tabular-nums", lineHeight:1 }}>{value}</span>
+        {badge}
+      </div>
+      <div style={{ fontSize:10, color:C.muted, marginTop:5 }}>{label}</div>
+      {sub && <div style={{ fontSize:9, color:C.faint, marginTop:2, lineHeight:1.3 }}>{sub}</div>}
+    </div>
+  );
+  const deltaBadge = delta == null ? null : (
+    <span style={{ fontSize:10.5, fontWeight:800, color: delta >= 0 ? C.green : C.red, whiteSpace:"nowrap" }}>
+      {delta >= 0 ? "↑ +" : "↓ −"}{Math.abs(Math.round(delta * 100))}
+    </span>
+  );
+
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
+        width:"100%", maxWidth:560, maxHeight:"88vh", overflowY:"auto",
+        background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.borderMid}`, borderBottom:"none",
+        boxShadow:"0 -16px 60px rgba(0,0,0,0.6)", padding:"16px 18px calc(20px + env(safe-area-inset-bottom))",
+      }}>
+        <div style={{ width:38, height:4, borderRadius:999, background:C.surface3, margin:"0 auto 16px" }} />
+
+        {/* 3.1 En-tête */}
+        <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:18 }}>
+          <span style={{ fontSize:30, flexShrink:0 }}>{habit.emoji}</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontFamily:FONT_D, fontSize:19, fontWeight:800, color:C.text, lineHeight:1.2 }}>{habit.name}</div>
+            {goal && <div style={{ fontSize:12, color:C.accent, marginTop:5 }}>→ {goal.titre}</div>}
+          </div>
+          <button onClick={onClose} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>✕</button>
+        </div>
+
+        {/* 3.2 Total cumulé */}
+        <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:18 }}>
+          <span style={{ fontFamily:FONT_D, fontSize:56, fontWeight:800, color:C.text, lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{total}</span>
+          <span style={{ fontSize:15, color:C.muted, fontWeight:600 }}>{habitUnit(habit)}</span>
+          {start && <span style={{ marginLeft:"auto", fontSize:11, color:C.faint }}>depuis le {fmtFrDay(start)}</span>}
+        </div>
+
+        {/* 3.3 Calendrier en carrés */}
+        {start
+          ? <HabitHeatmap habit={habit} today={t} />
+          : <div style={{ fontSize:12.5, color:C.faint, padding:"6px 0" }}>Aucune validation pour l'instant.</div>}
+
+        {/* 3.4 Régularité glissante 28 j */}
+        <div style={{ marginTop:22 }}>
+          <RollingRateChart habit={habit} today={t} />
+        </div>
+
+        {/* 3.5 Trois chiffres */}
+        <div style={{ display:"flex", gap:8, margin:"20px 0 18px", padding:"14px 6px", borderTop:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}` }}>
+          <Stat label="Régularité 28 j" value={`${Math.round(rate * 100)} %`} badge={deltaBadge} />
+          <Stat label="Rattrapage" value={rattr == null ? "—" : `${Math.round(rattr * 100)} %`} sub="ratés rattrapés le lendemain" />
+          <Stat label="Jour faible" value={weak == null ? "—" : `${WEEKDAY_FR[weak.weekday]} · ${Math.round(weak.rate * 100)} %`} />
+        </div>
+
+        {/* 3.6 Pourquoi */}
+        <div style={{ marginBottom:20 }}>
+          <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:8 }}>Pourquoi</div>
+          {editingWhy ? (
+            <div style={{ display:"flex", gap:8 }}>
+              <Input value={why} onChange={v => setWhy(v.slice(0, 120))} placeholder="En une phrase..." autoFocus
+                onKeyDown={e => { if (e.key === "Enter") { onSavePourquoi(why.trim()); setEditingWhy(false); } }} />
+              <Btn onClick={() => { onSavePourquoi(why.trim()); setEditingWhy(false); }} variant="accent" style={{ whiteSpace:"nowrap" }}>OK</Btn>
+            </div>
+          ) : habit.pourquoi ? (
+            <div onClick={() => setEditingWhy(true)} style={{ fontSize:14, color:C.text, lineHeight:1.5, cursor:"text" }}>{habit.pourquoi}</div>
+          ) : (
+            <div onClick={() => setEditingWhy(true)} style={{ fontSize:13, color:C.accent, cursor:"pointer", minHeight:44, display:"flex", alignItems:"center" }}>+ Ajouter ton pourquoi</div>
+          )}
+        </div>
+
+        {/* 3.7 Liens */}
+        <div style={{ marginBottom:18 }}>
+          <HabitLinks habit={habit} habits={habits} today={t} onOpenHabit={onOpenHabit} />
+        </div>
+
+        {onEdit && (
+          <button onClick={onEdit} style={{
+            width:"100%", minHeight:46, borderRadius:12, background:"transparent", border:`1px solid ${C.borderMid}`,
+            color:C.accent, fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
+          }}>Modifier</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function HabitudesModule() {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const [habits, setHabits] = useState(() => getLS("lp_habits", []));
@@ -3712,13 +3733,19 @@ function HabitudesModule() {
   const [newItems, setNewItems] = useState([]);
   const [expandedHabitId, setExpandedHabitId] = useState(null);
   const [editItemText, setEditItemText] = useState("");
+  // Effet cumulé
+  const [sheetId, setSheetId]   = useState(null);
+  const [newGoalId, setNewGoalId] = useState("");
+  const goals = getLS("lp_goals", {});
+  const ltGoals = (goals.lt || []).filter(o => !o.archived && !isObjClosed(o.statut));
 
   const save = d => { setHabits(d); setLS("lp_habits", d); };
   const add  = () => {
     if(!newName.trim()) return;
     save([...habits,{id:uid(),name:newName.trim(),emoji:newEmoji||"⭐",logs:[],dailyStatus:{},
-      multiple:newMultiple, items:newMultiple?[...newItems]:[], itemStatus:{}}]);
-    setNewName(""); setNewEmoji("⭐"); setNewMultiple(false); setNewItems([]); setNewItemText("");
+      multiple:newMultiple, items:newMultiple?[...newItems]:[], itemStatus:{},
+      createdAt:new Date().toISOString(), ...(newGoalId?{goalId:newGoalId}:{})}]);
+    setNewName(""); setNewEmoji("⭐"); setNewMultiple(false); setNewItems([]); setNewItemText(""); setNewGoalId("");
   };
   const toggle = (id, date) => {
     const d = date || todayStr();
@@ -3740,6 +3767,10 @@ function HabitudesModule() {
   };
   const toggleItem = (habitId, itemId, date) => {
     const d = date || todayStr();
+    if (!date) {
+      setAnimating(s => new Set([...s, habitId]));
+      setTimeout(() => setAnimating(s => { const n=new Set(s); n.delete(habitId); return n; }), 350);
+    }
     save(habits.map(h => {
       if (h.id !== habitId) return h;
       const is = { ...(h.itemStatus || {}) };
@@ -3838,12 +3869,17 @@ function HabitudesModule() {
                           borderBottom:isExpanded?`1px solid ${C.border}`:undefined,
                           transition:TR, cursor:"pointer",
                         }} onClick={()=>setExpandedHabitId(isExpanded?null:h.id)}>
-                          <span style={{fontSize:24,flexShrink:0}}>{h.emoji}</span>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
-                            {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
+                          <div onClick={e=>{e.stopPropagation();setSheetId(h.id);}} style={{display:"flex",alignItems:"center",gap:14,flex:1,minWidth:0,cursor:"pointer"}}>
+                            <span style={{fontSize:24,flexShrink:0}}>{h.emoji}</span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
+                              {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
+                            </div>
                           </div>
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <span className={animating.has(h.id)?"habit-pop":""} title="Total cumulé" style={{fontSize:12,fontWeight:700,color:C.faint,fontVariantNumeric:"tabular-nums",whiteSpace:"nowrap"}}>
+                              {cumulTotal(h,t)} <span style={{fontWeight:500,fontSize:10.5}}>{habitUnit(h)}</span>
+                            </span>
                             <div style={{padding:"4px 10px",borderRadius:999,fontSize:13,fontWeight:700,background:badgeBg,color:badgeColor,border:`1px solid ${badgeBorder}`}}>{validatedCount}/{total}</div>
                             <span style={{fontSize:12,color:C.muted,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
                           </div>
@@ -3879,11 +3915,16 @@ function HabitudesModule() {
                       border:`1px solid ${isDone?"rgba(16,185,129,0.25)":isInvalid?"rgba(239,68,68,0.2)":C.border}`,
                       transition:TR,
                     }}>
-                      <span style={{fontSize:24,flexShrink:0}}>{h.emoji}</span>
-                      <div style={{flex:1}}>
-                        <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:isInvalid?"#ef4444":C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
-                        {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
+                      <div onClick={()=>setSheetId(h.id)} style={{display:"flex",alignItems:"center",gap:14,flex:1,minWidth:0,cursor:"pointer"}}>
+                        <span style={{fontSize:24,flexShrink:0}}>{h.emoji}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:15,fontWeight:500,color:isDone?C.muted:isInvalid?"#ef4444":C.text,textDecoration:isDone?"line-through":"none"}}>{h.name}</div>
+                          {s>0&&<div style={{fontSize:11,color:C.amber,marginTop:2}}>🔥 {s} jour{s>1?"s":""}</div>}
+                        </div>
                       </div>
+                      <span className={animating.has(h.id)?"habit-pop":""} title="Total cumulé" style={{fontSize:12,fontWeight:700,color:C.faint,fontVariantNumeric:"tabular-nums",flexShrink:0,whiteSpace:"nowrap"}}>
+                        {cumulTotal(h,t)} <span style={{fontWeight:500,fontSize:10.5}}>{habitUnit(h)}</span>
+                      </span>
                       <HabitToggle status={status} onToggle={()=>toggle(h.id)} />
                     </div>
                   );
@@ -3969,12 +4010,38 @@ function HabitudesModule() {
         {/* MANAGE */}
         {view==="manage" && (
           <div>
+            {/* Alerte : un objectif long terme qu'aucune habitude ne nourrit */}
+            {(() => {
+              const orphans = ltGoals.filter(g => !habits.some(h => h.goalId === g.id));
+              if (!orphans.length) return null;
+              return (
+                <div style={{marginBottom:14,padding:"12px 14px",borderRadius:14,background:C.amberBg,border:`1px solid ${C.amber}44`}}>
+                  {orphans.map(g => (
+                    <div key={g.id} onClick={()=>setNewGoalId(g.id)} title="Créer une habitude pour cet objectif"
+                      style={{fontSize:12.5,color:C.text,lineHeight:1.5,cursor:"pointer",minHeight:32,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{flexShrink:0}}>⚠️</span>
+                      <span>Aucune habitude ne nourrit : <b style={{color:C.amber}}>{g.titre}</b></span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{display:"flex",gap:8,marginBottom:8}}>
               <input value={newEmoji} onChange={e=>setNewEmoji(e.target.value)}
                 style={{width:54,textAlign:"center",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"10px 4px",borderRadius:12,fontSize:20,fontFamily:"inherit",outline:"none"}} />
               <Input value={newName} onChange={setNewName} onKeyDown={e=>e.key==="Enter"&&!newMultiple&&add()} placeholder="Nom de l'habitude..." />
               {!newMultiple && <Btn onClick={add} variant="accent" style={{whiteSpace:"nowrap"}}>+</Btn>}
             </div>
+            {ltGoals.length>0 && (
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Objectif lié</div>
+                <select value={newGoalId} onChange={e=>setNewGoalId(e.target.value)}
+                  style={{width:"100%",minHeight:44,background:C.surface2,border:`1px solid ${newGoalId?C.accent:C.border}`,color:newGoalId?C.text:C.muted,padding:"10px 12px",borderRadius:12,fontSize:13,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                  <option value="">Aucun</option>
+                  {ltGoals.map(g=><option key={g.id} value={g.id}>{g.titre}</option>)}
+                </select>
+              </div>
+            )}
             <div onClick={()=>setNewMultiple(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,marginBottom:newMultiple?10:16,cursor:"pointer",userSelect:"none"}}>
               <div style={{
                 width:18,height:18,borderRadius:4,flexShrink:0,
@@ -4026,12 +4093,46 @@ function HabitudesModule() {
                         <span style={{fontSize:12,color:C.faint,flexShrink:0}}>✏️</span>
                       </div>
                     )}
-                    <div style={{fontSize:11,color:C.muted,marginTop:3}}>{(h.logs||[]).length} entrées · {streak(h)} j. série</div>
+                    <div style={{fontSize:11,color:C.muted,marginTop:3}}>{cumulTotal(h,t)} {habitUnit(h)} cumulés · {streak(h)} j. série</div>
                   </div>
                   <Btn onClick={()=>del(h.id)} variant="ghost" style={{fontSize:12,color:C.red,borderColor:C.red+"40",padding:"6px 14px"}}>Suppr.</Btn>
                 </div>
                 {isEditing && (
                   <div style={{background:C.surface3,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"12px 16px"}}>
+                    {/* ── Effet cumulé : objectif, pourquoi, type, unité ── */}
+                    {ltGoals.length>0 && (
+                      <div style={{marginBottom:10}}>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Objectif lié</div>
+                        <select value={h.goalId||""} onChange={e=>update(h.id,{goalId:e.target.value||undefined})}
+                          style={{width:"100%",minHeight:40,background:C.surface2,border:`1px solid ${C.border}`,color:h.goalId?C.text:C.muted,padding:"9px 12px",borderRadius:10,fontSize:12.5,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                          <option value="">Aucun</option>
+                          {ltGoals.map(g=><option key={g.id} value={g.id}>{g.titre}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Pourquoi (1 phrase)</div>
+                      <input value={h.pourquoi||""} maxLength={120} onChange={e=>update(h.id,{pourquoi:e.target.value})}
+                        placeholder="Pourquoi cette habitude compte..."
+                        style={{width:"100%",minHeight:40,boxSizing:"border-box",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"9px 12px",borderRadius:10,fontSize:12.5,fontFamily:"inherit",outline:"none"}} />
+                    </div>
+                    <div style={{display:"flex",gap:10,marginBottom:12}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Type</div>
+                        <div style={{display:"flex",gap:6}}>
+                          {[["construire","Construire"],["eliminer","Éliminer"]].map(([k,l])=>{
+                            const sel=(h.kind||"construire")===k;
+                            return <button key={k} onClick={()=>update(h.id,{kind:k})} style={{flex:1,minHeight:40,borderRadius:10,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${sel?C.accent:C.border}`,background:sel?C.accentBg:"transparent",color:sel?C.accent:C.muted}}>{l}</button>;
+                          })}
+                        </div>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Unité</div>
+                        <input value={h.unitLabel||""} onChange={e=>update(h.id,{unitLabel:e.target.value})}
+                          placeholder={h.kind==="eliminer"?"jours sans":"jours"}
+                          style={{width:"100%",minHeight:40,boxSizing:"border-box",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"9px 12px",borderRadius:10,fontSize:12.5,fontFamily:"inherit",outline:"none"}} />
+                      </div>
+                    </div>
                     <div onClick={()=>update(h.id,{multiple:!h.multiple,items:h.multiple?[]:(h.items||[]),itemStatus:h.itemStatus||{}})} style={{display:"flex",alignItems:"center",gap:7,cursor:"pointer",userSelect:"none",marginBottom:h.multiple?10:0}}>
                       <div style={{
                         width:18,height:18,borderRadius:4,flexShrink:0,
@@ -4067,6 +4168,20 @@ function HabitudesModule() {
           </div>
         )}
       </div>
+
+      {(() => {
+        const h = habits.find(x => x.id === sheetId);
+        if (!h) return null;
+        return (
+          <HabitSheet
+            habit={h} habits={habits} goals={goals}
+            onClose={() => setSheetId(null)}
+            onEdit={() => { setSheetId(null); setView("manage"); setEditHabitId(h.id); setEditHabitName(h.name); setEditItemText(""); }}
+            onSavePourquoi={v => update(h.id, { pourquoi: v || undefined })}
+            onOpenHabit={id => setSheetId(id)}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -5255,6 +5370,107 @@ function WRSection({ title, children }) {
   );
 }
 
+// ── Synthèse IA de la Weekly Review ──────────────────────────────────────────
+// L'appel passe par /api/weekly-summary (fonction Vercel) : la clé Anthropic ne
+// touche jamais le client. Résultat mis en cache par semaine, une génération suffit.
+const AI_LS_KEY = "lp_weekly_ai";
+
+// Condensé texte des données de la semaine, envoyé au modèle.
+function buildWeekDigest({ wkStart, wkEnd, weekDays, habits, sessions, todosWeek, dailyEntries, objs, stats }) {
+  const L = [];
+  L.push(`Semaine du ${wkStart} au ${wkEnd}.`);
+  L.push("");
+  L.push("## Travail");
+  L.push(`${fmtHM(stats.sessionsMins)} de travail profond sur ${sessions.length} session(s).`);
+  const byType = {};
+  sessions.forEach(s => { byType[s.type || "?"] = (byType[s.type || "?"] || 0) + (s.temps || 0); });
+  if (Object.keys(byType).length) L.push("Répartition : " + Object.entries(byType).map(([k, v]) => `${k} ${fmtHM(v)}`).join(", ") + ".");
+  L.push("");
+  L.push("## Habitudes");
+  if (!habits.length) L.push("Aucune habitude suivie.");
+  habits.forEach(h => L.push(`- ${h.name} : ${weekDays.filter(d => habitValidated(h, d)).length}/7`));
+  L.push("");
+  L.push("## Jauges du daily (moyennes /5)");
+  L.push(`Énergie ${stats.avgEnergy ?? "—"}, focus ${stats.avgFocus ?? "—"}, stress ${stats.avgStress ?? "—"}, bonheur ${stats.avgHappy ?? "—"}. ${stats.dailyCount}/7 journaux remplis.`);
+  L.push("");
+  L.push("## Notes quotidiennes");
+  const wins = dailyEntries.filter(({ entry }) => entry.win);
+  const losses = dailyEntries.filter(({ entry }) => entry.loss);
+  const amel = dailyEntries.filter(({ entry }) => entry.ameliorer);
+  L.push(wins.length ? "WIN :\n" + wins.map(({ date, entry }) => `- ${date} : ${entry.win}`).join("\n") : "WIN : aucune note.");
+  L.push(losses.length ? "LOSS :\n" + losses.map(({ date, entry }) => `- ${date} : ${entry.loss}`).join("\n") : "LOSS : aucune note.");
+  if (amel.length) L.push("À améliorer :\n" + amel.map(({ date, entry }) => `- ${date} : ${entry.ameliorer}`).join("\n"));
+  L.push("");
+  L.push("## Projets terminés");
+  L.push(todosWeek.length ? todosWeek.map(t => `- ${t.name}`).join("\n") : "Aucun.");
+  L.push("");
+  L.push("## Objectifs de la semaine");
+  L.push(objs.length
+    ? objs.map(o => `- ${o.title} : ${o.completed ? "validé" : o.partial ? "partiel" : o.missed ? "raté" : "sans statut"}${o.note ? ` (${o.note})` : ""}`).join("\n")
+    : "Aucun objectif posé.");
+  return L.join("\n");
+}
+
+function useWeeklyAI(wkStart, buildDigest, enabled) {
+  const [ai, setAi] = useState(() => (getLS(AI_LS_KEY, {}) || {})[wkStart] || null);
+  const [aiLoading, setLoading] = useState(false);
+  const [aiError, setError] = useState(null);
+  const done = useRef(false);
+
+  const run = useCallback(async (force) => {
+    if (aiLoading) return;
+    setLoading(true); setError(null);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) throw new Error("no_session");
+      const r = await fetch("/api/weekly-summary", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ digest: buildDigest() }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `http_${r.status}`);
+      const out = await r.json();
+      setAi(out);
+      const store = getLS(AI_LS_KEY, {}) || {};
+      setLS(AI_LS_KEY, { ...store, [wkStart]: { ...out, generatedAt: new Date().toISOString() } });
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }, [wkStart, buildDigest, aiLoading]);
+
+  // Une seule génération automatique par semaine ; ensuite c'est le cache.
+  useEffect(() => {
+    if (done.current || ai || !enabled) return;
+    done.current = true;
+    run(false);
+  }, [ai, enabled, run]);
+
+  return { ai, aiLoading, aiError, regenerate: () => run(true) };
+}
+
+function AISummaryCard({ tone, title, text, loading, error }) {
+  const C = CF, FONT_D = CF_FONT;
+  return (
+    <div style={{
+      padding: "16px 18px", borderRadius: 16, background: C.surface2,
+      border: `1px solid ${tone}55`, borderLeft: `4px solid ${tone}`,
+      boxShadow: `0 0 22px ${tone}22, inset 0 0 40px ${tone}0d`,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <span style={{ fontFamily: FONT_D, fontSize: 12, fontWeight: 800, color: tone, textTransform: "uppercase", letterSpacing: "0.14em", textShadow: `0 0 12px ${tone}99` }}>{title}</span>
+        <span style={{ flex: 1, height: 1, background: `linear-gradient(90deg, ${tone}66, transparent)` }} />
+        <span style={{ fontSize: 9, color: C.faint, textTransform: "uppercase", letterSpacing: "0.1em" }}>résumé IA</span>
+      </div>
+      <div style={{ fontSize: 13, lineHeight: 1.65, color: loading || error || !text ? C.faint : C.text, fontStyle: loading || error || !text ? "italic" : "normal" }}>
+        {loading ? "Analyse de ta semaine…" : error ? "Résumé indisponible." : text || "Pas assez de données cette semaine."}
+      </div>
+    </div>
+  );
+}
+
 function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const wkEnd = weekEnd(wkStart);
@@ -5269,6 +5485,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const [wrLoss, setWrLoss] = useState(existing?.loss || "");
   const [wrAmeliorer, setWrAmeliorer] = useState(existing?.ameliorer || "");
   const [wrCustomItems, setWrCustomItems] = useState(existing?.customItems || []);
+  const [wrHabitAdjust, setWrHabitAdjust] = useState(existing?.habitAdjust || "");
   const [weeklyObjs, setWeeklyObjs] = useState(() => getLS("lp_weekly_objectives", []));
   const [newObjInput, setNewObjInput] = useState("");
   const [editObjId, setEditObjId] = useState(null);
@@ -5323,8 +5540,17 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const fmtD = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long"});
   const fmtDshort = d => new Date(d+"T12:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
 
+  // ── Synthèse IA (résumés WIN/LOSS + suggestions de pré-remplissage)
+  const buildDigest = useCallback(() => buildWeekDigest({
+    wkStart, wkEnd, weekDays, habits, sessions: sessionsWeek, todosWeek, dailyEntries,
+    objs: currentObjs,
+    stats: { sessionsMins, dailyCount, avgEnergy, avgFocus, avgStress, avgHappy },
+  }), [wkStart, wkEnd, habits, sessionsWeek, todosWeek, dailyCount, sessionsMins, avgEnergy, avgFocus, avgStress, avgHappy]);
+  const hasWeekData = sessionsWeek.length > 0 || dailyCount > 0 || habits.length > 0;
+  const { ai, aiLoading, aiError, regenerate } = useWeeklyAI(wkStart, buildDigest, hasWeekData);
+
   // Y a-t-il qqch à sauver ? (évite reviews vides)
-  const isDirty = !!(existing || note || wrWin || wrLoss || wrAmeliorer || wrCustomItems.length);
+  const isDirty = !!(existing || note || wrWin || wrLoss || wrAmeliorer || wrHabitAdjust || wrCustomItems.length);
 
   // Persistance LS seule (safe hors render / unmount)
   const persistReview = () => {
@@ -5333,6 +5559,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
       id: existing?.id || uid(),
       weekStart: wkStart, weekEnd: wkEnd,
       note, win: wrWin, loss: wrLoss, ameliorer: wrAmeliorer, customItems: wrCustomItems,
+      habitAdjust: wrHabitAdjust,
       summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress, avgHappy },
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -5470,6 +5697,36 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             </WRSection>
           )}
 
+          {/* ── REGISTRE DE LA SEMAINE — effet cumulé, lecture seule ── */}
+          {habits.length > 0 && (
+            <WRSection title="Registre de la semaine">
+              {habits
+                .map(h => ({ h, n: weekDays.filter(d => habitValidated(h, d)).length }))
+                .sort((a, b) => a.n - b.n || (a.h.name || "").localeCompare(b.h.name || ""))
+                .map(({ h, n }) => {
+                  const col = n === 7 ? C.green : n >= 4 ? C.amber : C.red;
+                  return (
+                    <div key={h.id} style={{display:"flex",alignItems:"center",gap:12,padding:"9px 2px"}}>
+                      <span style={{fontSize:17,flexShrink:0}}>{h.emoji || "•"}</span>
+                      <span style={{flex:1,minWidth:0,fontSize:13,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{h.name}</span>
+                      <div style={{width:96,flexShrink:0,height:4,borderRadius:999,background:C.surface3,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:`${n/7*100}%`,background:col,borderRadius:999}} />
+                      </div>
+                      <span style={{flexShrink:0,minWidth:34,textAlign:"right",fontSize:12,fontWeight:700,color:col,fontVariantNumeric:"tabular-nums"}}>{n}/7</span>
+                    </div>
+                  );
+                })}
+              <div style={{marginTop:14,padding:16,background:C.surface2,borderRadius:14,borderLeft:`4px solid ${C.accent}`}}>
+                <label style={{display:"block",fontSize:11,fontWeight:700,color:C.accent,textTransform:"uppercase",letterSpacing:1,marginBottom:8}}>
+                  Quelle habitude j'ajuste la semaine prochaine ?
+                </label>
+                <textarea value={wrHabitAdjust} onChange={e=>!locked&&setWrHabitAdjust(e.target.value)} readOnly={locked}
+                  placeholder={locked?"Verrouillé.":"L'habitude à ajuster, et comment..."} rows={2}
+                  style={{width:"100%",background:"transparent",border:"none",color:locked?C.muted:C.text,resize:"vertical",fontFamily:"inherit",fontSize:13,lineHeight:1.6,outline:"none",boxSizing:"border-box",cursor:locked?"default":"text"}} />
+              </div>
+            </WRSection>
+          )}
+
           {/* ── DAILY TRACKER ── */}
           {dailyCount > 0 && (
             <WRSection title="Daily Tracker">
@@ -5524,19 +5781,11 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                   );
                 })}
               </div>
-              {/* Reflexions notables */}
-              {dailyEntries.filter(({entry:e})=>e.win).map(({date,entry:e})=>(
-                <div key={date+"w"} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.green}`}}>
-                  <div style={{fontSize:10,color:C.green,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — WIN</div>
-                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.win}</div>
-                </div>
-              ))}
-              {dailyEntries.filter(({entry:e})=>e.loss).map(({date,entry:e})=>(
-                <div key={date+"l"} style={{marginTop:8,padding:"10px 14px",background:C.surface2,borderRadius:10,border:`1px solid ${C.border}`,borderLeft:`3px solid ${C.red}`}}>
-                  <div style={{fontSize:10,color:C.red,fontWeight:600,marginBottom:4}}>{fmtDshort(date)} — LOSS</div>
-                  <div style={{fontSize:12,color:C.muted,lineHeight:1.6}}>{e.loss}</div>
-                </div>
-              ))}
+              {/* Synthèse IA — remplace la liste jour par jour des WIN/LOSS */}
+              <div className="wr-ai-split">
+                <AISummaryCard kind="win"  tone={C.green} title="WIN"  text={ai?.winSummary}  loading={aiLoading} error={aiError} />
+                <AISummaryCard kind="loss" tone={C.red}   title="LOSS" text={ai?.lossSummary} loading={aiLoading} error={aiError} />
+              </div>
             </WRSection>
           )}
 
@@ -5626,16 +5875,31 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           {/* ── RÉTROSPECTIVE ── */}
           <WRSection title="RÉTROSPECTIVE">
             {[
-              {key:'win',label:'WIN',icon:'🏆',color:'#10b981',setter:setWrWin,val:wrWin,ph:'Victoires de la semaine...'},
-              {key:'loss',label:'LOSS',icon:'💔',color:'#ef4444',setter:setWrLoss,val:wrLoss,ph:'Ce qui n\'a pas marché...'},
-              {key:'ameliorer',label:'À AMÉLIORER',icon:'🔧',color:'#3b82f6',setter:setWrAmeliorer,val:wrAmeliorer,ph:'Ce que tu veux améliorer...'},
-            ].map(({label,icon,color,setter,val,ph})=>(
+              {key:'win',label:'WIN',icon:'🏆',color:'#10b981',setter:setWrWin,val:wrWin,ph:'Victoires de la semaine...',hint:ai?.suggestWin},
+              {key:'loss',label:'LOSS',icon:'💔',color:'#ef4444',setter:setWrLoss,val:wrLoss,ph:'Ce qui n\'a pas marché...',hint:ai?.suggestLoss},
+              {key:'ameliorer',label:'À AMÉLIORER',icon:'🔧',color:'#3b82f6',setter:setWrAmeliorer,val:wrAmeliorer,ph:'Ce que tu veux améliorer...',hint:ai?.suggestAmeliorer},
+            ].map(({label,icon,color,setter,val,ph,hint})=>(
               <div key={label} style={{borderLeft:`4px solid ${color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
                 <label style={{color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{icon} {label}</label>
-                <textarea value={val} onChange={e=>!locked&&setter(e.target.value)} readOnly={locked} placeholder={locked?"Verrouillé.":ph}
+                <textarea value={val} onChange={e=>!locked&&setter(e.target.value)} readOnly={locked}
+                  placeholder={locked?"Verrouillé.":(hint||(aiLoading?"Analyse de ta semaine…":ph))}
                   rows={3} style={{width:'100%',background:'transparent',border:'none',color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box',cursor:locked?'default':'text'}} />
+                {/* Suggestion IA en gris : cliquable pour la reprendre telle quelle */}
+                {!locked && hint && !val && (
+                  <button onClick={()=>setter(hint)} style={{marginTop:8,background:'transparent',border:'none',padding:0,cursor:'pointer',fontFamily:'inherit',fontSize:11,color:C.faint,textDecoration:'underline'}}>
+                    Utiliser la suggestion
+                  </button>
+                )}
               </div>
             ))}
+            {!locked && (
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:12}}>
+                <span style={{fontSize:10.5,color:C.faint,flex:1}}>Suggestions générées à partir de ta semaine (travail, daily, habitudes). À corriger librement.</span>
+                <button onClick={regenerate} disabled={aiLoading} style={{flexShrink:0,background:'transparent',border:`1px solid ${C.border}`,borderRadius:999,padding:'5px 12px',cursor:aiLoading?'wait':'pointer',fontFamily:'inherit',fontSize:11,color:C.muted}}>
+                  {aiLoading?'…':'Régénérer'}
+                </button>
+              </div>
+            )}
             {wrCustomItems.map(item=>(
               <div key={item.id} style={{borderLeft:`4px solid ${C.borderMid}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
@@ -6416,7 +6680,7 @@ export default function App({ session, signOut }) {
       onTouchEnd={onTouchEnd}
     >
       <div key={`${module}-${persoKey}`} className="fade-in">
-        {module === "dashboard" && <Dashboard onNav={navTo} onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
+        {module === "dashboard" && <Dashboard onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
         {module === "objectifs" && <ObjectifsModule initialTab={objTab} />}
         {module === "habitudes" && <HabitudesModule />}
         {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}

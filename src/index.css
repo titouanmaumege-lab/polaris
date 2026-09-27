@@ -183,22 +183,11 @@ button:active {
 .habit-pulse { animation: habitPulse 0.3s ease; }
 .habit-shake { animation: habitShake 0.35s ease; }
 
-/* Dashboard layout — mobile single column, desktop 2 columns (Lumen Protocol) */
+/* Home — colonne unique, centrée ; desktop plus large */
 .dash-wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 110px; }
-.dash-hero { display: flex; flex-direction: column; gap: 4px; }
-.dash-quick { margin: 16px 0; }
-.dash-cols { display: flex; flex-direction: column; }
-.dash-col { display: flex; flex-direction: column; }
 
 @media (min-width: 900px) {
   .dash-wrap { max-width: none; padding: 40px 48px 120px; }
-  .dash-hero {
-    display: grid; grid-template-columns: 1fr auto auto; gap: 40px;
-    align-items: center;
-  }
-  .dash-quick { margin: 0; }
-  .dash-hero .dash-ring { margin: 0 !important; justify-content: flex-end; }
-  .dash-cols { display: grid; grid-template-columns: 1.4fr 1fr; gap: 56px; align-items: start; }
 }
 
 /* Objectifs — grille de cartes compactes (SVG art garde ses proportions) */
@@ -229,21 +218,9 @@ button:active {
   background: var(--line, rgba(139,92,246,0.4));
 }
 
-/* HOME — bloc objectifs pleine largeur */
-.home-chrono-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-.home-month-grid  { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; }
-.home-week-grid   { display: grid; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 680px) { .home-month-grid, .home-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 430px) { .home-month-grid { grid-template-columns: 1fr; } .home-chrono-grid { gap: 8px; } .home-week-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-
-/* Habits — full width, multi-column on desktop */
-.habit-grid { display: flex; flex-direction: column; }
-@media (min-width: 900px) {
-  .habit-grid { display: grid; grid-template-columns: repeat(2, 1fr); column-gap: 56px; }
-}
-@media (min-width: 1400px) {
-  .habit-grid { grid-template-columns: repeat(3, 1fr); }
-}
+/* Weekly Review — synthèse IA WIN / LOSS côte à côte */
+.wr-ai-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+@media (max-width: 700px) { .wr-ai-split { grid-template-columns: 1fr; } }
 
 /* Calendar — day-segmented grid (Lumen Protocol) */
 .cal-board { display: flex; flex-direction: column; }
@@ -294,18 +271,5 @@ button:active {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-}
-
-.dashboard-split {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-@media (max-width: 700px) {
-  .dashboard-split {
-    grid-template-columns: 1fr;
   }
 }
