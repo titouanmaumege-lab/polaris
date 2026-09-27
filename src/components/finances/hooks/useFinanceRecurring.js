@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 import { pad, todayStr, monthKey, monthBounds } from "../../../utils/date";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
@@ -29,10 +30,18 @@ export function monthlyCostOf(r) {
   return (Number(r.amount) * base) / iv;
 }
 
-const FREQ_LABEL = { jour: "jour", semaine: "semaine", mois: "mois", annee: "an" };
+// « semaine » est féminin et « mois » invariable : une seule table de libellés
+// évite les « Tous les semaines » et « Tous les moiss » de la version précédente.
+const FREQ_LABEL = {
+  jour:    { one: "Tous les jours",      many: n => `Tous les ${n} jours` },
+  semaine: { one: "Toutes les semaines", many: n => `Toutes les ${n} semaines` },
+  mois:    { one: "Tous les mois",       many: n => `Tous les ${n} mois` },
+  annee:   { one: "Tous les ans",        many: n => `Tous les ${n} ans` },
+};
 export function recurrenceLabel(r) {
   const iv = Math.max(1, r.interval || 1);
-  return iv === 1 ? `Tous les ${FREQ_LABEL[r.freq]}s`.replace("ans", "ans") : `Tous les ${iv} ${FREQ_LABEL[r.freq]}s`;
+  const f = FREQ_LABEL[r.freq] || FREQ_LABEL.mois;
+  return iv === 1 ? f.one : f.many(iv);
 }
 
 export function useFinanceRecurring(userId) {
@@ -71,15 +80,18 @@ export function useFinanceRecurring(userId) {
       freq: r.freq, interval: r.interval ?? 1,
       day_of_month: r.day_of_month ?? null, weekday: r.weekday ?? null, month_of_year: r.month_of_year ?? null,
       next_occurrence: r.next_occurrence, active: r.active ?? true,
+      revenu_kind: r.type === "revenu" ? (r.revenu_kind || null) : null,
+      employer_id: r.type === "revenu" && r.revenu_kind === "salaire" ? (r.employer_id || null) : null,
+      aide_type_id: r.type === "revenu" && r.revenu_kind === "aides_sociales" ? (r.aide_type_id || null) : null,
     }).select().single();
-    if (error) { console.error("createRecurring error:", error); return null; }
+    if (error) { setFinanceError("createRecurring error:", error); return null;  }
     await fetch();
     return data;
   };
 
   const updateRecurring = async (id, patch) => {
     const { error } = await supabase.from("finance_recurring").update(patch).eq("id", id);
-    if (error) { console.error("updateRecurring error:", error); return; }
+    if (error) { setFinanceError("updateRecurring error:", error); return;  }
     await fetch();
   };
 
@@ -116,6 +128,11 @@ export function useFinanceRecurring(userId) {
             category_id: rec.type === "transfert" ? null : rec.category_id,
             type: rec.type, amount: rec.amount, date: nextOcc,
             note: rec.label, source: "recurrent", recurring_id: rec.id,
+            // Un revenu récurrent transmet sa nature, sinon il arriverait
+            // « non classé » dans le bilan à chaque échéance.
+            revenu_kind: rec.type === "revenu" ? (rec.revenu_kind || null) : null,
+            employer_id: rec.type === "revenu" && rec.revenu_kind === "salaire" ? (rec.employer_id || null) : null,
+            aide_type_id: rec.type === "revenu" && rec.revenu_kind === "aides_sociales" ? (rec.aide_type_id || null) : null,
           });
           dates.add(nextOcc);
         }
@@ -146,7 +163,7 @@ export function useFinanceRecurring(userId) {
       category_id: rec.type === "transfert" ? null : rec.category_id,
       type: rec.type, amount: rec.amount, date, note: rec.label, source: "recurrent", recurring_id: rec.id,
     });
-    if (error) { console.error("toggleSubscriptionPaid insert error:", error); return null; }
+    if (error) { setFinanceError("toggleSubscriptionPaid insert error:", error); return null;  }
     await fetch(); emitChange();
     return true;
   };

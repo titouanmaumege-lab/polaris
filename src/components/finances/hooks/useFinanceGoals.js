@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
 
@@ -36,14 +37,14 @@ export function useFinanceGoals(userId) {
       deadline: g.deadline ?? null, color: g.color ?? null, icon: g.icon ?? null,
       sort_order: goals.length,
     }).select().single();
-    if (error) { console.error("createGoal error:", error); return null; }
+    if (error) { setFinanceError("createGoal error:", error); return null;  }
     await fetch();
     return data;
   };
 
   const updateGoal = async (id, patch) => {
     const { error } = await supabase.from("finance_goals").update(patch).eq("id", id);
-    if (error) { console.error("updateGoal error:", error); return; }
+    if (error) { setFinanceError("updateGoal error:", error); return;  }
     await fetch();
   };
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 import { monthBounds, monthKey } from "../../../utils/date";
 
 // Budgets PAR MOIS (year + month 1-12) + dépensé du mois (calcul client).
@@ -41,7 +42,7 @@ export function useFinanceBudgets(userId, ym = monthKey()) {
     const { error } = await supabase.from("finance_budgets")
       .upsert({ user_id: userId, category_id, amount, year: y, month: m },
         { onConflict: "user_id,category_id,year,month" });
-    if (error) { console.error("upsertBudget error:", error); return null; }
+    if (error) { setFinanceError("upsertBudget error:", error); return null;  }
     await fetch();
   };
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 
 // Positions d'investissement tenues manuellement (prix actuel mis à jour à la main).
 export function useFinanceInvestments(userId) {
@@ -34,14 +35,14 @@ export function useFinanceInvestments(userId) {
       quantity: inv.quantity ?? 0, avg_buy_price: inv.avg_buy_price ?? 0,
       current_price: inv.current_price ?? 0, currency: inv.currency ?? "EUR",
     }).select().single();
-    if (error) { console.error("createInvestment error:", error); return null; }
+    if (error) { setFinanceError("createInvestment error:", error); return null;  }
     await fetch();
     return data;
   };
 
   const updateInvestment = async (id, patch) => {
     const { error } = await supabase.from("finance_investments").update(patch).eq("id", id);
-    if (error) { console.error("updateInvestment error:", error); return; }
+    if (error) { setFinanceError("updateInvestment error:", error); return;  }
     await fetch();
   };
 

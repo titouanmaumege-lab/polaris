@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 
 // Catégories de dépenses / revenus.
 export function useFinanceCategories(userId) {
@@ -21,7 +22,7 @@ export function useFinanceCategories(userId) {
     const { data, error } = await supabase.from("finance_categories").insert({
       user_id: userId, name, kind, color, icon, sort_order: siblings.length,
     }).select().single();
-    if (error) { console.error("createCategory error:", error); return null; }
+    if (error) { setFinanceError("createCategory error:", error); return null;  }
     if (data) setCategories(c => [...c, data]);
     return data;
   };
@@ -29,7 +30,7 @@ export function useFinanceCategories(userId) {
   const updateCategory = async (id, patch) => {
     const { data, error } = await supabase.from("finance_categories")
       .update(patch).eq("id", id).select().single();
-    if (error) { console.error("updateCategory error:", error); return null; }
+    if (error) { setFinanceError("updateCategory error:", error); return null;  }
     if (data) setCategories(c => c.map(x => x.id === id ? data : x));
     return data;
   };

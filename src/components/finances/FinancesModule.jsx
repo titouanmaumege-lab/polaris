@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
 import { useFinanceAccounts } from "./hooks/useFinanceAccounts";
+import { useFinanceEmployers } from "./hooks/useFinanceEmployers";
+import { onFinanceError, getFinanceError, clearFinanceError, isSchemaError, financeErrorText } from "./hooks/financeError";
 import { useFinanceCategories } from "./hooks/useFinanceCategories";
 import { useFinanceTransactions } from "./hooks/useFinanceTransactions";
 import { useFinanceBudgets } from "./hooks/useFinanceBudgets";
 import { useFinanceGoals } from "./hooks/useFinanceGoals";
 import { useFinanceInvestments } from "./hooks/useFinanceInvestments";
 import { useFinanceDebts } from "./hooks/useFinanceDebts";
-import { useFinanceRecurring, advanceOccurrence } from "./hooks/useFinanceRecurring";
+import { useFinanceRecurring, advanceOccurrence, recurrenceLabel } from "./hooks/useFinanceRecurring";
 import { todayStr, monthKey } from "../../utils/date";
 import { C, GRAD } from "../../ui/tokens";
 
@@ -34,10 +36,30 @@ const ESETS = {
 };
 const ALL_E = Object.values(ESETS).flat();
 
-const UIFREQ = [["monthly","Mensuelle"],["weekly","Hebdomadaire"],["quarterly","Trimestrielle"],["yearly","Annuelle"]];
-const FREQ_FR = { monthly:"Mensuelle", weekly:"Hebdomadaire", quarterly:"Trimestrielle", yearly:"Annuelle" };
-const toFreq = (ui) => ui==="weekly" ? {freq:"semaine",interval:1} : ui==="quarterly" ? {freq:"mois",interval:3} : ui==="yearly" ? {freq:"annee",interval:1} : {freq:"mois",interval:1};
-const fromFreq = (r) => r.freq==="semaine" ? "weekly" : r.freq==="annee" ? "yearly" : (r.freq==="mois" && r.interval===3) ? "quarterly" : "monthly";
+// Nature d'un revenu. Volontairement figée en dur : c'est la clé du dashboard,
+// contrairement aux catégories que l'utilisateur peut renommer.
+const REVENU_KINDS = [
+  ["salaire",          "Salaire",          "💼"],
+  ["aides_sociales",   "Aides sociales",   "🏛"],
+  ["aides_familiales", "Aides familiales", "👨‍👩‍👧"],
+  ["entreprise",       "Entreprise",       "🏢"],
+  ["autre",            "Autre",            "•"],
+];
+const REVENU_KIND_LABEL = Object.fromEntries(REVENU_KINDS.map(([v, l]) => [v, l]));
+
+const UIFREQ = [["monthly","Mensuelle"],["weekly","Hebdomadaire"],["nweeks","Toutes les N semaines"],["quarterly","Trimestrielle"],["yearly","Annuelle"]];
+// `weeks` ne sert que pour "nweeks" (toutes les N semaines). Le reste du
+// modèle gérait déjà n'importe quel interval : seule l'UI le verrouillait à 1.
+const toFreq = (ui, weeks = 2) =>
+  ui==="weekly"    ? {freq:"semaine",interval:1} :
+  ui==="nweeks"    ? {freq:"semaine",interval:Math.min(52,Math.max(1,parseInt(weeks,10)||1))} :
+  ui==="quarterly" ? {freq:"mois",interval:3} :
+  ui==="yearly"    ? {freq:"annee",interval:1} :
+                     {freq:"mois",interval:1};
+const fromFreq = (r) =>
+  r.freq==="semaine" ? ((r.interval ?? 1) > 1 ? "nweeks" : "weekly") :
+  r.freq==="annee"   ? "yearly" :
+  (r.freq==="mois" && r.interval===3) ? "quarterly" : "monthly";
 
 // ─── Donut SVG ────────────────────────────────────────────────────────────────
 function Donut({ data, total, size = 160 }) {
@@ -116,8 +138,21 @@ export default function FinancesModule({ userId }) {
   const [ym, setYm] = useState(monthKey());
   const [toast, setToast] = useState("");
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(""), 2400); };
+  // Une écriture qui échoue doit se voir : avant, l'UI disait « Modifié » quand
+  // Supabase avait refusé l'écriture.
+  const [dbError, setDbError] = useState(getFinanceError());
+  useEffect(() => onFinanceError(setDbError), []);
+  // Renvoie true si l'opération a réussi, sinon affiche la vraie raison.
+  const ok = (result) => {
+    const e = getFinanceError();
+    if (result === null || result === false || result === undefined) {
+      if (e) { showToast(financeErrorText(e)); return false; }
+    }
+    return true;
+  };
 
   const acc = useFinanceAccounts(userId);
+  const emp = useFinanceEmployers(userId);
   const cat = useFinanceCategories(userId);
   const tx = useFinanceTransactions(userId);
   const bud = useFinanceBudgets(userId, ym);
@@ -130,8 +165,13 @@ export default function FinancesModule({ userId }) {
 
   const getCat = (id) => cat.categories.find(c => c.id === id) || { name: "—", icon: "📦", color: C.muted };
   const getAcc = (id) => acc.accounts.find(a => a.id === id);
-  const expCats = cat.categories.filter(c => c.kind === "depense");
-  const incCats = cat.categories.filter(c => c.kind === "revenu");
+  const expCats  = cat.categories.filter(c => c.kind === "depense");
+  const incCats  = cat.categories.filter(c => c.kind === "revenu");
+  const aideCats = cat.categories.filter(c => c.kind === "aide");
+  const liquidAcc = acc.accounts.filter(a => (a.nature || "liquidite") === "liquidite");
+  const investAcc = acc.accounts.filter(a => a.nature === "investissement");
+  const liquidTotal = liquidAcc.reduce((s, a) => s + (a.balance ?? 0), 0);
+  const investTotal = investAcc.reduce((s, a) => s + (a.balance ?? 0), 0);
 
   // ── Dérivés ───────────────────────────────────────────────────────────────
   const [yNum, mNum] = ym.split("-").map(Number);
@@ -143,6 +183,53 @@ export default function FinancesModule({ userId }) {
   const pocketsTotal = goal.goals.reduce((s, g) => s + g.current_amount, 0);
   const netWorth = acc.totalBalance + pocketsTotal + inv.totalMarketValue;
 
+  // Revenus par nature — base du bloc « Revenus » du bilan.
+  // Les transactions antérieures à la migration 010 ont revenu_kind = null :
+  // elles sont comptées à part et signalées, jamais silencieusement ignorées.
+  const revStats = useMemo(() => {
+    const inYear = t => new Date(t.date).getFullYear() === yNum;
+    const inMonth = t => { const d = new Date(t.date); return d.getFullYear() === yNum && d.getMonth() + 1 === mNum; };
+    const revenus = tx.transactions.filter(t => t.type === "revenu");
+    const sum = a => a.reduce((s, t) => s + t.amount, 0);
+    const of = k => revenus.filter(t => t.revenu_kind === k);
+
+    const kind = {};
+    REVENU_KINDS.forEach(([k]) => {
+      const all = of(k);
+      kind[k] = { month: sum(all.filter(inMonth)), year: sum(all.filter(inYear)) };
+    });
+
+    // Salaires détaillés par employeur (+ ligne « non précisé »)
+    const sal = of("salaire");
+    const byEmp = emp.employers.map(e2 => ({
+      id: e2.id, name: e2.name, color: e2.color,
+      month: sum(sal.filter(t => t.employer_id === e2.id && inMonth(t))),
+      year:  sum(sal.filter(t => t.employer_id === e2.id && inYear(t))),
+    }));
+    const known = new Set(emp.employers.map(e2 => e2.id));
+    const orphan = sal.filter(t => !t.employer_id || !known.has(t.employer_id));
+    if (orphan.some(inYear)) byEmp.push({ id: "_none", name: "Non précisé", color: C.muted, month: sum(orphan.filter(inMonth)), year: sum(orphan.filter(inYear)) });
+
+    // CA entreprise mois par mois sur l'année sélectionnée
+    const ent = of("entreprise");
+    const caMonths = Array.from({ length: 12 }, (_, i) =>
+      sum(ent.filter(t => { const d = new Date(t.date); return d.getFullYear() === yNum && d.getMonth() === i; })));
+
+    // Aides sociales ventilées par sous-type créé par l'utilisateur
+    const aidesTx = of("aides_sociales");
+    const byAide = aideCats.map(c => ({
+      id: c.id, name: c.name, icon: c.icon, color: c.color,
+      month: sum(aidesTx.filter(t => t.aide_type_id === c.id && inMonth(t))),
+      year:  sum(aidesTx.filter(t => t.aide_type_id === c.id && inYear(t))),
+    })).filter(x => x.year > 0);
+    const knownAide = new Set(aideCats.map(c => c.id));
+    const aideOrphan = aidesTx.filter(t => !t.aide_type_id || !knownAide.has(t.aide_type_id));
+    if (aideOrphan.some(inYear)) byAide.push({ id: "_none", name: "Non précisé", color: C.muted, month: sum(aideOrphan.filter(inMonth)), year: sum(aideOrphan.filter(inYear)) });
+
+    const unclassified = revenus.filter(t => !t.revenu_kind && inYear(t));
+    return { kind, byEmp, byAide, caMonths, unclassified: unclassified.length, unclassifiedSum: sum(unclassified) };
+  }, [tx.transactions, emp.employers, aideCats, yNum, mNum]);
+
   const today0 = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const recDue = rec.recurring.filter(r => r.active && new Date(r.next_occurrence) <= new Date(today0.getTime() + 7 * 864e5));
   const recOverdue = recDue.filter(r => new Date(r.next_occurrence) < today0);
@@ -150,6 +237,10 @@ export default function FinancesModule({ userId }) {
 
   // ── Modales (état générique) ────────────────────────────────────────────────
   const [modal, setModal] = useState(null);   // kind string | null
+  const [settingsOpen, setSettingsOpen] = useState("dep");
+  const [delAcc, setDelAcc] = useState(null); // { account, impact } | null
+  const [delConfirm, setDelConfirm] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
   const [editing, setEditing] = useState(null); // objet édité | null
   const [f, setF] = useState({});
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
@@ -166,15 +257,15 @@ export default function FinancesModule({ userId }) {
   const openTx = (t = null) => {
     setEditing(t);
     setF(t
-      ? { type: t.type, amount: String(t.amount), note: t.note || "", category_id: t.category_id, account_id: t.account_id, transfer_account_id: t.transfer_account_id || null, date: t.date }
-      : { type: "depense", amount: "", note: "", category_id: expCats[0]?.id || null, account_id: acc.accounts[0]?.id || null, transfer_account_id: acc.accounts[1]?.id || null, date: todayStr() });
+      ? { type: t.type, amount: String(t.amount), note: t.note || "", category_id: t.category_id, account_id: t.account_id, transfer_account_id: t.transfer_account_id || null, date: t.date, revenu_kind: t.revenu_kind || "salaire", employer_id: t.employer_id || null, aide_type_id: t.aide_type_id || null }
+      : { type: "depense", amount: "", note: "", category_id: expCats[0]?.id || null, account_id: acc.accounts[0]?.id || null, transfer_account_id: acc.accounts[1]?.id || null, date: todayStr(), revenu_kind: "salaire", employer_id: emp.employers[0]?.id || null, aide_type_id: null });
     setModal("tx");
   };
   const openRec = (r = null) => {
     setEditing(r);
     setF(r
-      ? { type: r.type, label: r.label, amount: String(r.amount), category_id: r.category_id, uifreq: fromFreq(r), next: r.next_occurrence, account_id: r.account_id }
-      : { type: "depense", label: "", amount: "", category_id: expCats[0]?.id || null, uifreq: "monthly", next: todayStr(), account_id: acc.accounts[0]?.id || null });
+      ? { type: r.type, label: r.label, amount: String(r.amount), category_id: r.category_id, uifreq: fromFreq(r), weeks: String(r.freq === "semaine" ? (r.interval ?? 1) : 2), next: r.next_occurrence, account_id: r.account_id }
+      : { type: "depense", label: "", amount: "", category_id: expCats[0]?.id || null, uifreq: "monthly", weeks: "2", next: todayStr(), account_id: acc.accounts[0]?.id || null });
     setModal("rec");
   };
   const openDebt = (d = null) => {
@@ -202,7 +293,7 @@ export default function FinancesModule({ userId }) {
   };
   const openAccount = (a = null) => {
     setEditing(a);
-    setF(a ? { name: a.name, balance: String(a.balance) } : { name: "", balance: "" });
+    setF(a ? { name: a.name, balance: String(a.balance), nature: a.nature || "liquidite" } : { name: "", balance: "", nature: "liquidite" });
     setModal("account");
   };
   const openSettle = (d) => { setEditing(d); setF({ account_id: "", date: todayStr() }); setModal("settle"); };
@@ -223,16 +314,18 @@ export default function FinancesModule({ userId }) {
       transfer_account_id: f.type === "transfert" ? f.transfer_account_id : null,
       category_id: f.type === "transfert" ? null : f.category_id,
       type: f.type, amount, date: f.date, note: f.note,
+      revenu_kind: f.revenu_kind, employer_id: f.employer_id, aide_type_id: f.aide_type_id,
     };
-    if (editing) await tx.updateTransaction(editing.id, payload);
-    else await tx.createTransaction(payload);
+    clearFinanceError();
+    const r = editing ? await tx.updateTransaction(editing.id, payload) : await tx.createTransaction(payload);
+    if (!ok(r)) return;
     close(); showToast(editing ? "Modifié" : "Opération ajoutée");
   };
   const submitRec = async () => {
     const amount = parseAmount(f.amount);
     if (!f.label?.trim()) return showToast("Nom requis");
     if (!amount || amount <= 0) return showToast("Montant invalide");
-    const { freq, interval } = toFreq(f.uifreq);
+    const { freq, interval } = toFreq(f.uifreq, f.weeks);
     const payload = { label: f.label.trim(), type: f.type, amount, category_id: f.category_id, account_id: f.account_id, freq, interval, next_occurrence: f.next, is_subscription: false };
     if (editing) await rec.updateRecurring(editing.id, payload);
     else await rec.createRecurring(payload);
@@ -292,21 +385,55 @@ export default function FinancesModule({ userId }) {
     else await inv.createInvestment({ label: f.label.trim(), ticker: f.ticker || null, quantity: qty, avg_buy_price: buy, current_price: cur });
     close(); showToast(editing ? "Modifié" : "Position ajoutée");
   };
+  const openEmployer = (e = null) => { setEditing(e); setF(e ? { name: e.name } : { name: "" }); setModal("employer"); };
+  const submitEmployer = async () => {
+    if (!f.name?.trim()) return showToast("Nom requis");
+    clearFinanceError();
+    const r = editing
+      ? await emp.updateEmployer(editing.id, { name: f.name.trim() })
+      : await emp.createEmployer({ name: f.name.trim(), color: COLORS[emp.employers.length % COLORS.length] });
+    if (!ok(r)) return;
+    close(); showToast(editing ? "Modifié" : "Employeur ajouté");
+  };
+
+  const askDeleteAccount = async (account) => {
+    const impact = await acc.getAccountImpact(account.id);
+    setDelConfirm(""); setDelAcc({ account, impact }); setModal("delAccount");
+  };
+  const doArchiveAccount = async () => {
+    await acc.archiveAccount(delAcc.account.id);
+    setDelAcc(null); close(); showToast("Compte archivé");
+  };
+  const doDeleteAccount = async () => {
+    setDelBusy(true);
+    const r = await acc.deleteAccount(delAcc.account.id);
+    setDelBusy(false);
+    if (!r?.ok) return showToast(r?.error ? `Échec : ${r.error}` : "Échec de la suppression");
+    setDelAcc(null); close(); showToast("Compte supprimé");
+  };
+
   const submitAccount = async () => {
     const bal = parseAmount(f.balance);
     if (!f.name?.trim()) return showToast("Nom requis");
     if (editing) {
       const delta = editing.balance - Number(editing.initial_balance);
-      await acc.updateAccount(editing.id, { name: f.name.trim(), initial_balance: bal - delta });
+      clearFinanceError();
+      const r = await acc.updateAccount(editing.id, { name: f.name.trim(), initial_balance: bal - delta, nature: f.nature || "liquidite" });
+      if (!ok(r)) return;
     } else {
-      await acc.createAccount({ name: f.name.trim(), initial_balance: bal, color: COLORS[acc.accounts.length % COLORS.length] });
+      clearFinanceError();
+      const r = await acc.createAccount({ name: f.name.trim(), initial_balance: bal, nature: f.nature || "liquidite", color: COLORS[acc.accounts.length % COLORS.length] });
+      if (!ok(r)) return;
     }
     close(); showToast(editing ? "Modifié" : "Compte ajouté");
   };
   const submitCat = async () => {
     if (!f.name?.trim()) return showToast("Nom requis");
-    if (editing) await cat.updateCategory(editing.id, { name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji });
-    else await cat.createCategory({ name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji });
+    clearFinanceError();
+    const r = editing
+      ? await cat.updateCategory(editing.id, { name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji })
+      : await cat.createCategory({ name: f.name.trim(), kind: f.kind, color: f.color, icon: f.emoji });
+    if (!ok(r)) return;
     close(); showToast(editing ? "Modifié" : "Catégorie créée");
   };
 
@@ -365,6 +492,31 @@ export default function FinancesModule({ userId }) {
 
       {/* ── MAIN ── */}
       <div style={{ flex: 1, overflowY: "auto", padding: 32, paddingBottom: 100 }}>
+        {dbError && isSchemaError(dbError) && (
+          <div style={{ marginBottom: 18, padding: "14px 18px", borderRadius: 12,
+            background: `${C.red}14`, border: `1px solid ${C.red}55`, lineHeight: 1.65 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: C.red, marginBottom: 6 }}>
+              Base de données pas à jour — rien ne s'enregistre
+            </div>
+            <div style={{ fontSize: 12.5, color: C.muted }}>
+              Les colonnes ajoutées par les dernières fonctionnalités n'existent pas encore.
+              Applique dans le SQL Editor Supabase, dans l'ordre :
+              <b style={{ color: C.text }}> 010_finance_revenu_kind.sql</b>, puis
+              <b style={{ color: C.text }}> 011_finance_natures_aides.sql</b> (dossier <code>supabase/migrations/</code>).
+              <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 11, color: C.faint, wordBreak: "break-word" }}>
+                {dbError.where} — {dbError.message}
+              </div>
+            </div>
+          </div>
+        )}
+        {dbError && !isSchemaError(dbError) && (
+          <div style={{ marginBottom: 18, padding: "12px 16px", borderRadius: 11,
+            background: `${C.amber}14`, border: `1px solid ${C.amber}44`, fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+            <b style={{ color: C.amber }}>Dernière écriture refusée.</b>{" "}
+            <span style={{ fontFamily: MONO, fontSize: 11 }}>{dbError.where} — {dbError.message}</span>
+            <button onClick={clearFinanceError} style={{ marginLeft: 10, background: "none", border: "none", color: C.muted, cursor: "pointer", fontFamily: "inherit", fontSize: 11, textDecoration: "underline" }}>Masquer</button>
+          </div>
+        )}
         {section === "dash" && <Dash />}
         {section === "tx" && <TxView />}
         {section === "rec" && <RecView />}
@@ -554,7 +706,7 @@ export default function FinancesModule({ userId }) {
                     <tr key={r.id}>
                       <td style={{ ...tdSt, fontWeight: 500 }}>{r.label}</td>
                       <td style={tdSt}><span style={badgeSt(c.color)}>{c.icon} {c.name}</span></td>
-                      <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{FREQ_FR[fromFreq(r)]}</td>
+                      <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{recurrenceLabel(r)}</td>
                       <td style={{ ...tdSt, fontSize: 12 }}>{nd.toLocaleDateString("fr-FR")} <span style={{ color: col }}>{dtxt}</span></td>
                       <td style={{ ...tdSt, fontFamily: MONO, fontWeight: 600, textAlign: "right", color: r.type === "revenu" ? C.green : C.text }}>{r.type === "revenu" ? "+" : "-"}{fmtEUR(r.amount)}</td>
                       <td style={tdSt}><RowActions>{rowBtn("✓ Payer", () => payRec(r), C.green)}{rowBtn("✏️", () => openRec(r))}{rowBtn(r.active ? "⏸" : "▶", () => rec.toggleActive(r))}{rowBtn("✕", () => { rec.deleteRecurring(r.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
@@ -723,52 +875,225 @@ export default function FinancesModule({ userId }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".12em", marginBottom: 10 }}>Patrimoine net total</div>
           <div style={{ fontFamily: MONO, fontSize: 52, fontWeight: 800, letterSpacing: "-.02em", color: netWorth >= 0 ? C.green : C.red }}>{fmtEUR(netWorth)}</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18 }}>
-          <div style={cardSt}>
-            <div style={titleSt}>Comptes</div>
-            {acc.accounts.map(a => (
-              <div key={a.id} style={bilRowSt}>
-                <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color || C.accent }} />
-                <div style={{ flex: 1 }}>{a.name}</div>
-                {rowBtn("✏️", () => openAccount(a))}
-                <div style={{ fontFamily: MONO, fontWeight: 700, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</div>
-              </div>
-            ))}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18, alignItems: "stretch" }}>
+          <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
+            <div style={titleSt}>Comptes liquidité</div>
+            <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: liquidTotal >= 0 ? C.green : C.red, marginBottom: 12 }}>{fmtEUR(liquidTotal)}</div>
+            <div style={{ flex: 1 }}>
+              {!liquidAcc.length
+                ? <div style={{ color: C.faint, fontSize: 12 }}>Aucun compte de liquidité</div>
+                : liquidAcc.map(a => (
+                  <div key={a.id} style={bilRowSt}>
+                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color || C.accent }} />
+                    <div style={{ flex: 1 }}>{a.name}</div>
+                    {rowBtn("✏️", () => openAccount(a))}
+                    <div style={{ fontFamily: MONO, fontWeight: 700, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</div>
+                  </div>
+                ))}
+            </div>
             <Btn kind="g" small style={{ marginTop: 14 }} onClick={() => openAccount()}>+ Compte</Btn>
           </div>
-          <div style={cardSt}>
-            <div style={titleSt}>Poches</div>
-            {!goal.goals.length ? <div style={{ color: C.faint, fontSize: 12 }}>Aucune poche</div> : <>
-              {goal.goals.map(p => <div key={p.id} style={bilRowSt}><span>{p.icon || "🎯"}</span><div style={{ flex: 1 }}>{p.name}</div><div style={{ fontFamily: MONO, color: p.color || C.accent }}>{fmtEUR(p.current_amount)}</div></div>)}
-              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 12, borderTop: `1px solid ${C.border}`, fontWeight: 700 }}><div>Total</div><div style={{ fontFamily: MONO, color: C.green }}>{fmtEUR(pocketsTotal)}</div></div>
-            </>}
+
+          <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
+            <div style={titleSt}>Comptes investissement</div>
+            <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.accent, marginBottom: 12 }}>{fmtEUR(investTotal + inv.totalMarketValue)}</div>
+            <div style={{ flex: 1 }}>
+              {!investAcc.length && !inv.investments.length
+                ? <div style={{ color: C.faint, fontSize: 12, lineHeight: 1.6 }}>Aucun compte d'investissement. Change la nature d'un compte dans Paramètres.</div>
+                : (<>
+                  {investAcc.map(a => (
+                    <div key={a.id} style={bilRowSt}>
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color || C.accent }} />
+                      <div style={{ flex: 1 }}>{a.name}</div>
+                      {rowBtn("✏️", () => openAccount(a))}
+                      <div style={{ fontFamily: MONO, fontWeight: 700, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</div>
+                    </div>
+                  ))}
+                  {inv.investments.length > 0 && (
+                    <div style={{ ...bilRowSt, borderTop: `1px solid ${C.border}`, marginTop: 6, paddingTop: 12 }}>
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: C.green }} />
+                      <div style={{ flex: 1 }}>Titres PEA <span style={{ color: C.faint, fontSize: 11 }}>({inv.investments.length})</span></div>
+                      <div style={{ fontFamily: MONO, fontWeight: 700, color: C.green }}>{fmtEUR(inv.totalMarketValue)}</div>
+                    </div>
+                  )}
+                </>)}
+            </div>
           </div>
-          <div style={cardSt}>
-            <div style={titleSt}>PEA</div>
-            {!inv.investments.length ? <div style={{ color: C.faint, fontSize: 12 }}>Aucune position</div> : <>
-              {inv.investments.map(p => <div key={p.id} style={bilRowSt}><span style={{ fontFamily: MONO, fontSize: 11, color: C.muted }}>{p.ticker || "?"}</span><div style={{ flex: 1 }}>{p.label}</div><div style={{ fontFamily: MONO, color: p.pnl >= 0 ? C.green : C.red }}>{fmtEUR(p.market_value)}</div></div>)}
-              <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 12, borderTop: `1px solid ${C.border}`, fontWeight: 700 }}><div>Total</div><div style={{ fontFamily: MONO, color: C.green }}>{fmtEUR(inv.totalMarketValue)}</div></div>
-            </>}
+
+          <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
+            <div style={titleSt}>Poches</div>
+            <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.green, marginBottom: 12 }}>{fmtEUR(pocketsTotal)}</div>
+            <div style={{ flex: 1 }}>
+              {!goal.goals.length
+                ? <div style={{ color: C.faint, fontSize: 12 }}>Aucune poche</div>
+                : goal.goals.map(p => (
+                  <div key={p.id} style={bilRowSt}>
+                    <span>{p.icon || "🎯"}</span>
+                    <div style={{ flex: 1 }}>{p.name}</div>
+                    <div style={{ fontFamily: MONO, color: p.color || C.accent }}>{fmtEUR(p.current_amount)}</div>
+                  </div>
+                ))}
+            </div>
           </div>
         </div>
+
+        {/* ── REVENUS ─────────────────────────────────────────────────────── */}
+        {(() => {
+          const k = revStats.kind;
+          const monthName = new Date(yNum, mNum - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+          const Big = ({ v, c }) => <div style={{ fontFamily: MONO, fontSize: 30, fontWeight: 800, letterSpacing: "-.02em", color: c || C.text }}>{fmtEUR(v)}</div>;
+          const Sub = ({ children }) => <div style={{ fontSize: 11, color: C.faint, marginTop: 3 }}>{children}</div>;
+          const Row = ({ dot, label, value }) => (
+            <div style={bilRowSt}>
+              {dot && <span style={{ width: 8, height: 8, borderRadius: "50%", background: dot, flexShrink: 0 }} />}
+              <div style={{ flex: 1, fontSize: 13 }}>{label}</div>
+              <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600 }}>{fmtEUR(value)}</div>
+            </div>
+          );
+          const caMax = Math.max(1, ...revStats.caMonths);
+          return (
+            <div style={{ marginTop: 22 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".12em" }}>Revenus</div>
+                <div style={{ fontSize: 12, color: C.faint, textTransform: "capitalize" }}>{monthName}</div>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18 }}>
+                {/* Revenus professionnels = somme des salaires */}
+                <div style={cardSt}>
+                  <div style={titleSt}>Revenus professionnels</div>
+                  <Big v={k.salaire.month} c={C.green} />
+                  <Sub>Cumul {yNum} : <b style={{ color: C.muted }}>{fmtEUR(k.salaire.year)}</b></Sub>
+                  <div style={{ marginTop: 14 }}>
+                    {!revStats.byEmp.length
+                      ? <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.6 }}>Aucun employeur. Ajoute-en dans Réglages pour séparer plusieurs salaires.</div>
+                      : revStats.byEmp.map(e2 => <Row key={e2.id} dot={e2.color || C.green} label={e2.name} value={e2.month} />)}
+                  </div>
+                </div>
+
+                {/* Aides sociales, ventilées par sous-type */}
+                <div style={cardSt}>
+                  <div style={titleSt}>Aides sociales</div>
+                  <Big v={k.aides_sociales.month} c={C.accent} />
+                  <Sub>Cumul {yNum} : <b style={{ color: C.muted }}>{fmtEUR(k.aides_sociales.year)}</b></Sub>
+                  <div style={{ marginTop: 14 }}>
+                    {!revStats.byAide.length
+                      ? <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.6 }}>Aucune aide enregistrée cette année. Crée tes types d'aide dans Paramètres.</div>
+                      : revStats.byAide.map(a2 => <Row key={a2.id} dot={a2.color || C.accent} label={`${a2.icon ? a2.icon + " " : ""}${a2.name}`} value={a2.month} />)}
+                  </div>
+                </div>
+
+                {/* CA encaissé de l'entreprise */}
+                <div style={cardSt}>
+                  <div style={titleSt}>CA entreprise · encaissé</div>
+                  <Big v={k.entreprise.month} />
+                  <Sub>Cumul {yNum} : <b style={{ color: C.muted }}>{fmtEUR(k.entreprise.year)}</b></Sub>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 54, marginTop: 16 }}>
+                    {revStats.caMonths.map((v, i) => (
+                      <div key={i} title={`${new Date(yNum, i, 1).toLocaleDateString("fr-FR", { month: "long" })} · ${fmtEUR(v)}`}
+                        style={{ flex: 1, height: `${Math.max(2, v / caMax * 100)}%`, borderRadius: "3px 3px 0 0",
+                          background: i + 1 === mNum ? C.accent : `${C.accent}4d` }} />
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9.5, color: C.faint, marginTop: 5 }}>
+                    <span>janv.</span><span>déc.</span>
+                  </div>
+                </div>
+              </div>
+
+              {revStats.unclassified > 0 && (
+                <div style={{ marginTop: 14, padding: "11px 14px", borderRadius: 11, fontSize: 12.5, lineHeight: 1.6,
+                  background: `${C.amber}14`, border: `1px solid ${C.amber}44`, color: C.muted }}>
+                  <b style={{ color: C.amber }}>{revStats.unclassified} revenus sans nature</b> en {yNum}
+                  ({fmtEUR(revStats.unclassifiedSum)}) — ils ne sont comptés dans aucun bloc ci-dessus.
+                  Ouvre-les depuis Opérations pour leur donner une nature.
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </>
     );
   }
 
+  // Toutes les listes que tu crées toi-même, chacune dépliable.
+  function SettingsList({ id, title, hint, items, count, onAdd, addLabel, children }) {
+    const open = settingsOpen === id;
+    return (
+      <div style={{ ...cardSt, marginBottom: 12, padding: 0, overflow: "hidden" }}>
+        <button onClick={() => setSettingsOpen(open ? null : id)}
+          aria-expanded={open}
+          style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "16px 20px",
+            background: "transparent", border: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: C.text }}>{title}</span>
+          <span style={{ fontFamily: MONO, fontSize: 12, color: C.muted }}>{count}</span>
+          <span style={{ fontSize: 11, color: C.muted, transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+        </button>
+        {open && (
+          <div style={{ padding: "0 20px 18px" }}>
+            {hint && <div style={{ fontSize: 12, color: C.faint, lineHeight: 1.6, marginBottom: 12 }}>{hint}</div>}
+            {items}
+            {!count && <div style={{ fontSize: 12.5, color: C.faint, padding: "8px 0" }}>Liste vide.</div>}
+            {children}
+            <Btn kind="g" small style={{ marginTop: 14 }} onClick={onAdd}>{addLabel}</Btn>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function SettingsView() {
-    const renderCats = (kind) => cat.categories.filter(c => c.kind === kind).map(c => (
+    const catRow = (c) => (
       <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: `1px solid ${C.border}` }}>
         <span style={{ width: 12, height: 12, borderRadius: 3, background: c.color || C.muted }} />
         <span style={{ fontSize: 17 }}>{c.icon}</span>
         <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{c.name}</div>
         <RowActions>{rowBtn("✏️", () => openCat(c))}{rowBtn("✕", () => { cat.archiveCategory(c.id); showToast("Supprimé"); }, C.red)}</RowActions>
       </div>
-    ));
+    );
+    const openCatKind = (kind) => { setEditing(null); setF({ kind, emoji: "📦", name: "", color: COLORS[0] }); setModal("cat"); };
+
     return (
       <>
-        <PageHead title="Paramètres" sub="Catégories personnalisées" action={<Btn small onClick={openCat}>+ Catégorie</Btn>} />
-        <div style={cardSt}><div style={titleSt}>Dépenses</div>{renderCats("depense")}</div>
-        <div style={{ ...cardSt, marginTop: 14 }}><div style={titleSt}>Revenus</div>{renderCats("revenu")}</div>
+        <PageHead title="Paramètres" sub="Tes listes personnalisées" />
+
+        <SettingsList id="dep" title="Types de dépense" count={expCats.length}
+          hint="Les catégories proposées quand tu saisis une dépense."
+          items={expCats.map(catRow)} onAdd={() => openCatKind("depense")} addLabel="+ Type de dépense" />
+
+        <SettingsList id="rev" title="Types de revenu" count={incCats.length}
+          hint="Les catégories proposées quand tu saisis un revenu. À ne pas confondre avec la nature du revenu (salaire, aides, entreprise…), qui est figée et pilote le bilan."
+          items={incCats.map(catRow)} onAdd={() => openCatKind("revenu")} addLabel="+ Type de revenu" />
+
+        <SettingsList id="aide" title="Types d'aide sociale" count={aideCats.length}
+          hint="Sous-types du revenu « Aides sociales » : APL, RSA, prime d'activité… Ils détaillent le bloc Aides du bilan."
+          items={aideCats.map(catRow)} onAdd={() => openCatKind("aide")} addLabel="+ Type d'aide" />
+
+        <SettingsList id="emp" title="Employeurs" count={emp.employers.length}
+          hint="Chaque salaire peut être rattaché à un employeur. Le bilan les détaille puis les additionne."
+          items={emp.employers.map(e2 => (
+            <div key={e2.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: e2.color || C.green }} />
+              <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{e2.name}</div>
+              <RowActions>{rowBtn("✏️", () => openEmployer(e2))}{rowBtn("✕", async () => { await emp.archiveEmployer(e2.id); showToast("Archivé"); }, C.red)}</RowActions>
+            </div>
+          ))} onAdd={() => openEmployer()} addLabel="+ Employeur" />
+
+        <SettingsList id="acc" title="Comptes" count={acc.accounts.length}
+          hint="Chaque compte est une liquidité ou un support d'investissement. Le bilan sépare les deux."
+          items={acc.accounts.map(a => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: `1px solid ${C.border}` }}>
+              <span style={{ width: 12, height: 12, borderRadius: 3, background: a.color || C.accent }} />
+              <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{a.name}</div>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: a.nature === "investissement" ? C.accent : C.muted,
+                background: a.nature === "investissement" ? `${C.accent}1f` : C.surface2,
+                border: `1px solid ${C.border}`, borderRadius: 999, padding: "2px 8px" }}>
+                {a.nature === "investissement" ? "Investissement" : "Liquidité"}
+              </span>
+              <span style={{ fontFamily: MONO, fontSize: 13, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</span>
+              <RowActions>{rowBtn("✏️", () => openAccount(a))}</RowActions>
+            </div>
+          ))} onAdd={() => openAccount()} addLabel="+ Compte" />
       </>
     );
   }
@@ -802,6 +1127,57 @@ export default function FinancesModule({ userId }) {
             </>
           ) : (
             <>
+              {f.type === "revenu" && (
+                <>
+                  <Field label="Nature du revenu">
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(112px,1fr))", gap: 6 }}>
+                      {REVENU_KINDS.map(([v, l, ic]) => {
+                        const on = f.revenu_kind === v;
+                        return (
+                          <button key={v} onClick={() => set("revenu_kind", v)}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 40,
+                              padding: "8px 10px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit",
+                              fontSize: 12.5, fontWeight: on ? 700 : 500,
+                              border: `1px solid ${on ? C.green : C.border}`,
+                              background: on ? `${C.green}1f` : C.surface2,
+                              color: on ? C.green : C.muted }}>
+                            <span aria-hidden="true">{ic}</span>{l}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </Field>
+                  {f.revenu_kind === "aides_sociales" && (
+                    <Field label="Type d'aide">
+                      {aideCats.length === 0 ? (
+                        <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+                          Aucun type d'aide. Crée-les dans <b style={{ color: C.text }}>Paramètres → Types d'aide</b> (APL, RSA, prime d'activité…).
+                        </div>
+                      ) : (
+                        <SelectIn value={f.aide_type_id || ""} onChange={e => set("aide_type_id", e.target.value || null)}>
+                          <option value="">— Non précisé —</option>
+                          {aideCats.map(c => <option key={c.id} value={c.id}>{c.icon ? c.icon + " " : ""}{c.name}</option>)}
+                        </SelectIn>
+                      )}
+                    </Field>
+                  )}
+                  {f.revenu_kind === "salaire" && (
+                    <Field label="Employeur">
+                      {emp.employers.length === 0 ? (
+                        <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
+                          Aucun employeur enregistré. Ajoute-le dans <b style={{ color: C.text }}>Réglages → Employeurs</b> pour
+                          séparer les salaires dans le bilan. Le revenu reste enregistré sans employeur.
+                        </div>
+                      ) : (
+                        <SelectIn value={f.employer_id || ""} onChange={e => set("employer_id", e.target.value || null)}>
+                          <option value="">— Non précisé —</option>
+                          {emp.employers.map(e2 => <option key={e2.id} value={e2.id}>{e2.name}</option>)}
+                        </SelectIn>
+                      )}
+                    </Field>
+                  )}
+                </>
+              )}
               <Field label="Catégorie"><CatGrid kind={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
               <Field label="Compte"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
             </>
@@ -816,6 +1192,16 @@ export default function FinancesModule({ userId }) {
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
           <Field label="Catégorie"><CatGrid kind={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
           <Field label="Fréquence"><SelectIn value={f.uifreq} onChange={e => set("uifreq", e.target.value)}>{UIFREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</SelectIn></Field>
+          {f.uifreq === "nweeks" && (
+            <Field label="Intervalle">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, color: C.muted }}>Toutes les</span>
+                <TextIn type="number" min="1" max="52" value={f.weeks}
+                  onChange={e => set("weeks", e.target.value)} style={{ width: 84, textAlign: "center" }} />
+                <span style={{ fontSize: 13, color: C.muted }}>semaine{(parseInt(f.weeks, 10) || 1) > 1 ? "s" : ""}</span>
+              </div>
+            </Field>
+          )}
           <Field label="Prochaine date"><TextIn type="date" value={f.next} onChange={e => set("next", e.target.value)} /></Field>
           <Field label="Compte"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
           <Btn onClick={submitRec}>Enregistrer</Btn>
@@ -870,11 +1256,98 @@ export default function FinancesModule({ userId }) {
         <Modal open={modal === "account"} onClose={close} title={editing ? "Modifier le compte" : "Nouveau compte"}>
           <Field label="Nom"><TextIn value={f.name} onChange={e => set("name", e.target.value)} placeholder="Ex : Compte courant BNP" /></Field>
           <Field label="Solde (€)"><TextIn type="number" value={f.balance} onChange={e => set("balance", e.target.value)} placeholder="0.00" /></Field>
+          <Field label="Nature du compte">
+            <SelectIn value={f.nature || "liquidite"} onChange={e => set("nature", e.target.value)}>
+              <option value="liquidite">Liquidité — compte courant, livret</option>
+              <option value="investissement">Investissement — PEA, CTO, assurance-vie</option>
+            </SelectIn>
+          </Field>
           <Btn onClick={submitAccount}>Enregistrer</Btn>
+          {editing && (
+            <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+              <button onClick={() => askDeleteAccount(editing)}
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit",
+                  fontSize: 12.5, fontWeight: 600, color: C.red, textDecoration: "underline", textUnderlineOffset: 3 }}>
+                Supprimer ce compte
+              </button>
+            </div>
+          )}
+        </Modal>
+
+        <Modal open={modal === "employer"} onClose={close} title={editing ? "Modifier l'employeur" : "Nouvel employeur"}>
+          <Field label="Nom"><TextIn value={f.name} onChange={e => set("name", e.target.value)} placeholder="Ex : Club de foot, Cabinet X" /></Field>
+          <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+            Les salaires marqués à cet employeur sont détaillés séparément dans le bilan, et additionnés au total professionnel.
+          </div>
+          <Btn onClick={submitEmployer}>Enregistrer</Btn>
+        </Modal>
+
+        {/* Suppression de compte : irréversible, donc on montre l'impact réel
+            et on propose l'archivage comme issue non destructive. */}
+        <Modal open={modal === "delAccount"} onClose={() => { setDelAcc(null); setModal("account"); }} title="Supprimer le compte">
+          {delAcc && (() => {
+            const { account: a, impact: im } = delAcc;
+            const destroys = im.tx + im.rec;
+            const Line = ({ n, label, danger }) => n === 0 ? null : (
+              <li style={{ fontSize: 13, lineHeight: 1.7, color: danger ? C.red : C.muted }}>
+                <b style={{ fontFamily: MONO, color: danger ? C.red : C.text }}>{n}</b> {label}
+              </li>
+            );
+            const ok = delConfirm.trim() === a.name;
+            return (<>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                <span style={{ width: 10, height: 10, borderRadius: "50%", background: a.color || C.accent }} />
+                <div style={{ flex: 1, fontWeight: 700 }}>{a.name}</div>
+                <div style={{ fontFamily: MONO, fontWeight: 700, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</div>
+              </div>
+
+              {destroys + im.txIn + im.detached === 0 ? (
+                <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 16 }}>
+                  Ce compte n'a aucune opération rattachée. Sa suppression n'affecte rien d'autre.
+                </div>
+              ) : (
+                <div style={{ background: `${C.red}14`, border: `1px solid ${C.red}44`, borderRadius: 11, padding: "12px 14px", marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: C.red, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 8 }}>
+                    Ce que la suppression détruit
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    <Line n={im.tx} label="opérations définitivement supprimées" danger />
+                    <Line n={im.rec} label="récurrences définitivement supprimées" danger />
+                    <Line n={im.txIn} label="virements entrants supprimés — leur montant est rendu au compte source" />
+                    <Line n={im.detached} label="éléments simplement détachés (abonnements, poches, positions)" />
+                  </ul>
+                </div>
+              )}
+
+              {im.partial && (
+                <div style={{ fontSize: 12.5, color: C.amber, lineHeight: 1.6, marginBottom: 14,
+                  background: `${C.amber}14`, border: `1px solid ${C.amber}44`, borderRadius: 10, padding: "10px 12px" }}>
+                  Le décompte ci-dessus est incomplet : une partie des données n'a pas pu être lue.
+                  Archive plutôt, ou réessaie une fois la connexion rétablie.
+                </div>
+              )}
+              <div style={{ fontSize: 12.5, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+                Il n'y a ni corbeille ni annulation. <b style={{ color: C.text }}>Archiver</b> retire le compte des listes
+                et des totaux sans rien effacer — c'est réversible en base, contrairement à la suppression.
+              </div>
+
+              <Btn kind="g" style={{ width: "100%", marginBottom: 14 }} onClick={doArchiveAccount}>Archiver plutôt</Btn>
+
+              <Field label={`Pour confirmer, tape le nom du compte : ${a.name}`}>
+                <TextIn value={delConfirm} onChange={e => setDelConfirm(e.target.value)} placeholder={a.name} autoFocus />
+              </Field>
+              <button onClick={ok && !delBusy ? doDeleteAccount : undefined} disabled={!ok || delBusy}
+                style={{ width: "100%", padding: 13, borderRadius: 11, border: "none", fontFamily: "inherit",
+                  fontSize: 14, fontWeight: 700, color: "#fff", background: C.red,
+                  opacity: ok && !delBusy ? 1 : 0.4, cursor: ok && !delBusy ? "pointer" : "not-allowed" }}>
+                {delBusy ? "Suppression…" : "Supprimer définitivement"}
+              </button>
+            </>);
+          })()}
         </Modal>
 
         <Modal open={modal === "cat"} onClose={close} title={editing ? "Modifier la catégorie" : "Nouvelle catégorie"}>
-          <Field label="Type"><SelectIn value={f.kind} onChange={e => set("kind", e.target.value)}><option value="depense">Dépense</option><option value="revenu">Revenu</option></SelectIn></Field>
+          <Field label="Type"><SelectIn value={f.kind} onChange={e => set("kind", e.target.value)}><option value="depense">Dépense</option><option value="revenu">Revenu</option><option value="aide">Type d'aide sociale</option></SelectIn></Field>
           <Field label="Emoji"><div style={{ display: "flex", gap: 8 }}><TextIn value={f.emoji} onChange={e => set("emoji", e.target.value)} maxLength={2} style={{ width: 70, flexShrink: 0, textAlign: "center", fontSize: 22 }} /><Btn kind="g" style={{ flex: 1 }} onClick={() => openEmoji("emoji")}>Choisir 🌞</Btn></div></Field>
           <Field label="Nom"><TextIn value={f.name} onChange={e => set("name", e.target.value)} placeholder="Ex : Sport, Cadeaux..." /></Field>
           <Field label="Couleur"><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>{COLORS.map(c => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: 7, cursor: "pointer", background: c, border: `2px solid ${f.color === c ? "#fff" : "transparent"}`, transform: f.color === c ? "scale(1.15)" : "none" }} />)}</div></Field>

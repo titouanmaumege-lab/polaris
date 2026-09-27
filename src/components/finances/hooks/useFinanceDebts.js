@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
 
@@ -13,7 +14,7 @@ export function useFinanceDebts(userId) {
     if (!userId) return;
     const { data, error } = await supabase.from("finance_debts").select("*")
       .eq("user_id", userId).order("created_at", { ascending: false });
-    if (error) { console.error("fetch debts error:", error); setLoading(false); return; }
+    if (error) { setFinanceError("fetch debts error:", error); setLoading(false); return;  }
     setDebts((data || []).map(d => ({ ...d, amount: Number(d.amount) })));
     setLoading(false);
   }, [userId]);
@@ -34,7 +35,7 @@ export function useFinanceDebts(userId) {
       user_id: userId, person: d.person, description: d.description || null,
       amount: d.amount, dir: d.dir, due_date: d.due_date || null, status: "pending",
     }).select().single();
-    if (error) { console.error("createDebt error:", error); return null; }
+    if (error) { setFinanceError("createDebt error:", error); return null;  }
     if (accountId) {
       const isIn = d.dir === "in";
       const { error: txError } = await supabase.from("finance_transactions").insert({
@@ -50,7 +51,7 @@ export function useFinanceDebts(userId) {
 
   const updateDebt = async (id, patch) => {
     const { error } = await supabase.from("finance_debts").update(patch).eq("id", id);
-    if (error) { console.error("updateDebt error:", error); return; }
+    if (error) { setFinanceError("updateDebt error:", error); return;  }
     await fetch();
   };
 

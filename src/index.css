@@ -183,12 +183,32 @@ button:active {
 .habit-pulse { animation: habitPulse 0.3s ease; }
 .habit-shake { animation: habitShake 0.35s ease; }
 
-/* Home — colonne unique, centrée ; desktop plus large */
-.dash-wrap { max-width: 640px; margin: 0 auto; padding: 24px 20px 110px; }
-
-@media (min-width: 900px) {
-  .dash-wrap { max-width: none; padding: 40px 48px 120px; }
+/* Home — tient dans une page, sans défilement.
+   Le root prend la hauteur de la fenêtre, le calendrier absorbe le reste. */
+.dash-page {
+  height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
 }
+/* Pile verticale pleine largeur : Highlight, actions, calendrier, habitudes. */
+.dash-wrap {
+  flex: 1; min-height: 0; display: flex; flex-direction: column;
+  width: 100%; padding: 8px 16px 72px;   /* 72 = barre de nav fixe (64) + air */
+  gap: 12px;
+}
+@media (min-width: 900px) { .dash-wrap { padding: 12px 32px 76px; gap: 16px; } }
+
+/* Le calendrier absorbe la hauteur restante. */
+.dash-cal  { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.dash-cal > * { min-height: 0; }
+
+/* Le calendrier remplit la hauteur que flex lui donne, jusqu'aux colonnes jour :
+   sans ça il restait un grand vide entre le plateau et les habitudes. */
+.cal-root { margin-bottom: 32px; }
+.dash-cal .cal-root       { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+.dash-cal .cal-layout     { flex: 1; min-height: 0; }
+.dash-cal .cal-board-wrap { display: flex; flex-direction: column; min-height: 0; }
+.dash-cal .cal-board      { flex: 1; min-height: 0; }
+.dash-cal .cal-projects   { flex: 1; min-height: 0; }
+.dash-cal .check-panel-list { max-height: none; }
 
 /* Objectifs — grille de cartes compactes (SVG art garde ses proportions) */
 .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
@@ -218,19 +238,120 @@ button:active {
   background: var(--line, rgba(139,92,246,0.4));
 }
 
+/* HOME — carte Highlight du jour, élément le plus lumineux de la page */
+.hl-wrap { position: relative; }
+.hl-halo {
+  position: absolute; z-index: 0; pointer-events: none;
+  top: -34px; left: -40px; width: 260px; height: 220px;
+  background: radial-gradient(circle,
+    rgba(139, 92, 246, 0.42), rgba(236, 72, 153, 0.14) 48%, transparent 72%);
+  filter: blur(42px);
+}
+/* Bordure 1 px en dégradé, technique padding-box / border-box.
+   La couche padding-box doit rester OPAQUE : avec un fond translucide le
+   dégradé traverse et repeint toute la carte (le bug de la v1). */
+.hl-card {
+  position: relative; z-index: 1;
+  border: 1px solid transparent;
+  border-radius: 18px;
+  padding: 16px 18px;
+  background:
+    linear-gradient(158deg, rgba(41, 30, 66, 0.93), rgba(23, 17, 38, 0.95)) padding-box,
+    linear-gradient(135deg, #8b5cf6, #ec4899) border-box;
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  box-shadow: 0 0 40px rgba(139, 92, 246, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.hl-card.is-done {
+  background:
+    linear-gradient(158deg, rgba(26, 32, 38, 0.93), rgba(19, 22, 30, 0.95)) padding-box,
+    linear-gradient(135deg, rgba(52, 211, 153, 0.45), rgba(52, 211, 153, 0.18)) border-box;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+.hl-card.is-empty {
+  border: 1px dashed rgba(168, 85, 247, 0.5);
+  background: linear-gradient(158deg, rgba(41, 30, 66, 0.9), rgba(23, 17, 38, 0.94));
+  box-shadow: 0 0 28px rgba(139, 92, 246, 0.14);
+}
+.hl-title {
+  font-family: var(--font-display);
+  font-size: 24px; font-weight: 800; line-height: 1.22; letter-spacing: -0.02em;
+  /* 2 lignes max : un nom long ne doit pas pousser la page hors écran. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+@media (min-width: 900px) { .hl-title { font-size: 32px; } }
+
+.hl-check { animation: hlPulse 2.5s ease-in-out infinite; }
+@keyframes hlPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.45); border-color: rgba(168, 85, 247, 0.7); }
+  50%      { box-shadow: 0 0 0 9px rgba(168, 85, 247, 0); border-color: rgba(168, 85, 247, 1); }
+}
+.hl-pop { animation: hlPop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes hlPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hl-check, .hl-pop { animation: none; }
+}
+
+/* Home — habitudes en vue condensée, sous le calendrier.
+   Grille pleine largeur : plus de colonnes = moins de hauteur. */
+.dash-habits-block { display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto; }
+
 /* Weekly Review — synthèse IA WIN / LOSS côte à côte */
 .wr-ai-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 @media (max-width: 700px) { .wr-ai-split { grid-template-columns: 1fr; } }
 
 /* Calendar — day-segmented grid (Lumen Protocol) */
-.cal-board { display: flex; flex-direction: column; }
-.cal-head, .cal-ribbons, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
-.cal-head-cell { display: flex; align-items: center; gap: 8px; padding: 10px; border-radius: 14px 14px 0 0; }
-.cal-head-cell + .cal-head-cell { border-left: 1px solid var(--c-border); }
-.cal-ribbons { gap: 4px 0; padding: 8px 0 4px; }
-.cal-clotures { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; padding: 8px 0 6px; }
-.cal-day { padding: 12px 10px; transition: background 0.15s; }
-.cal-day + .cal-day { border-left: 1px solid var(--c-border); }
+.cal-board { display: flex; flex-direction: column; position: relative; }
+
+/* Grille des jours dessinée en fond, sur toute la hauteur : les séparateurs
+   ne sont plus coupés par la rangée projets, qui passe par-dessus. */
+.cal-colbg {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  display: grid; grid-template-columns: repeat(7, 1fr);
+}
+.cal-colbg > * + * { border-left: 1px solid var(--c-border); }
+/* Le jour courant sur toute la hauteur : très léger, sinon ça fait un pavé. */
+.cal-colbg > .is-today { background: rgba(168, 85, 247, 0.07); }
+
+.cal-head, .cal-clotures, .cal-band, .cal-projects { position: relative; z-index: 1; }
+.cal-head, .cal-clotures, .cal-band { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; }
+.cal-head-cell { display: flex; align-items: center; gap: 8px; padding: 10px; }
+.cal-clotures { padding: 8px 0 6px; }
+
+/* Trois bandes : mémos en haut, projets au centre, waiting en bas. */
+.cal-band-cell {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 5px 7px; min-width: 0; overflow: hidden;
+  transition: background 0.15s;
+}
+.cal-band-wait .cal-band-cell { justify-content: flex-end; padding-bottom: 8px; }
+.cal-projects { flex: 1; min-height: 56px; display: flex; flex-direction: column; justify-content: center; }
+.cal-projdrop { position: absolute; inset: 0; z-index: 0; display: grid; grid-template-columns: repeat(7, 1fr); }
+.cal-ribbons  { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px 0; padding: 4px 0; }
+.cal-projmore { position: relative; z-index: 1; display: flex; justify-content: flex-end; padding: 2px 3px 4px; }
+
+/* Cible tactile élargie sans déborder de la colonne : le pseudo-élément ne
+   participe pas au flux, contrairement aux marges négatives d'avant.
+   La hauteur est bornée à la ligne : un carré de 44 px sur des lignes de
+   28 px se chevauchait d'une ligne à l'autre et volait les taps du voisin. */
+.cal-hit {
+  position: relative; flex-shrink: 0; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.cal-hit::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 44px; height: 100%; min-height: 26px;
+  transform: translate(-50%, -50%);
+}
+.cal-hit:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 3px; border-radius: 50%; }
+
+/* Retour au toucher : opacité seule, aucun décalage de layout. */
+.cal-chip-wrap, .cal-ribbon { transition: opacity 0.15s, filter 0.15s; }
+.cal-chip-wrap:active, .cal-ribbon:active { opacity: 0.72; }
+.cal-chip-wrap:hover { background: rgba(255, 255, 255, 0.05) !important; }
 .cal-add-hint { opacity: 0; transition: opacity 0.15s; border-radius: 8px; border: 1px dashed var(--c-border); }
 .cal-toast { animation: calToastIn 0.28s cubic-bezier(0.4,0,0.2,1); }
 @keyframes calToastIn { from { opacity: 0; transform: translate(-50%, 16px); } to { opacity: 1; transform: translate(-50%, 0); } }
@@ -239,8 +360,6 @@ button:active {
 @media (prefers-reduced-motion: reduce) { .cal-toast-bar { animation-duration: 10s !important; } }
 .cal-day-add:hover .cal-add-hint { opacity: 1; }
 .cal-day-add:hover { background: rgba(139,92,246,0.06) !important; }
-.cal-body { display: flex; flex-direction: column; gap: 6px; min-height: 120px; }
-@media (min-width: 900px) { .cal-body { min-height: 180px; } }
 @media (max-width: 760px) {
   .cal-board-wrap { overflow-x: auto; scroll-snap-type: x mandatory; }
   .cal-board { min-width: 700px; }
@@ -260,7 +379,7 @@ button:active {
 @media (max-width: 900px) { .check-panel-list { max-height: 260px; } }
 
 /* Drag & drop calendrier */
-.cal-day.drag-over { background: rgba(52,211,153,0.10) !important; box-shadow: inset 0 0 0 1px rgba(52,211,153,0.5); }
+.cal-band-cell.drag-over, .cal-projdrop > .drag-over { background: rgba(52,211,153,0.10); box-shadow: inset 0 0 0 1px rgba(52,211,153,0.5); }
 .cal-drag-handle { opacity: 0; transition: opacity 0.15s; cursor: ew-resize; }
 .cal-chip-wrap:hover .cal-drag-handle, .cal-ribbon:hover .cal-drag-handle { opacity: 1; }
 [draggable="true"] { -webkit-user-drag: element; }

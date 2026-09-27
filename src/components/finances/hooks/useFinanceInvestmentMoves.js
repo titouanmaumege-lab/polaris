@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
 
@@ -44,7 +45,7 @@ export function useFinanceInvestmentMoves(userId, investmentId = null) {
       user_id: userId, investment_id: investment.id, kind: m.kind,
       quantity: q, price, date: m.date, cash_account_id: m.cash_account_id ?? null, note: m.note?.trim() || null,
     }).select().single();
-    if (error) { console.error("createMove error:", error); return null; }
+    if (error) { setFinanceError("createMove error:", error); return null;  }
 
     await supabase.from("finance_investments").update({ quantity: newQty, avg_buy_price: newAvg }).eq("id", investment.id);
 

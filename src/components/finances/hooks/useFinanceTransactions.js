@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 import { monthBounds } from "../../../utils/date";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
@@ -49,9 +50,13 @@ export function useFinanceTransactions(userId, filters = {}) {
       note: tx.note?.trim() || null,
       source: tx.source ?? "manuel",
       recurring_id: tx.recurring_id ?? null,
+      // Nature du revenu : uniquement sur un revenu, employeur uniquement sur un salaire.
+      revenu_kind: tx.type === "revenu" ? (tx.revenu_kind || null) : null,
+      employer_id: tx.type === "revenu" && tx.revenu_kind === "salaire" ? (tx.employer_id || null) : null,
+      aide_type_id: tx.type === "revenu" && tx.revenu_kind === "aides_sociales" ? (tx.aide_type_id || null) : null,
     };
     const { data, error } = await supabase.from("finance_transactions").insert(payload).select().single();
-    if (error) { console.error("createTransaction error:", error); return null; }
+    if (error) { setFinanceError("createTransaction error:", error); return null;  }
     await fetch(); emitChange();
     return data;
   };
@@ -65,16 +70,19 @@ export function useFinanceTransactions(userId, filters = {}) {
       amount: tx.amount,
       date: tx.date,
       note: tx.note?.trim() || null,
+      revenu_kind: tx.type === "revenu" ? (tx.revenu_kind || null) : null,
+      employer_id: tx.type === "revenu" && tx.revenu_kind === "salaire" ? (tx.employer_id || null) : null,
+      aide_type_id: tx.type === "revenu" && tx.revenu_kind === "aides_sociales" ? (tx.aide_type_id || null) : null,
     };
     const { data, error } = await supabase.from("finance_transactions").update(patch).eq("id", id).select().single();
-    if (error) { console.error("updateTransaction error:", error); return null; }
+    if (error) { setFinanceError("updateTransaction error:", error); return null;  }
     await fetch(); emitChange();
     return data;
   };
 
   const deleteTransaction = async (id) => {
     const { error } = await supabase.from("finance_transactions").delete().eq("id", id);
-    if (error) { console.error("deleteTransaction error:", error); return; }
+    if (error) { setFinanceError("deleteTransaction error:", error); return;  }
     setTransactions(t => t.filter(x => x.id !== id));
     emitChange();
   };

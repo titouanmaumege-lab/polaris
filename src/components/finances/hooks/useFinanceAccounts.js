@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 
 // Comptes financiers + soldes courants.
 // Solde calculé CÔTÉ CLIENT depuis les transactions (source de vérité, indépendant
@@ -49,12 +50,12 @@ export function useFinanceAccounts(userId) {
     return () => window.removeEventListener("finance-data-changed", handler);
   }, [fetch]);
 
-  const createAccount = async ({ name, type = "courant", initial_balance = 0, currency = "EUR", color = null, icon = null }) => {
+  const createAccount = async ({ name, type = "courant", nature = "liquidite", initial_balance = 0, currency = "EUR", color = null, icon = null }) => {
     const { data, error } = await supabase.from("finance_accounts").insert({
-      user_id: userId, name, type, initial_balance, currency, color, icon,
+      user_id: userId, name, type, nature, initial_balance, currency, color, icon,
       sort_order: accounts.length,
     }).select().single();
-    if (error) { console.error("createAccount error:", error); return null; }
+    if (error) { setFinanceError("createAccount error:", error); return null;  }
     await fetch();
     return data;
   };
@@ -62,7 +63,7 @@ export function useFinanceAccounts(userId) {
   const updateAccount = async (id, patch) => {
     const { data, error } = await supabase.from("finance_accounts")
       .update(patch).eq("id", id).select().single();
-    if (error) { console.error("updateAccount error:", error); return null; }
+    if (error) { setFinanceError("updateAccount error:", error); return null;  }
     await fetch();
     return data;
   };
@@ -72,12 +73,55 @@ export function useFinanceAccounts(userId) {
     setAccounts(a => a.filter(x => x.id !== id));
   };
 
-  // Suppression définitive (les transactions liées tombent via ON DELETE CASCADE)
+  // Ce qu'une suppression détruirait réellement — à montrer AVANT de confirmer.
+  const getAccountImpact = async (id) => {
+    // Un décompte silencieusement faux avant une suppression définitive est pire
+    // que pas de décompte : on remonte l'échec au lieu de l'avaler.
+    let partial = false;
+    const n = async (table, col) => {
+      const { count, error } = await supabase.from(table).select("id", { count: "exact", head: true })
+        .eq("user_id", userId).eq(col, id);
+      if (error) { setFinanceError(`getAccountImpact ${table}.${col}:`, error); partial = true; return 0;  }
+      return count || 0;
+    };
+    const [tx, txIn, rec, recIn, subs, goals, invs, moves] = await Promise.all([
+      n("finance_transactions", "account_id"),
+      n("finance_transactions", "transfer_account_id"),
+      n("finance_recurring", "account_id"),
+      n("finance_recurring", "transfer_account_id"),
+      n("finance_subscriptions", "account_id"),
+      n("finance_goals", "account_id"),
+      n("finance_investments", "account_id"),
+      n("finance_investment_moves", "cash_account_id"),
+    ]);
+    return { tx, txIn, rec, recIn, subs, goals, invs, moves, detached: subs + goals + invs + moves, partial };
+  };
+
+  // Suppression définitive. Irréversible : aucune corbeille, aucun undo.
+  //
+  // Les transactions du compte tombent via ON DELETE CASCADE. En revanche les
+  // virements ENTRANTS passent à transfer_account_id = NULL : le compte source
+  // resterait débité sans que personne ne soit crédité, et le patrimoine total
+  // baisserait sans trace. On les supprime donc explicitement AVANT, ce qui
+  // rend leur montant aux comptes sources.
   const deleteAccount = async (id) => {
+    const orphan = async (table) => {
+      const { error } = await supabase.from(table).delete()
+        .eq("user_id", userId).eq("transfer_account_id", id);
+      if (error) throw error;
+    };
+    try {
+      await orphan("finance_transactions");
+      await orphan("finance_recurring");
+    } catch (e) {
+      console.error("deleteAccount (virements entrants):", e);
+      return { ok: false, error: e.message };
+    }
     const { error } = await supabase.from("finance_accounts").delete().eq("id", id);
-    if (error) { console.error("deleteAccount error:", error); return; }
+    if (error) { setFinanceError("deleteAccount error:", error); return { ok: false, error: error.message  }; }
     setAccounts(a => a.filter(x => x.id !== id));
     window.dispatchEvent(new Event("finance-data-changed"));
+    return { ok: true };
   };
 
   const reorderAccounts = async (orderedIds) => {
@@ -89,5 +133,5 @@ export function useFinanceAccounts(userId) {
 
   const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0);
 
-  return { accounts, totalBalance, loading, createAccount, updateAccount, archiveAccount, deleteAccount, reorderAccounts, refetch: fetch };
+  return { accounts, totalBalance, loading, createAccount, updateAccount, archiveAccount, deleteAccount, getAccountImpact, reorderAccounts, refetch: fetch };
 }

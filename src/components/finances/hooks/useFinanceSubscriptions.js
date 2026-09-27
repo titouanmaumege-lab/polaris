@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
+import { setFinanceError } from "./financeError";
 import { pad } from "../../../utils/date";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
@@ -39,14 +40,14 @@ export function useFinanceSubscriptions(userId) {
       color: sub.color ?? null,
       icon: sub.icon ?? null,
     }).select().single();
-    if (error) { console.error("createSubscription error:", error); return null; }
+    if (error) { setFinanceError("createSubscription error:", error); return null;  }
     if (data) setSubscriptions(s => [...s, { ...data, amount: Number(data.amount) }]);
     return data;
   };
 
   const updateSubscription = async (id, patch) => {
     const { data, error } = await supabase.from("finance_subscriptions").update(patch).eq("id", id).select().single();
-    if (error) { console.error("updateSubscription error:", error); return null; }
+    if (error) { setFinanceError("updateSubscription error:", error); return null;  }
     if (data) setSubscriptions(s => s.map(x => x.id === id ? { ...data, amount: Number(data.amount) } : x));
     return data;
   };
@@ -82,7 +83,7 @@ export function useFinanceSubscriptions(userId) {
       note: `Abonnement · ${sub.name}`,
       source: "abonnement",
     }).select().single();
-    if (error) { console.error("toggleValidation insert error:", error); return null; }
+    if (error) { setFinanceError("toggleValidation insert error:", error); return null;  }
 
     await updateSubscription(sub.id, { last_paid_month: ym, last_payment_tx_id: tx.id });
     emitChange();

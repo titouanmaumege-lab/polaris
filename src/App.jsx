@@ -19,7 +19,7 @@ import { getLS, setLS, setSyncContext } from "./utils/storage";
 import { resolveHighlight, makeHighlightRef } from "./utils/highlight";
 import {
   cumulTotal, startDay, habitUnit,
-  heatmapData, rollingRateSeries, rate28WithDelta, rattrapage, weakestWeekday, topLinks,
+  heatmapData, heatmapWeeks, rollingRateSeries, rate28WithDelta, weakestWeekday, topLinks,
 } from "./utils/cumul";
 import { P, applyPerso } from "./state/perso";
 import {
@@ -430,8 +430,8 @@ function WeeklyCalendar() {
   const [editId, setEditId] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [addDate, setAddDate] = useState(null);
-  const [expandedSpan, setExpandedSpan] = useState(null);
   const [toast, setToast] = useState(null); // { id, name }
+  const [listSheet, setListSheet] = useState(null); // { title, items }
   const toastTimer = useRef(null);
   // DnD : payload dans un ref (dataTransfer illisible pendant dragover)
   const dragRef = useRef(null); // { kind:'move'|'resize-start'|'resize-end', id, originDay }
@@ -498,7 +498,6 @@ function WeeklyCalendar() {
   };
   const closureKind = lv => lv.has("annuel") ? "annee" : lv.has("trimestriel") ? "trimestre" : "mois";
 
-  const typeLabel = it => it.gtd === "projet" ? "Projet" : it.gtd === "memo" ? "Mémo" : it.gtd === "check" ? "Check" : it.recurrence?.enabled ? "Récurrent" : "Tâche";
   const colorOf = it => SPHERES[it.sphere]?.c || (it.gtd === "memo" ? "#4F46E5" : it.gtd === "projet" ? "#7C5CFC" : it.gtd === "check" ? "#34D399" : "#0EA0BD");
 
   // ── Rubans multi-jours : toute tâche datée (dateDebut→dateFin) qui chevauche la semaine
@@ -528,7 +527,10 @@ function WeeklyCalendar() {
     lanes[lane].push(s);
     s.lane = lane;
   });
-  const laneCount = lanes.length;
+  // Au-delà de 3 lanes on n'empile plus : le reste part dans un chip « +N projets ».
+  const visibleSpans = spanItems.filter(s => s.lane < 3);
+  const hiddenSpans  = spanItems.filter(s => s.lane >= 3);
+  const visibleLanes = Math.min(lanes.length, 3);
 
   // ── Tâches simples par jour : daté (dateAssignee) sans span + récurrences.
   // Exclut check tasks (panneau de gauche) et tâches étendues (rubans).
@@ -621,122 +623,210 @@ function WeeklyCalendar() {
     }}>{dir < 0 ? "‹" : "›"}</button>
   );
 
-  // ── Ruban multi-jours (cyber neon compact) — projet, avec sous-tâches dépliables
-  const Ribbon = ({ s }) => {
-    const col = colorOf(s.it);
+  // ── Trois bandes : Mémos en haut, Projets au centre, Waiting en bas ───────
+  const PROJ_GRAD = "linear-gradient(90deg, #7c3aed, #4f46e5)";
+  const CYAN      = "#22D3EE";
+  const AMBER     = "#F59E0B";
+  const RED       = "#ef4444";
+  const MEMO_MAX  = 4;   // au-delà : chip « +N »
+  const WAIT_MAX  = 2;
+  const SUB_MAX   = 4;   // sous-tâches visibles dans une barre projet
+
+  const daysTo    = d => diffDaysISO(d, today);
+  const daysSince = iso => { const d = (iso || "").slice(0, 10); return d ? Math.max(0, diffDaysISO(today, d)) : 0; };
+
+  // Cible tactile 44 px obtenue par pseudo-élément (.cal-hit::after) :
+  // des marges négatives faisaient déborder la coche hors de la colonne.
+  const CheckDot = ({ onDone, color, size = 17, label }) => (
+    <span className="cal-hit" role="button" tabIndex={0}
+      aria-label={label ? `Marquer fait : ${label}` : "Marquer fait"}
+      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onDone(); } }}
+      onClick={e => { e.stopPropagation(); onDone(); }} title="Marquer fait"
+      style={{ width:size, height:size, borderRadius:"50%", border:`1.5px solid ${color}`,
+        color, fontSize:9, lineHeight:1 }}>✓</span>
+  );
+
+  // ── Projet : barre pleine, progression, prochaine action, sous-tâches ─────
+  const ProjectBar = ({ s }) => {
+    const it = s.it;
     const { continuesLeft: cl, continuesRight: cr } = s;
-    const subs = s.it.sousTaches || [];
+    const subs = it.sousTaches || [];
     const done = subs.filter(x => x.done).length;
-    const isOpen = expandedSpan === s.it.id;
-    const Grip = ({ kind, edge }) => (
-      <span
-        draggable
-        onDragStart={e => { e.stopPropagation(); startDrag(e, { kind, id: s.it.id, originDay: kind === "resize-end" ? s.it.dateFin : s.it.dateDebut }); }}
-        onDragEnd={endDrag}
-        onClick={e => e.stopPropagation()}
+    const pct  = subs.length ? Math.round(done / subs.length * 100) : 0;
+    const next = subs.find(x => !x.done);
+    const late = it.dateFin && it.dateFin < today && !it.done;
+    const dLeft = it.dateFin ? daysTo(it.dateFin) : null;
+    const shown = subs.slice(0, SUB_MAX);
+
+    const Grip = ({ kind, edgeSide }) => (
+      <span draggable
+        onDragStart={e => { e.stopPropagation(); startDrag(e, { kind, id: it.id, originDay: kind === "resize-end" ? it.dateFin : it.dateDebut }); }}
+        onDragEnd={endDrag} onClick={e => e.stopPropagation()}
         title={kind === "resize-end" ? "Étirer la fin" : "Étirer le début"}
         className="cal-drag-handle"
-        style={{ flexShrink:0, width:10, alignSelf:"stretch", display:"inline-flex", alignItems:"center", justifyContent:"center",
-          color:col, fontSize:10, fontWeight:900, [edge === "left" ? "marginLeft" : "marginRight"]:-6 }}>⋮</span>
+        style={{ flexShrink:0, width:9, alignSelf:"stretch", display:"inline-flex", alignItems:"center", justifyContent:"center",
+          color:"rgba(255,255,255,0.75)", fontSize:10, fontWeight:900,
+          [edgeSide === "left" ? "marginLeft" : "marginRight"]:-4 }}>⋮</span>
     );
+
     return (
-      <div
-        className="cal-ribbon"
-        draggable
-        onDragStart={e => startDrag(e, { kind:"move", id: s.it.id, originDay: days7[colFromEvent(e)] })}
+      <div className="cal-ribbon" draggable
+        onDragStart={e => startDrag(e, { kind:"move", id: it.id, originDay: days7[colFromEvent(e)] })}
         onDragEnd={endDrag}
-        onClick={() => setEditId(s.it.id)}
-        title={s.it.name}
+        onClick={() => setEditId(it.id)}
+        title={it.name}
         style={{
-          gridColumn: `${s.startCol + 1} / ${s.endCol + 2}`,
-          gridRow: s.lane + 1,
-          display:"flex", alignItems:"center", gap:6,
-          margin:"0 3px", padding:"0 8px 0 10px", height:26, minWidth:0,
-          fontFamily:"inherit", cursor:"grab", textAlign:"left",
-          color:"var(--c-text)",
-          background:`linear-gradient(90deg, ${col}33, ${col}1f)`,
-          border:`1px solid ${col}66`,
+          gridColumn: `${s.startCol + 1} / ${s.endCol + 2}`, gridRow: s.lane + 1,
+          position:"relative", overflow:"hidden", minWidth:0,
+          display:"flex", flexDirection:"column", gap:5,
+          margin:"0 3px", padding:"7px 9px 8px", minHeight:40,
+          fontFamily:"inherit", cursor:"grab", textAlign:"left", color:"#fff",
+          background: PROJ_GRAD,
+          border:`1px solid ${late ? RED : "rgba(255,255,255,0.22)"}`,
           borderLeftWidth: cl ? 0 : 1, borderRightWidth: cr ? 0 : 1,
-          borderTopLeftRadius: cl ? 0 : 8, borderBottomLeftRadius: cl ? 0 : 8,
-          borderTopRightRadius: cr ? 0 : 8, borderBottomRightRadius: cr ? 0 : 8,
-          boxShadow:`inset 3px 0 0 ${cl ? "transparent" : col}, 0 0 12px ${col}33`,
+          borderTopLeftRadius: cl ? 0 : 11, borderBottomLeftRadius: cl ? 0 : 11,
+          borderTopRightRadius: cr ? 0 : 11, borderBottomRightRadius: cr ? 0 : 11,
+          boxShadow: late ? `0 0 14px ${RED}55` : "0 0 14px rgba(139,92,246,0.45)",
         }}>
-        {!cl && <Grip kind="resize-start" edge="left" />}
-        {cl && <span style={{ color:col, fontSize:11, marginLeft:-4 }}>‹</span>}
-        <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 6px ${col}`, flexShrink:0 }} />
-        <span style={{ fontSize:11.5, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", flex:1, minWidth:0 }}>{s.it.name}</span>
-        {subs.length > 0 && (
-          <span style={{ fontSize:10, fontWeight:800, color:col, fontVariantNumeric:"tabular-nums", flexShrink:0 }}>{done}/{subs.length}</span>
+        {/* Progression : remplissage plus clair, proportionnel aux sous-tâches faites */}
+        {subs.length > 0 && pct < 100 && (
+          <span style={{ position:"absolute", left:`${pct}%`, right:0, top:0, bottom:0,
+            background:"rgba(0,0,0,0.28)", pointerEvents:"none" }} />
         )}
-        <button onClick={e => { e.stopPropagation(); markDone(s.it); }} title="Marquer fait"
-          style={{ flexShrink:0, width:18, height:18, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
-            background:"transparent", border:`1.5px solid ${col}`, color:col, cursor:"pointer", fontSize:9, fontFamily:"inherit", lineHeight:1 }}>✓</button>
-        {subs.length > 0 && (
-          <button onClick={e => { e.stopPropagation(); setExpandedSpan(p => p === s.it.id ? null : s.it.id); }}
-            title="Voir les sous-tâches"
-            style={{ flexShrink:0, width:18, height:18, borderRadius:5, display:"inline-flex", alignItems:"center", justifyContent:"center",
-              background:`${col}33`, border:"none", color:col, cursor:"pointer", fontSize:10, fontFamily:"inherit", transform:isOpen?"rotate(90deg)":"none", transition:"transform 0.15s" }}>▸</button>
+
+        {/* Ligne titre */}
+        <span style={{ position:"relative", display:"flex", alignItems:"center", gap:7, minWidth:0 }}>
+          {!cl && <Grip kind="resize-start" edgeSide="left" />}
+          {cl && <span style={{ fontSize:11, opacity:0.8, marginLeft:-2 }}>‹</span>}
+          <span style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column", gap:1 }}>
+            <span style={{ fontSize:12.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+              textShadow:"0 1px 3px rgba(0,0,0,0.35)" }}>{it.name}</span>
+            {next && (
+              <span style={{ fontSize:9.5, color:"rgba(255,255,255,0.92)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                → {next.name}
+              </span>
+            )}
+          </span>
+          {subs.length > 0 && (
+            <span style={{ flexShrink:0, fontSize:10.5, fontWeight:800, fontVariantNumeric:"tabular-nums",
+              color:"#fff", background:"rgba(0,0,0,0.24)", borderRadius:999, padding:"1px 6px" }}>{done}/{subs.length}</span>
+          )}
+          {!cr && it.dateFin && (
+            <span style={{ flexShrink:0, display:"inline-flex", alignItems:"center", gap:3,
+              fontSize:9.5, fontWeight:800, whiteSpace:"nowrap",
+              color:"#fff", background: late ? RED : "rgba(0,0,0,0.24)", borderRadius:999, padding:"2px 7px" }}>
+              <svg width="8" height="9" viewBox="0 0 8 9" fill="none" aria-hidden="true" style={{ flexShrink:0 }}>
+                <path d="M1 .5v8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <path d="M1.8 1.1h4.9L5.3 3l1.4 1.9H1.8z" fill="currentColor" />
+              </svg>
+              {late ? `En retard · ${Math.abs(dLeft)} j` : dLeft === 0 ? "Aujourd'hui" : `J-${dLeft}`}
+            </span>
+          )}
+          <CheckDot onDone={() => markDone(it)} color="#fff" label={it.name} />
+          {!cr && <Grip kind="resize-end" edgeSide="right" />}
+        </span>
+
+        {/* Sous-tâches visibles dans la barre */}
+        {shown.length > 0 && (
+          <span style={{ position:"relative", display:"flex", flexDirection:"column", gap:2 }}>
+            {shown.map(st => (
+              <span key={st.id} onClick={e => { e.stopPropagation(); toggleSub(it.id, st.id); }}
+                title={st.name}
+                style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, cursor:"pointer",
+                  padding:"2px", borderRadius:5, minHeight:22, opacity: st.done ? 0.78 : 1 }}>
+                <span style={{ flexShrink:0, fontSize:10, lineHeight:1, color:"#fff" }}>{st.done ? "●" : "○"}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:10.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+                  textDecoration: st.done ? "line-through" : "none" }}>{st.name}</span>
+              </span>
+            ))}
+            {subs.length > SUB_MAX && (
+              <span style={{ fontSize:10, color:"rgba(255,255,255,0.92)", paddingLeft:2 }}>+{subs.length - SUB_MAX} autres</span>
+            )}
+          </span>
         )}
-        {!cr && <Grip kind="resize-end" edge="right" />}
       </div>
     );
   };
 
-  // ── Chip tâche simple (cyber neon compact). Mémo = style "note" dissocié (pointillé + icône).
-  const ICONS = { memo:"📝", waiting:"⏳" };
-  const TaskChip = ({ it, day }) => {
-    const col = colorOf(it);
-    const isMemo = it.gtd === "memo";
-    const isRecur = it.recurrence?.enabled;
-    const icon = isRecur ? "🔄" : ICONS[it.gtd] || "•";
+  // ── Waiting For : en bas, émoji personne, relance visible ────────────────
+  const WaitingCard = ({ it, day }) => {
+    const age = daysSince(it.createdAt);
+    const urge = age >= 5;
     return (
-      <div className="cal-chip-wrap"
-        draggable
+      <div className="cal-chip-wrap" draggable
         onDragStart={e => { e.stopPropagation(); startDrag(e, { kind:"move", id: it.id, originDay: day }); }}
         onDragEnd={endDrag}
-        onClick={e => { e.stopPropagation(); setEditId(it.id); }} title={it.name} style={{
-        position:"relative",
-        display:"flex", flexDirection:"column", gap:4,
-        padding:"7px 9px", borderRadius:10, width:"100%", textAlign:"left", boxSizing:"border-box",
-        background: isMemo
-          ? `repeating-linear-gradient(135deg, ${col}14, ${col}14 6px, ${col}0a 6px, ${col}0a 12px)`
-          : `linear-gradient(180deg, ${col}1a, var(--c-surface-2))`,
-        border:`1px ${isMemo ? "dashed" : "solid"} ${col}${isMemo ? "66" : "40"}`,
-        cursor:"grab", fontFamily:"inherit",
-        boxShadow:`0 0 10px ${col}1f`,
-      }}>
-        <span style={{ display:"flex", alignItems:"flex-start", gap:6, minWidth:0 }}>
-          <span style={{ fontSize:11, flexShrink:0, filter:`drop-shadow(0 0 4px ${col}88)`, marginTop:1 }}>{icon}</span>
-          <span style={{ fontSize:12, fontWeight:600, color:"var(--c-text)", lineHeight:1.25, overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", flex:1, minWidth:0 }}>{it.name}</span>
-          <span onClick={e => { e.stopPropagation(); markDone(it); }} title="Marquer fait"
-            style={{ flexShrink:0, width:18, height:18, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
-              border:`1.5px solid ${col}`, color:col, cursor:"pointer", fontSize:9, lineHeight:1 }}>✓</span>
+        onClick={e => { e.stopPropagation(); setEditId(it.id); }}
+        title={`En attente${it.waitingFor ? " de " + it.waitingFor : ""} — ${it.name}`}
+        style={{
+          display:"flex", alignItems:"center", gap:6, width:"100%", boxSizing:"border-box",
+          minHeight:40, padding:"4px 6px 4px 7px", borderRadius:9,
+          background:"transparent", border:`1px dashed ${CYAN}77`,
+          cursor:"grab", fontFamily:"inherit", minWidth:0,
+        }}>
+        <span aria-hidden="true" style={{ fontSize:12, flexShrink:0 }}>👤</span>
+        <span style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column" }}>
+          <span style={{ fontSize:11, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</span>
+          {it.waitingFor && (
+            <span style={{ fontSize:9.5, color:CYAN, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.waitingFor}</span>
+          )}
         </span>
-        <span style={{
-          alignSelf:"flex-start", fontSize:8.5, fontWeight:800, color:col,
-          textTransform:"uppercase", letterSpacing:"0.08em",
-          padding:"1px 6px", borderRadius:999, background:`${col}22`,
-          border:`1px ${isMemo ? "dashed" : "solid"} ${col}40`,
-        }}>{typeLabel(it)}</span>
-        {!isRecur && (
-          <span
-            draggable
-            onDragStart={e => { e.stopPropagation(); startDrag(e, { kind:"resize-end", id: it.id, originDay: day }); }}
-            onDragEnd={endDrag}
-            onClick={e => e.stopPropagation()}
-            title="Étendre sur plusieurs jours"
-            className="cal-drag-handle"
-            style={{ position:"absolute", right:0, top:0, bottom:0, width:12, display:"inline-flex", alignItems:"center", justifyContent:"center",
-              color:col, fontSize:10, fontWeight:900, borderRadius:"0 10px 10px 0", background:`${col}1a` }}>⋮</span>
-        )}
+        <span style={{ flexShrink:0, fontSize:9, fontWeight:800, fontVariantNumeric:"tabular-nums",
+          color: urge ? "#0d0700" : CYAN, background: urge ? AMBER : `${CYAN}22`,
+          border:`1px solid ${urge ? AMBER : CYAN + "55"}`, borderRadius:999, padding:"1px 5px" }}>J+{age}</span>
+        <CheckDot onDone={() => markDone(it)} color={CYAN} size={15} label={it.name} />
       </div>
     );
   };
 
+  // ── Mémo / tâche simple : ligne fine, puce colorée, aucun badge ──────────
+  const ItemLine = ({ it, day }) => {
+    const isMemo = it.gtd === "memo";
+    const col = isMemo ? AMBER : colorOf(it);
+    return (
+      <div className="cal-chip-wrap" draggable
+        onDragStart={e => { e.stopPropagation(); startDrag(e, { kind:"move", id: it.id, originDay: day }); }}
+        onDragEnd={endDrag}
+        onClick={e => { e.stopPropagation(); setEditId(it.id); }}
+        title={it.name}
+        style={{
+          display:"flex", alignItems:"center", gap:7, width:"100%", boxSizing:"border-box",
+          minHeight:28, padding:"2px 3px 2px 6px", borderRadius:7,
+          background:"transparent", cursor:"grab", fontFamily:"inherit", minWidth:0,
+        }}>
+        <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 5px ${col}`, flexShrink:0 }} />
+        <span style={{ flex:1, minWidth:0, fontSize:11.5, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</span>
+        {it.recurrence?.enabled && <span aria-hidden="true" style={{ fontSize:9, flexShrink:0, opacity:0.75 }}>🔄</span>}
+        <CheckDot onDone={() => markDone(it)} color={col} size={15} label={it.name} />
+      </div>
+    );
+  };
+
+  // Mémos + tâches simples en haut, Waiting en bas.
+  const bucketsOf = ds => {
+    const items = dayTasks[ds] || [];
+    return {
+      top:  items.filter(x => x.gtd !== "waiting"),
+      wait: items.filter(x => x.gtd === "waiting"),
+    };
+  };
+  const MoreChip = ({ n, onClick }) => (
+    <button onClick={e => { e.stopPropagation(); onClick(); }}
+      style={{ alignSelf:"flex-start", padding:"1px 7px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
+        fontSize:10, fontWeight:700, color:"var(--c-muted)",
+        background:"rgba(255,255,255,0.06)", border:"1px solid var(--c-border)" }}>+{n}</button>
+  );
+  // Handlers de dépôt partagés par les trois bandes.
+  const dayDrop = ds => ({
+    onClick: () => setAddDate(ds),
+    onDragOver: e => { if (dragRef.current) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverDay(ds); } },
+    onDragLeave: () => setDragOverDay(d => d === ds ? null : d),
+    onDrop: e => { e.preventDefault(); dropOnDay(ds); },
+  });
   return (
     <>
-      <div style={{ marginBottom:32 }}>
-        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+      <div className="cal-root">
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
           <span style={{ fontSize:11, color:"var(--c-accent)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.16em" }}>{wkLabel}</span>
           <div style={{ display:"flex", gap:8 }}><NavBtn dir={-1} /><NavBtn dir={1} /></div>
         </div>
@@ -788,13 +878,21 @@ function WeeklyCalendar() {
 
           <div className="cal-board-wrap">
           <div className="cal-board" ref={boardRef}>
+            {/* Grille des jours en fond : traits continus sur toute la hauteur,
+                colonne du jour accentuée, y compris derrière les barres projets. */}
+            <div className="cal-colbg" aria-hidden="true">
+              {days7.map(ds => (
+                <div key={ds} className={ds === today ? "is-today" : ""} />
+              ))}
+            </div>
+
             {/* En-tête jours */}
             <div className="cal-head">
               {days7.map((ds, i) => {
                 const isToday = ds === today;
                 const dn = new Date(ds + "T12:00:00").getDate();
                 return (
-                  <div key={ds} className="cal-head-cell" style={{ background: isToday ? "var(--c-accent-soft)" : "transparent" }}>
+                  <div key={ds} className="cal-head-cell">
                     <span style={{ fontSize:10, color:"var(--c-faint)", textTransform:"uppercase", letterSpacing:"0.06em", fontWeight:700 }}>{DAY_SHORT[i]}</span>
                     <span style={{
                       width:28, height:28, borderRadius:"50%",
@@ -810,7 +908,7 @@ function WeeklyCalendar() {
               })}
             </div>
 
-            {/* Lane clôtures OKR — DA spéciale, prend de la place */}
+            {/* Lane clôtures OKR */}
             {closureCols.length > 0 && (
               <div className="cal-clotures">
                 {closureCols.map(ci => {
@@ -837,67 +935,58 @@ function WeeklyCalendar() {
               </div>
             )}
 
-            {/* Lanes rubans multi-jours */}
-            {laneCount > 0 && (
-              <div className="cal-ribbons" style={{ gridTemplateRows:`repeat(${laneCount}, 26px)` }}>
-                {spanItems.map(s => <Ribbon key={s.it.id} s={s} />)}
-              </div>
-            )}
-
-            {/* Panneau sous-tâches d'un ruban déplié */}
-            {expandedSpan && (() => {
-              const proj = todos.find(x => x.id === expandedSpan);
-              const subs = proj?.sousTaches || [];
-              if (!proj) return null;
-              const col = colorOf(proj);
-              const done = subs.filter(s => s.done).length;
-              return (
-                <div className="slide-up" style={{
-                  margin:"2px 3px 8px", padding:"12px 14px", borderRadius:12,
-                  background:"var(--c-surface-2)", border:`1px solid ${col}44`, boxShadow:`0 0 16px ${col}1f`,
-                }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
-                    <span style={{ width:7, height:7, borderRadius:"50%", background:col, boxShadow:`0 0 6px ${col}`, flexShrink:0 }} />
-                    <span style={{ fontSize:13, fontWeight:700, color:"var(--c-text)", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{proj.name}</span>
-                    <span style={{ fontSize:11, fontWeight:800, color:col, fontVariantNumeric:"tabular-nums" }}>{done}/{subs.length}</span>
-                    <button onClick={() => setExpandedSpan(null)} style={{ background:"none", border:"none", color:"var(--c-muted)", fontSize:14, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
-                  </div>
-                  <div style={{ height:4, borderRadius:3, background:"var(--c-surface-3)", overflow:"hidden", marginBottom:10 }}>
-                    <div style={{ height:"100%", width:`${subs.length ? done/subs.length*100 : 0}%`, background:`linear-gradient(90deg, ${col}, ${C.pink})`, borderRadius:3, transition:"width 0.3s", boxShadow:`0 0 8px ${col}66` }} />
-                  </div>
-                  <div style={{ display:"flex", flexDirection:"column", gap:2 }}>
-                    {subs.map(st => (
-                      <div key={st.id} onClick={() => toggleSub(proj.id, st.id)} style={{
-                        display:"flex", alignItems:"center", gap:10, padding:"7px 8px", borderRadius:8,
-                        cursor:"pointer", opacity:st.done?0.5:1, background:st.done?"transparent":"var(--c-surface-3)",
-                      }}>
-                        <span style={{ fontSize:15, color:st.done?C.green:col, flexShrink:0 }}>{st.done?"●":"○"}</span>
-                        <span style={{ fontSize:13, color:"var(--c-text)", textDecoration:st.done?"line-through":"none" }}>{st.name}</span>
-                      </div>
-                    ))}
-                    {subs.length === 0 && <span style={{ fontSize:12, color:"var(--c-faint)" }}>Aucune sous-tâche.</span>}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Corps : tâches simples par jour (drop targets) */}
-            <div className="cal-grid">
+            {/* Bande 1 — Mémos et tâches simples, juste sous les jours */}
+            <div className="cal-band cal-band-top">
               {days7.map(ds => {
-                const isToday = ds === today;
-                const items = dayTasks[ds] || [];
+                const { top } = bucketsOf(ds);
+                const shown = top.slice(0, MEMO_MAX);
+                const rest  = top.length - shown.length;
                 return (
-                  <div key={ds} className={`cal-day cal-day-add${dragOverDay === ds && dragging ? " drag-over" : ""}`}
-                    onClick={() => setAddDate(ds)}
-                    onDragOver={e => { if (dragRef.current) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverDay(ds); } }}
-                    onDragLeave={() => setDragOverDay(d => d === ds ? null : d)}
-                    onDrop={e => { e.preventDefault(); dropOnDay(ds); }}
-                    title="Ajouter une tâche ce jour"
-                    style={{ background: isToday ? "var(--c-accent-soft)" : "transparent", cursor:"pointer" }}>
-                    <div className="cal-body">
-                      {items.map((it, k) => <TaskChip key={it.id + "_" + k} it={it} day={ds} />)}
-                      <span className="cal-add-hint" style={{ fontSize:12, color:"var(--c-faint)", textAlign:"center", padding:"4px 0" }}>+</span>
-                    </div>
+                  <div key={ds} className={`cal-band-cell cal-day-add${dragOverDay === ds && dragging ? " drag-over" : ""}`}
+                    title="Ajouter une tâche ce jour" {...dayDrop(ds)}>
+                    {shown.map((it, k) => <ItemLine key={it.id + "_" + k} it={it} day={ds} />)}
+                    {rest > 0 && <MoreChip n={rest} onClick={() => setListSheet({ title: fmtDate(ds), items: top })} />}
+                    <span className="cal-add-hint" style={{ fontSize:11, color:"var(--c-faint)", textAlign:"center" }}>+</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Bande 2 — Projets, au centre, avec leurs sous-tâches */}
+            <div className="cal-projects">
+              <div className="cal-projdrop">
+                {days7.map(ds => (
+                  <div key={ds} className={dragOverDay === ds && dragging ? "drag-over" : ""} {...dayDrop(ds)} />
+                ))}
+              </div>
+              {visibleLanes > 0 && (
+                <div className="cal-ribbons" style={{ gridTemplateRows:`repeat(${visibleLanes}, min-content)` }}>
+                  {visibleSpans.map(s => <ProjectBar key={s.it.id} s={s} />)}
+                </div>
+              )}
+              {hiddenSpans.length > 0 && (
+                <div className="cal-projmore">
+                  <button onClick={() => setListSheet({ title:"Projets de la semaine", items: hiddenSpans.map(s => s.it) })}
+                    style={{ padding:"3px 10px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
+                      fontSize:10.5, fontWeight:700, color:"#A5B4FC",
+                      background:"rgba(99,102,241,0.16)", border:"1px solid rgba(99,102,241,0.45)" }}>
+                    +{hiddenSpans.length} projet{hiddenSpans.length > 1 ? "s" : ""}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Bande 3 — Waiting For, en bas */}
+            <div className="cal-band cal-band-wait">
+              {days7.map(ds => {
+                const { wait } = bucketsOf(ds);
+                const shown = wait.slice(0, WAIT_MAX);
+                const rest  = wait.length - shown.length;
+                return (
+                  <div key={ds} className={`cal-band-cell cal-day-add${dragOverDay === ds && dragging ? " drag-over" : ""}`}
+                    {...dayDrop(ds)}>
+                    {shown.map((it, k) => <WaitingCard key={it.id + "_" + k} it={it} day={ds} />)}
+                    {rest > 0 && <MoreChip n={rest} onClick={() => setListSheet({ title: fmtDate(ds), items: wait })} />}
                   </div>
                 );
               })}
@@ -906,6 +995,36 @@ function WeeklyCalendar() {
           </div>
         </div>
       </div>
+
+      {/* Liste d'un jour / des projets masqués */}
+      {listSheet && (
+        <div onClick={() => setListSheet(null)} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
+            width:"100%", maxWidth:560, maxHeight:"80vh", overflowY:"auto",
+            background:"var(--c-surface-2)", borderRadius:"22px 22px 0 0", border:"1px solid var(--c-border-mid)", borderBottom:"none",
+            padding:"14px 16px calc(20px + env(safe-area-inset-bottom))",
+          }}>
+            <div style={{ width:36, height:4, borderRadius:999, background:"var(--c-surface-3)", margin:"0 auto 14px" }} />
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+              <span style={{ flex:1, fontSize:15, fontWeight:700, color:"var(--c-text)", textTransform:"capitalize" }}>{listSheet.title}</span>
+              <button onClick={() => setListSheet(null)} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:"var(--c-muted)", fontSize:17, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
+            </div>
+            {listSheet.items.map(it => (
+              <div key={it.id} onClick={() => { setListSheet(null); setEditId(it.id); }} style={{
+                display:"flex", alignItems:"center", gap:10, minHeight:46, padding:"8px 10px", marginBottom:6, borderRadius:11,
+                background:"var(--c-surface-3)", border:"1px solid var(--c-border)",
+                borderLeft:`3px solid ${it.gtd === "waiting" ? CYAN : it.gtd === "memo" ? AMBER : colorOf(it)}`,
+                cursor:"pointer",
+              }}>
+                <span style={{ flex:1, minWidth:0, fontSize:13, color:"var(--c-text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it.name}</span>
+                {it.gtd === "waiting" && it.waitingFor && <span style={{ flexShrink:0, fontSize:10.5, color:CYAN }}>{it.waitingFor}</span>}
+                <CheckDot onDone={() => markDone(it)} color={it.gtd === "waiting" ? CYAN : it.gtd === "memo" ? AMBER : colorOf(it)} size={17} />
+              </div>
+            ))}
+            {listSheet.items.length === 0 && <div style={{ fontSize:12.5, color:"var(--c-faint)", padding:"12px 2px" }}>Rien ce jour-là.</div>}
+          </div>
+        </div>
+      )}
 
       {editItem && !editMode && (
         <TaskSummaryModal
@@ -1087,81 +1206,216 @@ function HighlightPickerSheet({ todos, onPick, onCreateTask, onClose }) {
   );
 }
 
+// ── Habitudes sur Home — densité adaptative, jusqu'à 16 habitudes ───────────
+// On garde toujours le nom lisible : on resserre la ligne et on ajoute des
+// colonnes plutôt que de basculer sur des tuiles emoji sans libellé.
+// Mesures vérifiées à 375×812 : budget 224 px pour ce bloc.
+const HABIT_DENSITIES = [
+  { key:"confort", row:44, gap:8, minCol:170, emoji:19, font:13.5, check:30, pad:"7px 11px" },
+  { key:"compact", row:38, gap:8, minCol:148, emoji:17, font:12.5, check:26, pad:"5px 10px" },
+  { key:"dense",   row:32, gap:6, minCol:128, emoji:15, font:11.5, check:22, pad:"4px 8px"  },
+];
+// Hauteur occupée par le reste de Home : header, highlight, actions, calendrier, marges.
+const HOME_FIXED_PX = 588;
+
+function pickHabitDensity(n, width, viewportH) {
+  const budget = Math.max(110, viewportH - HOME_FIXED_PX);
+  const measure = d => {
+    const cols = Math.max(1, Math.floor((width + d.gap) / (d.minCol + d.gap)));
+    const rows = Math.ceil(n / cols);
+    return { ...d, cols, rows, height: rows * d.row + (rows - 1) * d.gap };
+  };
+  for (const d of HABIT_DENSITIES) {
+    const m = measure(d);
+    if (m.height <= budget) return { ...m, budget, fits: true };
+  }
+  // Rien ne rentre (beaucoup d'habitudes sur un petit écran) : le plus dense
+  // possible, et ce bloc seul défile — la page, elle, ne bouge pas.
+  return { ...measure(HABIT_DENSITIES[HABIT_DENSITIES.length - 1]), budget, fits: false };
+}
+
+function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
+  const C = CF, GRAD = CF_GRAD, FONT_D = CF_FONT;
+  const [ref, W] = useBoxWidth();
+  const [vh, setVh] = useState(() => (typeof window === "undefined" ? 812 : window.innerHeight));
+  useEffect(() => {
+    const on = () => setVh(window.innerHeight);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+
+  const done = habits.filter(h => habitValidated(h, today)).length;
+  const d = pickHabitDensity(habits.length || 1, W || 343, vh);
+
+  return (
+    <div className="dash-habits-block">
+      <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:8 }}>
+        <span style={{ fontSize:11, color:C.accent, textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700 }}>Habitudes</span>
+        {habits.length > 0 && (
+          <span style={{ marginLeft:"auto", fontFamily:FONT_D, fontSize:13, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{done}/{habits.length}</span>
+        )}
+      </div>
+
+      {habits.length === 0 ? (
+        <p style={{ fontSize:13, color:C.muted }}>Aucune habitude. Va dans l'onglet Habits pour en créer.</p>
+      ) : (<>
+        <div style={{ height:4, borderRadius:999, background:C.surface3, overflow:"hidden", marginBottom:8, flexShrink:0 }}>
+          <div style={{ height:"100%", width:`${done / habits.length * 100}%`, background:GRAD, borderRadius:999, transition:"width 0.5s cubic-bezier(0.4,0,0.2,1)" }} />
+        </div>
+
+        <div ref={ref} style={{
+          display:"grid",
+          gridTemplateColumns:`repeat(${d.cols}, minmax(0, 1fr))`,
+          gap:d.gap,
+          minHeight:0,
+          overflowY: d.fits ? "visible" : "auto",
+          maxHeight: d.fits ? undefined : d.budget,
+        }}>
+          {habits.map(h => {
+            const status = (h.dailyStatus || {})[today] ?? null;
+            const isDone = status === "validated";
+            const inv    = status === "invalidated";
+            const items  = h.items || [];
+            const dayItems = (h.itemStatus || {})[today] || {};
+            const nItems = items.filter(it => dayItems[it.id] === "validated").length;
+            return (
+              <div key={h.id} onClick={() => onOpen(h.id)} title={`${h.name} — voir les stats`} style={{
+                display:"flex", alignItems:"center", gap:d.gap, minWidth:0,
+                height:d.row, padding:d.pad, borderRadius:d.row >= 44 ? 12 : 10, boxSizing:"border-box",
+                background: isDone ? "rgba(52,211,153,0.12)" : inv ? "rgba(251,113,133,0.10)" : C.surface2,
+                border:`1px solid ${isDone ? "rgba(52,211,153,0.35)" : inv ? "rgba(251,113,133,0.30)" : C.border}`,
+                cursor:"pointer", transition:TR,
+              }}>
+                <span style={{ fontSize:d.emoji, flexShrink:0, lineHeight:1, opacity: isDone ? 0.55 : 1 }}>{h.emoji}</span>
+                <span style={{
+                  flex:1, minWidth:0, fontSize:d.font, fontWeight:500,
+                  overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
+                  color: isDone ? C.muted : inv ? C.red : C.text, textDecoration: isDone ? "line-through" : "none",
+                }}>{h.name}</span>
+                {h.multiple && items.length > 0 && d.key === "confort" && (
+                  <span style={{ flexShrink:0, fontSize:10.5, fontWeight:700, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{nItems}/{items.length}</span>
+                )}
+                <button
+                  onClick={e => { e.stopPropagation(); onToggle(h.id); }}
+                  aria-label={`${isDone ? "Annuler" : "Valider"} : ${h.name}`}
+                  className={animating.has(h.id) ? "habit-pop" : ""}
+                  style={{
+                    flexShrink:0, width:d.check, height:d.check, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
+                    display:"flex", alignItems:"center", justifyContent:"center", transition:TR,
+                    fontSize: d.check >= 30 ? 13 : 11, fontWeight:700, color:"#fff",
+                    background: isDone ? "linear-gradient(135deg,#10b981,#059669)" : inv ? "#ef4444" : "transparent",
+                    border:`2px solid ${isDone ? "#10b981" : inv ? "#ef4444" : C.borderMid}`,
+                    boxShadow: isDone ? "0 0 10px rgba(16,185,129,0.4)" : "none",
+                  }}>{isDone ? "✓" : inv ? "✕" : ""}</button>
+              </div>
+            );
+          })}
+        </div>
+      </>)}
+    </div>
+  );
+}
+
 // Carte Highlight — 4 états : ok / done / missing / legacy (+ état vide).
+// Point d'ancrage visuel de Home : halo radial derrière, bordure 1 px en
+// dégradé, surface opaque (le texte doit rester lisible avant tout).
 function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
-  const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
+  const C = CF, GRAD = CF_GRAD;
+  const [pop, setPop] = useState(false);
+  const check = () => {
+    setPop(true);
+    setTimeout(() => setPop(false), 340);
+    onToggle();
+  };
 
   const Eyebrow = (
-    <div style={{ fontSize:11, color:C.accent, textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700, marginBottom:12 }}>
-      Highlight du jour
+    <div style={{ display:"flex", alignItems:"center", gap:7, minWidth:0 }}>
+      <span aria-hidden="true" style={{ fontSize:11, lineHeight:1, color:"#C4A4FF", textShadow:"0 0 10px rgba(168,85,247,0.9)" }}>✦</span>
+      <span style={{ fontSize:10.5, color:"#C4A4FF", textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700, whiteSpace:"nowrap" }}>
+        Highlight du jour
+      </span>
     </div>
   );
+
   const PickBtn = ({ label }) => (
     <button onClick={onPick} style={{
-      width:"100%", minHeight:48, borderRadius:14, border:"none", background:GRAD, color:"#fff",
-      fontSize:14, fontWeight:700, fontFamily:"inherit", cursor:"pointer", boxShadow:GLOW_SM,
+      width:"100%", minHeight:46, marginTop:14, borderRadius:13, border:"none", background:GRAD, color:"#fff",
+      fontSize:14.5, fontWeight:700, fontFamily:"inherit", cursor:"pointer", boxShadow:"0 6px 20px rgba(139,92,246,0.35)",
     }}>{label}</button>
   );
-  const title = (text, done) => (
-    <p style={{
-      fontFamily:FONT_D, fontSize:27, fontWeight:700, lineHeight:1.22, letterSpacing:"-0.01em",
-      color: done ? C.muted : C.text, textDecoration: done ? "line-through" : "none",
-    }}>{text}</p>
-  );
 
-  if (!hl) return (
-    <div>
-      {Eyebrow}
-      <p style={{ fontFamily:FONT_D, fontSize:27, fontWeight:700, color:C.faint, lineHeight:1.22, letterSpacing:"-0.01em", marginBottom:16 }}>
-        La tâche qui a le plus d'impact dans ta vie
-      </p>
-      <PickBtn label="Choisir ma tâche du jour" />
+  // États sans tâche reliée : même carte, bordure en pointillés.
+  const Placeholder = ({ text, muted, action }) => (
+    <div className="hl-wrap">
+      <div className="hl-halo" />
+      <div className="hl-card is-empty">
+        {Eyebrow}
+        <p className="hl-title" style={{ color: muted ? C.muted : C.text, marginTop:12 }}>{text}</p>
+        <PickBtn label={action} />
+      </div>
     </div>
   );
 
-  if (hl.status === "missing") return (
-    <div>
-      {Eyebrow}
-      <p style={{ fontSize:14, color:C.muted, marginBottom:16 }}>Tâche supprimée.</p>
-      <PickBtn label="Choisir ma tâche du jour" />
-    </div>
-  );
-
-  if (hl.status === "legacy") return (
-    <div>
-      {Eyebrow}
-      {title(hl.label, false)}
-      <div style={{ fontSize:12, color:C.faint, margin:"8px 0 16px" }}>Ancien highlight — texte libre</div>
-      <PickBtn label="Relier à une tâche" />
-    </div>
-  );
+  if (!hl) return <Placeholder text="La tâche qui a le plus d'impact dans ta vie" muted action="Choisir ma tâche du jour" />;
+  if (hl.status === "missing") return <Placeholder text="Tâche supprimée" muted action="Choisir ma tâche du jour" />;
+  if (hl.status === "legacy")  return <Placeholder text={hl.label} action="Relier à une tâche" />;
 
   const done = hl.status === "done";
   const sp = hl.sphere ? SPHERES[hl.sphere] : null;
+
   return (
-    <div>
-      {Eyebrow}
-      <div style={{ display:"flex", alignItems:"center", gap:14 }}>
-        <div style={{ flex:1, minWidth:0 }}>
-          {hl.parentLabel && (
-            <div style={{ fontSize:11.5, color:C.faint, marginBottom:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-              ↳ {hl.parentLabel}
-            </div>
-          )}
-          <div onClick={onOpenTask} style={{ cursor:"pointer" }}>{title(hl.label, done)}</div>
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:9, flexWrap:"wrap" }}>
-            {sp && <span style={{ fontSize:11, fontWeight:600, padding:"3px 10px", borderRadius:999, color:sp.c, background:`${sp.c}1f`, border:`1px solid ${sp.c}40` }}>{sp.label}</span>}
-            {done && <span style={{ fontSize:12, fontWeight:700, color:C.green }}>Fait</span>}
-            <span onClick={onPick} style={{ fontSize:12, color:C.muted, cursor:"pointer", textDecoration:"underline" }}>Changer</span>
-          </div>
+    <div className="hl-wrap">
+      {/* Halo éteint une fois la tâche faite */}
+      {!done && <div className="hl-halo" />}
+      <div className={`hl-card${done ? " is-done" : ""}`}>
+        {/* Label + « Changer » en haut à droite */}
+        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
+          {Eyebrow}
+          <button onClick={onPick} style={{
+            marginLeft:"auto", flexShrink:0, background:"transparent", border:"none", padding:"4px 0",
+            fontFamily:"inherit", fontSize:12, color:C.muted, cursor:"pointer", textDecoration:"underline",
+            textUnderlineOffset:3,
+          }}>Changer</button>
         </div>
-        <button onClick={onToggle} title={done ? "Décocher" : "Valider"} style={{
-          flexShrink:0, width:56, height:56, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
-          fontSize:22, fontWeight:800, color:"#fff", transition:TR,
-          background: done ? "linear-gradient(135deg,#10b981,#059669)" : "transparent",
-          border: `2px solid ${done ? "#10b981" : C.borderMid}`,
-          boxShadow: done ? "0 0 18px rgba(16,185,129,0.45)" : "none",
-        }}>{done ? "✓" : ""}</button>
+
+        <div style={{ display:"flex", alignItems:"center", gap:18 }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            {hl.parentLabel && (
+              <div style={{ fontSize:12, color:C.muted, marginBottom:6, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                ↳ {hl.parentLabel}
+              </div>
+            )}
+            <div onClick={onOpenTask} className="hl-title" style={{
+              color: done ? C.muted : "#FFFFFF",
+              textDecoration: done ? "line-through" : "none",
+              cursor:"pointer", overflowWrap:"anywhere",
+            }}>{hl.label}</div>
+            {(sp || done) && (
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:10, flexWrap:"wrap" }}>
+                {sp && (
+                  <span style={{ fontSize:11, fontWeight:600, padding:"4px 11px", borderRadius:999, color:sp.c, background:`${sp.c}22`, border:`1px solid ${sp.c}4d` }}>
+                    {sp.label}
+                  </span>
+                )}
+                {done && <span style={{ fontSize:12, fontWeight:700, color:C.green }}>Fait</span>}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={check}
+            aria-label={done ? "Annuler la validation du highlight" : "Valider le highlight"}
+            title={done ? "Décocher" : "Valider"}
+            className={done ? (pop ? "hl-pop" : "") : `hl-check${pop ? " hl-pop" : ""}`}
+            style={{
+              flexShrink:0, width:48, height:48, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:21, fontWeight:800, color:"#fff",
+              background: done ? "linear-gradient(135deg,#10b981,#059669)" : "rgba(168,85,247,0.10)",
+              border: `2px solid ${done ? "#10b981" : C.accent}`,
+              boxShadow: done ? "0 0 18px rgba(16,185,129,0.45)" : undefined,
+              transition:"background 0.25s, border-color 0.25s",
+            }}>{done ? "✓" : ""}</button>
+        </div>
       </div>
     </div>
   );
@@ -1179,6 +1433,28 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
   const [mantra, setMantra]       = useState(() => getLS("lp_mantra", "Per Aspera Ad Astra"));
   const [editingName, setEditingName]     = useState(false);
   const [editingMantra, setEditingMantra] = useState(false);
+  // Habitudes — vue condensée sous le calendrier
+  const [habits, setHabits]       = useState(() => getLS("lp_habits", []));
+  const [habitSheetId, setHabitSheetId] = useState(null);
+  const [animating, setAnimating] = useState(new Set());
+  const goals = getLS("lp_goals", {});
+  const saveHabits = d => { setHabits(d); setLS("lp_habits", d); };
+
+  // Même cycle qu'ailleurs : rien → validé → invalidé → rien.
+  const toggleHabit = id => {
+    setAnimating(s => new Set([...s, id]));
+    setTimeout(() => setAnimating(s => { const n = new Set(s); n.delete(id); return n; }), 350);
+    saveHabits(habits.map(h => {
+      if (h.id !== id) return h;
+      const ds = { ...(h.dailyStatus || {}) };
+      const next = cycleHabitStatus(ds[t] ?? null);
+      if (next === null) delete ds[t]; else ds[t] = next;
+      const logs = (h.logs || []).filter(x => x !== t);
+      if (next === "validated") logs.push(t);
+      return { ...h, dailyStatus: ds, logs };
+    }));
+  };
+  const doneH = habits.filter(h => habitValidated(h, t)).length;
 
   const hl = resolveHighlight(highlight[t], todos);
   const saveHL = ref => { const u = { ...highlight, [t]: ref }; setHighlight(u); setLS("lp_highlight", u); };
@@ -1198,19 +1474,19 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
   const now = new Date();
   const headerDate = now.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric", month:"short" });
 
+  // Volontairement discrets : ils ne doivent pas concurrencer le highlight.
   const ActionBtn = ({ icon, label, onClick }) => (
     <button onClick={onClick} style={{
-      flex:1, minHeight:48, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-      padding:"12px 10px", borderRadius:14, background:C.surface2, border:`1px solid ${C.borderMid}`,
-      color:C.accent, fontSize:13.5, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
-      boxShadow:"0 2px 12px rgba(0,0,0,0.35)", transition:TR,
+      flex:1, minHeight:46, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
+      padding:"12px 10px", borderRadius:13, background:"transparent", border:`1px solid ${C.border}`,
+      color:C.muted, fontSize:13, fontWeight:500, fontFamily:"inherit", cursor:"pointer", transition:TR,
     }}>
-      <span style={{ fontSize:16 }}>{icon}</span><span>{label}</span>
+      <span style={{ fontSize:15, opacity:0.85 }}>{icon}</span><span>{label}</span>
     </button>
   );
 
   return (
-    <div className="theme-light" style={{ minHeight:"100dvh", fontFamily:"var(--font-body)" }}>
+    <div className="theme-light dash-page" style={{ fontFamily:"var(--font-body)" }}>
       {/* HEADER — inchangé : logo + mantra + nom + date */}
       <div style={{ padding:"22px 16px 12px", display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
         <div style={{ display:"flex", alignItems:"center", gap:14, minWidth:0 }}>
@@ -1242,7 +1518,7 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
         </div>
       </div>
 
-      <div className="dash-wrap" style={{ paddingTop: 8 }}>
+      <div className="dash-wrap">
         <HighlightCard
           hl={hl}
           onPick={() => setPicker(true)}
@@ -1250,14 +1526,20 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
           onOpenTask={() => hl?.task && setEditId(hl.task.id)}
         />
 
-        <div style={{ display:"flex", gap:10, marginTop:20 }}>
+        <div style={{ display:"flex", gap:10 }}>
           <ActionBtn icon="⏱️" label="Session Deep Work" onClick={() => onRequestSession?.()} />
           <ActionBtn icon="＋" label="Tâche" onClick={() => setCreating(true)} />
         </div>
 
-        <div style={{ height:1, background:C.border, margin:"24px 0" }} />
+        <div className="dash-cal"><WeeklyCalendar /></div>
 
-        <WeeklyCalendar />
+        <HomeHabits
+          habits={habits}
+          today={t}
+          animating={animating}
+          onToggle={toggleHabit}
+          onOpen={setHabitSheetId}
+        />
       </div>
 
       {picker && (
@@ -1271,6 +1553,18 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
       {creating && (
         <TaskCaptureModal onCreate={o => { addTodo(o); setCreating(false); }} onClose={() => setCreating(false)} />
       )}
+      {habitSheetId && (() => {
+        const h = habits.find(x => x.id === habitSheetId);
+        if (!h) return null;
+        return (
+          <HabitSheet
+            habit={h} habits={habits} goals={goals}
+            onClose={() => setHabitSheetId(null)}
+            onSavePourquoi={v => saveHabits(habits.map(x => x.id === h.id ? { ...x, pourquoi: v || undefined } : x))}
+            onOpenHabit={id => setHabitSheetId(id)}
+          />
+        );
+      })()}
       {editItem && (
         <EditModal
           item={editItem}
@@ -3449,96 +3743,154 @@ function EmojiInput({ value, onSave }) {
 // HABITUDES
 // ─────────────────────────────────────────────────────────────────────────────
 // ── Fiche habitude : régularité réelle, aucune extrapolation ────────────────
-const fmtFrDay  = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day:"numeric", month:"long" });
-const fmtNum1   = n => n.toFixed(1).replace(".", ",");
+const fmtFrDay   = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day:"numeric", month:"long" });
+const fmtFrMonth = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { month:"short" });
+const fmtNum1    = n => n.toFixed(1).replace(".", ",");
 const WEEKDAY_FR = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
+const SHEET_GAP  = 26;   // rythme vertical unique entre les sections de la fiche
 
-// Calendrier en carrés — 26 semaines, lundi→dimanche en lignes, la plus récente à droite.
-// 26×10 + 25×2 = 310 px : tient dans la sheet à 375 px sans défilement.
-function HabitHeatmap({ habit, today }) {
+// Largeur réelle du conteneur : les carrés et la courbe s'y adaptent au lieu
+// de déborder ou d'imposer un défilement horizontal.
+function useBoxWidth() {
+  const ref = useRef(null);
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setW(Math.floor(el.getBoundingClientRect().width));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
+
+// Titre de section — même style partout (petites capitales atténuées).
+function SheetTitle({ children, right }) {
   const C = CF;
-  const WEEKS = 26, CELL = 10, GAP = 2;
-  const cells = heatmapData(habit, today, WEEKS);
-  const cols  = Array.from({ length: WEEKS }, (_, w) => cells.slice(w * 7, w * 7 + 7));
-  const MONTH_INI = ["J","F","M","A","M","J","J","A","S","O","N","D"];
-
-  const bg = st => st === "done" ? C.accent : st === "missed" ? C.surface3 : "transparent";
-  const br = st => st === "today" ? `1px solid ${C.borderMid}` : "1px solid transparent";
-
-  let prevMonth = null;
-  const heads = cols.map(col => {
-    const m = Number(col[0].date.slice(5, 7)) - 1;
-    const show = m !== prevMonth;
-    prevMonth = m;
-    return show ? MONTH_INI[m] : "";
-  });
-
   return (
-    <div style={{ overflow:"hidden" }}>
-      <div style={{ display:"flex", gap:GAP, marginBottom:4 }}>
-        {heads.map((h, i) => (
-          <div key={i} style={{ width:CELL, fontSize:8, lineHeight:1, color:C.faint, textAlign:"center" }}>{h}</div>
-        ))}
-      </div>
-      <div style={{ display:"flex", gap:GAP }}>
-        {cols.map((col, i) => (
-          <div key={i} style={{ display:"flex", flexDirection:"column", gap:GAP }}>
-            {col.map(c => (
-              <div key={c.date} title={c.date} style={{
-                width:CELL, height:CELL, borderRadius:2, boxSizing:"border-box",
-                background:bg(c.state), border:br(c.state),
-              }} />
-            ))}
-          </div>
-        ))}
-      </div>
+    <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:10 }}>
+      <span style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700 }}>{children}</span>
+      {right && <span style={{ marginLeft:"auto", fontSize:10, color:C.faint }}>{right}</span>}
     </div>
   );
 }
 
-// Régularité glissante 28 j. Pointillés tant que la fenêtre est incomplète.
-// Aucune extrapolation : la courbe s'arrête à hier.
+// Calendrier en carrés — lundi→dimanche en lignes, semaines en colonnes,
+// la plus récente à droite. Le carré est calculé sur la largeur dispo.
+function HabitHeatmap({ habit, today }) {
+  const C = CF;
+  const [ref, W] = useBoxWidth();
+  const weeks = heatmapWeeks(habit, today, 8, 26);
+  const cells = heatmapData(habit, today, weeks);
+
+  const GAP = 3;
+  const cell = W > 0 ? Math.max(6, Math.min(18, Math.floor((W - (weeks - 1) * GAP) / weeks))) : 0;
+  const step = cell + GAP;
+  const gridW = weeks * cell + (weeks - 1) * GAP;
+
+  const cols = Array.from({ length: weeks }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+  // Un label par colonne qui contient un 1er du mois, placé pile au-dessus d'elle.
+  const months = cols
+    .map((col, i) => { const first = col.find(c => c.date.slice(8) === "01"); return first ? { i, label: fmtFrMonth(first.date) } : null; })
+    .filter(Boolean);
+
+  const bg = st => st === "done" ? C.accent : st === "missed" ? C.surface3 : "transparent";
+  const border = st => st === "today" ? `1px solid ${C.accent}` : "1px solid transparent";
+
+  return (
+    <div ref={ref} style={{ width:"100%", overflow:"hidden" }}>
+      {cell > 0 && (
+        <div style={{ width:gridW, marginLeft:"auto" }}>
+          <div style={{ position:"relative", height:12, marginBottom:4 }}>
+            {months.map(({ i, label }) => (
+              <span key={i} style={{ position:"absolute", left:i * step, top:0, fontSize:9, lineHeight:"12px", color:C.faint, whiteSpace:"nowrap" }}>{label}</span>
+            ))}
+          </div>
+          <div style={{ display:"flex", gap:GAP }}>
+            {cols.map((col, i) => (
+              <div key={i} style={{ display:"flex", flexDirection:"column", gap:GAP }}>
+                {col.map(c => (
+                  <div key={c.date} title={c.date} style={{
+                    width:cell, height:cell, borderRadius:3, boxSizing:"border-box",
+                    background:bg(c.state), border:border(c.state),
+                  }} />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Régularité glissante 28 j. Pointillés tant qu'on a moins de 28 jours de recul,
+// trait plein ensuite. Aucune extrapolation : la courbe s'arrête à hier.
 function RollingRateChart({ habit, today }) {
   const C = CF, FONT_D = CF_FONT;
-  const s = rollingRateSeries(habit, today, 28);
-  if (s.length < 2) return null;
+  const [ref, W] = useBoxWidth();
+  const s = rollingRateSeries(habit, today, 28, 7);
 
+  if (!s.length) return (
+    <div style={{ fontSize:12.5, color:C.faint, lineHeight:1.5 }}>
+      Pas encore assez de recul — la courbe démarre au 7ᵉ jour.
+    </div>
+  );
+  if (W <= 0) return <div ref={ref} style={{ width:"100%", height:150 }} />;
+
+  const H = 150, ML = 4, MR = 10, MT = 16, MB = 4;
   const n = s.length;
-  const H = 120;
-  const px = i => (i / (n - 1)) * 100;
-  const py = r => 100 - r * 100;
-  const pt = (p, i) => `${px(i).toFixed(2)},${py(p.rate).toFixed(2)}`;
+  const innerW = Math.max(1, W - ML - MR);
+  const innerH = H - MT - MB;
+  const x = i => ML + (n === 1 ? innerW : (i / (n - 1)) * innerW);
+  const y = r => MT + (1 - r) * innerH;
+  const pt = (p, i) => `${x(i).toFixed(1)},${y(p.rate).toFixed(1)}`;
+  const line = arr => arr.map((c, k) => `${k ? "L" : "M"}${c}`).join(" ");
+
+  // Le premier point à fenêtre complète est partagé pour que les deux tracés se rejoignent.
   const firstFull = s.findIndex(p => p.full);
-  const cutoff = firstFull < 0 ? n - 1 : firstFull;
-  const path = arr => arr.map((x, k) => `${k ? "L" : "M"}${x}`).join(" ");
-  const partial = path(s.slice(0, cutoff + 1).map(pt));
-  const full    = cutoff < n - 1 ? path(s.slice(cutoff).map((p, k) => pt(p, cutoff + k))) : "";
+  const cut = firstFull < 0 ? n - 1 : firstFull;
+  const dashed = line(s.slice(0, cut + 1).map(pt));
+  const solid  = cut < n - 1 ? line(s.slice(cut).map((p, k) => pt(p, cut + k))) : "";
+  const area   = `${line(s.map(pt))} L${x(n - 1).toFixed(1)},${(H - MB).toFixed(1)} L${x(0).toFixed(1)},${(H - MB).toFixed(1)} Z`;
 
   const last = s[n - 1];
-  const incomplete = n < 28;
+  const lx = x(n - 1), ly = y(last.rate);
+  const labelY = Math.max(MT + 9, ly - 10);   // au-dessus du point, jamais hors cadre
+  const gid = `rr-${habit.id}`;
 
   return (
     <div>
-      <div style={{ position:"relative", height:H }}>
-        <svg width="100%" height={H} viewBox="0 0 100 100" preserveAspectRatio="none" style={{ display:"block" }}>
-          <line x1="0" y1="0"  x2="100" y2="0"  stroke={C.border} strokeWidth="1" vectorEffect="non-scaling-stroke" />
-          <line x1="0" y1="50" x2="100" y2="50" stroke={C.border} strokeWidth="1" strokeDasharray="3 5" vectorEffect="non-scaling-stroke" />
-          {cutoff > 0 && <path d={partial} fill="none" stroke={C.accent} strokeWidth="2" strokeDasharray="4 4" strokeOpacity="0.7" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
-          {full && <path d={full} fill="none" stroke={C.accent} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
+      <div ref={ref} style={{ width:"100%" }}>
+        <svg width={W} height={H} style={{ display:"block" }}>
+          <defs>
+            <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={C.accent} stopOpacity="0.26" />
+              <stop offset="100%" stopColor={C.accent} stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          {/* Repère 50 % */}
+          <line x1={ML} y1={y(0.5)} x2={W - MR} y2={y(0.5)} stroke={C.border} strokeWidth="1" strokeDasharray="3 4" />
+          <text x={ML} y={y(0.5) - 4} fontSize="9" fill={C.faint}>50 %</text>
+
+          <path d={area} fill={`url(#${gid})`} stroke="none" />
+          {cut > 0 && <path d={dashed} fill="none" stroke={C.accent} strokeWidth="2" strokeDasharray="4 4" strokeOpacity="0.65" strokeLinecap="round" />}
+          {solid && <path d={solid} fill="none" stroke={C.accent} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />}
+
+          <circle cx={lx} cy={ly} r="4" fill={C.accent} stroke={C.surface} strokeWidth="1.5" />
+          <text x={lx - 7} y={labelY} textAnchor="end" fontSize="13" fontWeight="800"
+            fill={C.accent} fontFamily={FONT_D} style={{ fontVariantNumeric:"tabular-nums" }}>
+            {Math.round(last.rate * 100)} %
+          </text>
         </svg>
-        {/* Dernier point : hors SVG pour ne pas être déformé par preserveAspectRatio="none" */}
-        <div style={{ position:"absolute", left:"100%", top:`${py(last.rate)}%`, transform:"translate(-50%,-50%)",
-          width:9, height:9, borderRadius:"50%", background:C.accent, boxShadow:`0 0 10px ${C.accent}`, pointerEvents:"none" }} />
-        <div style={{ position:"absolute", right:10, top:`${py(last.rate)}%`, transform:"translate(0,-50%)",
-          fontFamily:FONT_D, fontSize:13, fontWeight:800, color:C.accent, background:C.surface,
-          padding:"1px 6px", borderRadius:7, pointerEvents:"none", fontVariantNumeric:"tabular-nums" }}>
-          {Math.round(last.rate * 100)} %
-        </div>
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", fontSize:10, color:C.faint, marginTop:6 }}>
         <span>{fmtFrDay(s[0].date)}</span><span>{fmtFrDay(last.date)}</span>
       </div>
-      {incomplete && <div style={{ fontSize:10.5, color:C.faint, marginTop:4 }}>Moins de 28 j de recul</div>}
+      {!last.full && <div style={{ fontSize:10.5, color:C.faint, marginTop:4 }}>Moins de 28 j de recul</div>}
     </div>
   );
 }
@@ -3561,7 +3913,7 @@ function HabitLinks({ habit, habits, today, onOpenHabit }) {
   })();
   const links = topLinks(habit, habits || [], dailyEntries, today, 3);
 
-  const Note = () => (
+  const note = (
     <div style={{ fontSize:10.5, color:C.faint, marginTop:10, lineHeight:1.5 }}>
       Associations observées dans tes données, pas des causes.
     </div>
@@ -3569,15 +3921,15 @@ function HabitLinks({ habit, habits, today, onOpenHabit }) {
 
   if (!links.length) return (
     <div>
-      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:10 }}>Liens</div>
+      <SheetTitle>Liens</SheetTitle>
       <div style={{ fontSize:12.5, color:C.faint, lineHeight:1.5 }}>Pas encore assez de données communes (minimum 10 jours de chaque côté).</div>
-      <Note />
+      {note}
     </div>
   );
 
   return (
     <div>
-      <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:10 }}>Liens</div>
+      <SheetTitle>Liens</SheetTitle>
       {links.map(l => {
         const up = l.diff > 0;
         // Pour le stress, une valeur plus basse est la bonne.
@@ -3608,7 +3960,7 @@ function HabitLinks({ habit, habits, today, onOpenHabit }) {
           </div>
         );
       })}
-      <Note />
+      {note}
     </div>
   );
 }
@@ -3622,18 +3974,17 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
   const total = cumulTotal(habit, t);
   const start = startDay(habit, t);
   const { rate, delta } = rate28WithDelta(habit, t);
-  const rattr = rattrapage(habit, t);
   const weak  = weakestWeekday(habit, t);
   const goal  = habit.goalId ? (goals?.lt || []).find(g => g.id === habit.goalId) : null;
 
   const Stat = ({ label, value, sub, badge }) => (
     <div style={{ flex:1, minWidth:0, textAlign:"center" }}>
-      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"center", gap:5 }}>
-        <span style={{ fontFamily:FONT_D, fontSize:19, fontWeight:800, color:C.text, fontVariantNumeric:"tabular-nums", lineHeight:1 }}>{value}</span>
+      <div style={{ display:"flex", alignItems:"baseline", justifyContent:"center", gap:5, flexWrap:"wrap" }}>
+        <span style={{ fontFamily:FONT_D, fontSize:20, fontWeight:800, color:C.text, fontVariantNumeric:"tabular-nums", lineHeight:1.1 }}>{value}</span>
         {badge}
       </div>
-      <div style={{ fontSize:10, color:C.muted, marginTop:5 }}>{label}</div>
-      {sub && <div style={{ fontSize:9, color:C.faint, marginTop:2, lineHeight:1.3 }}>{sub}</div>}
+      <div style={{ fontSize:10, color:C.muted, marginTop:6 }}>{label}</div>
+      {sub && <div style={{ fontSize:9.5, color:C.faint, marginTop:2, fontVariantNumeric:"tabular-nums" }}>{sub}</div>}
     </div>
   );
   const deltaBadge = delta == null ? null : (
@@ -3645,49 +3996,56 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
       <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
-        width:"100%", maxWidth:560, maxHeight:"88vh", overflowY:"auto",
+        width:"100%", maxWidth:560, maxHeight:"88vh", overflowY:"auto", overflowX:"hidden", boxSizing:"border-box",
         background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.borderMid}`, borderBottom:"none",
-        boxShadow:"0 -16px 60px rgba(0,0,0,0.6)", padding:"16px 18px calc(20px + env(safe-area-inset-bottom))",
+        boxShadow:"0 -16px 60px rgba(0,0,0,0.6)", padding:"16px 18px calc(22px + env(safe-area-inset-bottom))",
       }}>
         <div style={{ width:38, height:4, borderRadius:999, background:C.surface3, margin:"0 auto 16px" }} />
 
-        {/* 3.1 En-tête */}
-        <div style={{ display:"flex", alignItems:"flex-start", gap:12, marginBottom:18 }}>
-          <span style={{ fontSize:30, flexShrink:0 }}>{habit.emoji}</span>
+        {/* En-tête */}
+        <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
+          <span style={{ fontSize:30, flexShrink:0, lineHeight:1.1 }}>{habit.emoji}</span>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontFamily:FONT_D, fontSize:19, fontWeight:800, color:C.text, lineHeight:1.2 }}>{habit.name}</div>
-            {goal && <div style={{ fontSize:12, color:C.accent, marginTop:5 }}>→ {goal.titre}</div>}
+            {goal && <div style={{ fontSize:12, color:C.accent, marginTop:5, overflow:"hidden", textOverflow:"ellipsis" }}>→ {goal.titre}</div>}
           </div>
           <button onClick={onClose} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>✕</button>
         </div>
 
-        {/* 3.2 Total cumulé */}
-        <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:18 }}>
-          <span style={{ fontFamily:FONT_D, fontSize:56, fontWeight:800, color:C.text, lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{total}</span>
+        {/* Total cumulé */}
+        <div style={{ display:"flex", alignItems:"baseline", gap:8, flexWrap:"wrap", marginTop:SHEET_GAP - 8 }}>
+          <span style={{ fontFamily:FONT_D, fontSize:52, fontWeight:800, color:C.text, lineHeight:1, fontVariantNumeric:"tabular-nums" }}>{total}</span>
           <span style={{ fontSize:15, color:C.muted, fontWeight:600 }}>{habitUnit(habit)}</span>
-          {start && <span style={{ marginLeft:"auto", fontSize:11, color:C.faint }}>depuis le {fmtFrDay(start)}</span>}
+          {start && <span style={{ marginLeft:"auto", fontSize:11, color:C.faint, whiteSpace:"nowrap" }}>depuis le {fmtFrDay(start)}</span>}
         </div>
 
-        {/* 3.3 Calendrier en carrés */}
-        {start
-          ? <HabitHeatmap habit={habit} today={t} />
-          : <div style={{ fontSize:12.5, color:C.faint, padding:"6px 0" }}>Aucune validation pour l'instant.</div>}
+        {/* Calendrier */}
+        <div style={{ marginTop:SHEET_GAP }}>
+          <SheetTitle>Calendrier</SheetTitle>
+          {start
+            ? <HabitHeatmap habit={habit} today={t} />
+            : <div style={{ fontSize:12.5, color:C.faint }}>Aucune validation pour l'instant.</div>}
+        </div>
 
-        {/* 3.4 Régularité glissante 28 j */}
-        <div style={{ marginTop:22 }}>
+        {/* Régularité glissante */}
+        <div style={{ marginTop:SHEET_GAP }}>
+          <SheetTitle>Régularité</SheetTitle>
           <RollingRateChart habit={habit} today={t} />
         </div>
 
-        {/* 3.5 Trois chiffres */}
-        <div style={{ display:"flex", gap:8, margin:"20px 0 18px", padding:"14px 6px", borderTop:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}` }}>
+        {/* Deux chiffres */}
+        <div style={{ display:"flex", gap:8, marginTop:SHEET_GAP, paddingTop:16, paddingBottom:16, borderTop:`1px solid ${C.border}`, borderBottom:`1px solid ${C.border}` }}>
           <Stat label="Régularité 28 j" value={`${Math.round(rate * 100)} %`} badge={deltaBadge} />
-          <Stat label="Rattrapage" value={rattr == null ? "—" : `${Math.round(rattr * 100)} %`} sub="ratés rattrapés le lendemain" />
-          <Stat label="Jour faible" value={weak == null ? "—" : `${WEEKDAY_FR[weak.weekday]} · ${Math.round(weak.rate * 100)} %`} />
+          <Stat
+            label="Jour faible"
+            value={weak == null ? "—" : `${WEEKDAY_FR[weak.weekday]} · ${Math.round(weak.rate * 100)} %`}
+            sub={weak == null ? null : `${weak.hits}/${weak.total}`}
+          />
         </div>
 
-        {/* 3.6 Pourquoi */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:8 }}>Pourquoi</div>
+        {/* Pourquoi */}
+        <div style={{ marginTop:SHEET_GAP }}>
+          <SheetTitle>Pourquoi</SheetTitle>
           {editingWhy ? (
             <div style={{ display:"flex", gap:8 }}>
               <Input value={why} onChange={v => setWhy(v.slice(0, 120))} placeholder="En une phrase..." autoFocus
@@ -3701,14 +4059,14 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
           )}
         </div>
 
-        {/* 3.7 Liens */}
-        <div style={{ marginBottom:18 }}>
+        {/* Liens */}
+        <div style={{ marginTop:SHEET_GAP }}>
           <HabitLinks habit={habit} habits={habits} today={t} onOpenHabit={onOpenHabit} />
         </div>
 
         {onEdit && (
           <button onClick={onEdit} style={{
-            width:"100%", minHeight:46, borderRadius:12, background:"transparent", border:`1px solid ${C.borderMid}`,
+            width:"100%", minHeight:46, marginTop:SHEET_GAP, borderRadius:12, background:"transparent", border:`1px solid ${C.borderMid}`,
             color:C.accent, fontSize:13, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
           }}>Modifier</button>
         )}
@@ -6688,7 +7046,9 @@ export default function App({ session, signOut }) {
         {module === "todo"      && <TodoModule />}
         {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
         {module === "finances"  && <FinancesModule userId={session?.user?.id ?? null} />}
-        <LegalFooter />
+        {/* Home tient en une page : le footer y ajouterait un scroll.
+            Il reste présent sur tous les autres modules. */}
+        {module !== "dashboard" && <LegalFooter />}
       </div>
       {/* Bouton « Le Poste » — accessible depuis toutes les pages */}
       {!logsOpen && (

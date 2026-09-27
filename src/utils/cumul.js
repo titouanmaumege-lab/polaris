@@ -61,16 +61,22 @@ export const trackedDays = (allHabits, today = todayStr()) => {
 
 // Une valeur par jour évalué : réussites sur la fenêtre glissante ∩ jours évalués,
 // divisées par la taille réelle de cette intersection (fenêtre plus courte au début).
-export const rollingRateSeries = (habit, today = todayStr(), window = 28) => {
+// `minDays` : pas de point avant ce nombre de jours évalués — sur 1 ou 2 jours le
+// taux vaut 0 % ou 100 % et ne dit rien, ça ne produisait qu'un pic trompeur.
+export const rollingRateSeries = (habit, today = todayStr(), window = 28, minDays = 7) => {
   const days = evaluatedDays(habit, today);
-  if (!days.length) return [];
+  if (days.length < minDays) return [];
   const done = new Set(validDays(habit, today));
-  return days.map((date, i) => {
-    const from = Math.max(0, i - window + 1);
-    const slice = days.slice(from, i + 1);
-    const hits = slice.filter(d => done.has(d)).length;
-    return { date, rate: hits / slice.length, full: i >= window - 1 };
-  });
+  const out = [];
+  for (let i = minDays - 1; i < days.length; i++) {
+    const slice = days.slice(Math.max(0, i - window + 1), i + 1);
+    out.push({
+      date: days[i],
+      rate: slice.filter(d => done.has(d)).length / slice.length,
+      full: i >= window - 1,   // fenêtre complète = 28 jours de recul
+    });
+  }
+  return out;
 };
 
 // rate = régularité sur les 28 derniers jours évalués (fenêtre plus courte si l'historique l'est).
@@ -84,27 +90,18 @@ export const rate28WithDelta = (habit, today = todayStr()) => {
   return { rate, delta: rate - rateOf(days.slice(-56, -28)) };
 };
 
-// Part des ratés suivis d'une réussite le lendemain. null si moins de 3 ratés exploitables.
-export const rattrapage = (habit, today = todayStr()) => {
-  const days = evaluatedDays(habit, today);
-  if (days.length < 2) return null;
-  const done = new Set(validDays(habit, today));
-  // On exclut le dernier jour évalué : son lendemain (= aujourd'hui) n'est pas fini.
-  const misses = days.slice(0, -1).filter(d => !done.has(d));
-  if (misses.length < 3) return null;
-  return misses.filter(d => done.has(addDays(d, 1))).length / misses.length;
-};
-
-// Jour de la semaine au taux le plus bas. null si un des 7 jours a moins de 4 occurrences.
+// Jour de la semaine au taux le plus bas. null tant qu'un des 7 jours compte
+// moins de MIN_WEEKDAY occurrences évaluées : en dessous, le classement n'est que du bruit.
+const MIN_WEEKDAY = 6;
 export const weakestWeekday = (habit, today = todayStr()) => {
   const days = evaluatedDays(habit, today);
   const done = new Set(validDays(habit, today));
   const tot = Array(7).fill(0), hit = Array(7).fill(0);
   days.forEach(d => { const w = weekdayOf(d); tot[w]++; if (done.has(d)) hit[w]++; });
-  if (tot.some(n => n < 4)) return null;
+  if (tot.some(n => n < MIN_WEEKDAY)) return null;
   let best = 0;
   for (let w = 1; w < 7; w++) if (hit[w] / tot[w] < hit[best] / tot[best]) best = w;
-  return { weekday: best, rate: hit[best] / tot[best] };
+  return { weekday: best, rate: hit[best] / tot[best], hits: hit[best], total: tot[best] };
 };
 
 // ── Calendrier en carrés ─────────────────────────────────────────────────────
@@ -124,6 +121,17 @@ export const heatmapData = (habit, today = todayStr(), weeks = 26) => {
     else state = done.has(date) ? "done" : "missed";
     return { date, state };
   });
+};
+
+// Nombre de colonnes à afficher : on ne montre pas 26 semaines de vide pour une
+// habitude qui date de 10 jours, ni plus de 26 pour une très ancienne.
+export const heatmapWeeks = (habit, today = todayStr(), min = 8, max = 26) => {
+  const start = startDay(habit, today);
+  if (!start) return min;
+  const thisMonday  = addDays(today, -weekdayOf(today));
+  const startMonday = addDays(start, -weekdayOf(start));
+  const weeks = Math.round(diffDays(thisMonday, startMonday) / 7) + 1;
+  return Math.min(max, Math.max(min, weeks));
 };
 
 // ── Liens ────────────────────────────────────────────────────────────────────
