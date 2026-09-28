@@ -20,11 +20,14 @@ export function useFinanceBudgets(userId, ym = monthKey()) {
         .eq("user_id", userId).eq("type", "depense").gte("date", first).lte("date", last),
     ]);
     const spentByCat = {};
+    let spentTotal = 0;
     (txData || []).forEach(t => {
+      spentTotal += Number(t.amount);
       if (t.category_id) spentByCat[t.category_id] = (spentByCat[t.category_id] || 0) + Number(t.amount);
     });
+    // Budget global (category_id null) : toutes les dépenses du mois, catégorisées ou non.
     setBudgets((budData || []).map(b => ({
-      ...b, amount: Number(b.amount), spent: spentByCat[b.category_id] || 0,
+      ...b, amount: Number(b.amount), spent: b.category_id ? (spentByCat[b.category_id] || 0) : spentTotal,
     })));
     setLoading(false);
   }, [userId, ym, y, m]);

@@ -9,7 +9,10 @@ import { useFinanceGoals } from "./hooks/useFinanceGoals";
 import { useFinanceInvestments } from "./hooks/useFinanceInvestments";
 import { useFinanceDebts } from "./hooks/useFinanceDebts";
 import { useFinanceRecurring, advanceOccurrence, recurrenceLabel } from "./hooks/useFinanceRecurring";
+import { supabase } from "../../supabase";
+import { matchKeyOf } from "../../utils/recurrence";
 import { todayStr, monthKey } from "../../utils/date";
+import BankPanel, { BANK_CALLBACK_PATH } from "./BankPanel";
 import { C, GRAD } from "../../ui/tokens";
 
 // DA partagée avec le reste de l'app : tokens `C` + thème `.theme-light`
@@ -134,7 +137,8 @@ function TypeToggle({ value, onChange, options }) {
 
 // ════════════════════════════════════════════════════════════════════════════
 export default function FinancesModule({ userId }) {
-  const [section, setSection] = useState("dash");
+  // Retour de la banque après consentement : on atterrit directement sur Banques.
+  const [section, setSection] = useState(() => window.location.pathname === BANK_CALLBACK_PATH ? "banks" : "dash");
   const [ym, setYm] = useState(monthKey());
   const [toast, setToast] = useState("");
   const showToast = (m) => { setToast(m); setTimeout(() => setToast(""), 2400); };
@@ -170,8 +174,11 @@ export default function FinancesModule({ userId }) {
   const aideCats = cat.categories.filter(c => c.kind === "aide");
   const liquidAcc = acc.accounts.filter(a => (a.nature || "liquidite") === "liquidite");
   const investAcc = acc.accounts.filter(a => a.nature === "investissement");
+  const proAcc = acc.accounts.filter(a => a.nature === "pro");
+  const proIds = useMemo(() => new Set(proAcc.map(a => a.id)), [proAcc.map(a => a.id).join()]);
   const liquidTotal = liquidAcc.reduce((s, a) => s + (a.balance ?? 0), 0);
   const investTotal = investAcc.reduce((s, a) => s + (a.balance ?? 0), 0);
+  const proTotal = proAcc.reduce((s, a) => s + (a.balance ?? 0), 0);
 
   // ── Dérivés ───────────────────────────────────────────────────────────────
   const [yNum, mNum] = ym.split("-").map(Number);
@@ -181,7 +188,8 @@ export default function FinancesModule({ userId }) {
   const income = monthTx.filter(t => t.type === "revenu").reduce((s, t) => s + t.amount, 0);
   const expense = monthTx.filter(t => t.type === "depense").reduce((s, t) => s + t.amount, 0);
   const pocketsTotal = goal.goals.reduce((s, g) => s + g.current_amount, 0);
-  const netWorth = acc.totalBalance + pocketsTotal + inv.totalMarketValue;
+  // Le compte pro appartient à l'entreprise, pas à l'utilisateur : hors patrimoine.
+  const netWorth = acc.totalBalance - proTotal + pocketsTotal + inv.totalMarketValue;
 
   // Revenus par nature — base du bloc « Revenus » du bilan.
   // Les transactions antérieures à la migration 010 ont revenu_kind = null :
@@ -191,7 +199,12 @@ export default function FinancesModule({ userId }) {
     const inMonth = t => { const d = new Date(t.date); return d.getFullYear() === yNum && d.getMonth() + 1 === mNum; };
     const revenus = tx.transactions.filter(t => t.type === "revenu");
     const sum = a => a.reduce((s, t) => s + t.amount, 0);
-    const of = k => revenus.filter(t => t.revenu_kind === k);
+    // Tout revenu encaissé sur un compte pro est du CA, quelle que soit sa nature
+    // saisie. Un transfert depuis un compte perso n'est pas un revenu : exclu.
+    const isCA = t => proIds.has(t.account_id) || t.revenu_kind === "entreprise";
+    const of = k => k === "entreprise"
+      ? revenus.filter(isCA)
+      : revenus.filter(t => t.revenu_kind === k && !proIds.has(t.account_id));
 
     const kind = {};
     REVENU_KINDS.forEach(([k]) => {
@@ -226,9 +239,9 @@ export default function FinancesModule({ userId }) {
     const aideOrphan = aidesTx.filter(t => !t.aide_type_id || !knownAide.has(t.aide_type_id));
     if (aideOrphan.some(inYear)) byAide.push({ id: "_none", name: "Non précisé", color: C.muted, month: sum(aideOrphan.filter(inMonth)), year: sum(aideOrphan.filter(inYear)) });
 
-    const unclassified = revenus.filter(t => !t.revenu_kind && inYear(t));
+    const unclassified = revenus.filter(t => !t.revenu_kind && !proIds.has(t.account_id) && inYear(t));
     return { kind, byEmp, byAide, caMonths, unclassified: unclassified.length, unclassifiedSum: sum(unclassified) };
-  }, [tx.transactions, emp.employers, aideCats, yNum, mNum]);
+  }, [tx.transactions, emp.employers, aideCats, yNum, mNum, proIds]);
 
   const today0 = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const recDue = rec.recurring.filter(r => r.active && new Date(r.next_occurrence) <= new Date(today0.getTime() + 7 * 864e5));
@@ -252,6 +265,78 @@ export default function FinancesModule({ userId }) {
   const [txFilter, setTxFilter] = useState("all");
   const [recTab, setRecTab] = useState("upcoming");
   const [debtTab, setDebtTab] = useState("pending");
+  // Changement rapide de catégorie (clic sur l'émoji d'une opération)
+  const [catPick, setCatPick] = useState(null);   // transaction | null
+  // Remise à zéro des opérations
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetText, setResetText] = useState("");
+  const [resetBusy, setResetBusy] = useState(false);
+
+  const setTxCategory = async (t, categoryId) => {
+    setCatPick(null);
+    if (categoryId === t.category_id) return;
+    const r = await tx.updateTransaction(t.id, { ...t, category_id: categoryId });
+    if (ok(r)) showToast("Catégorie modifiée");
+  };
+
+  const resetOperations = async () => {
+    setResetBusy(true);
+    const { data, error } = await supabase.rpc("finance_reset_operations");
+    setResetBusy(false);
+    if (error) {
+      showToast(/finance_reset_operations/.test(error.message) ? "Exécute d'abord la migration 017 dans Supabase." : `Échec : ${error.message}`);
+      return;
+    }
+    setResetOpen(false); setResetText("");
+    window.dispatchEvent(new Event("finance-data-changed"));
+    showToast(`${data ?? 0} opérations supprimées, soldes conservés`);
+  };
+
+  // Émoji de catégorie cliquable : ouvre le choix de catégorie.
+  // Sans catégorie (typiquement une opération qui vient d'arriver de la banque) :
+  // un « ? » rouge pâle, à cliquer pour la classer.
+  const TODO_BG = "rgba(248,113,113,0.16)", TODO_FG = "#fca5a5";
+  const CatEmoji = ({ t, c, size = 34, badge }) => {
+    const todo = !t.category_id;
+    if (badge) return todo
+      ? <button onClick={() => setCatPick(t)} title="Choisir la catégorie" style={{ ...badgeSt(TODO_FG), background: TODO_BG, border: "none", cursor: "pointer", fontFamily: "inherit" }}><b>?</b> À classer</button>
+      : <button onClick={() => setCatPick(t)} title="Changer la catégorie" style={{ ...badgeSt(c.color), border: "none", cursor: "pointer", fontFamily: "inherit" }}>{c.icon} {c.name}</button>;
+    return (
+      <button onClick={() => setCatPick(t)} title={todo ? "Choisir la catégorie" : "Changer la catégorie"}
+        aria-label={todo ? "Sans catégorie. Choisir" : `Catégorie : ${c.name}. Changer`}
+        style={{ ...txIconSt, width: size, height: size, border: "none", cursor: "pointer",
+          background: todo ? TODO_BG : (c.color || C.muted) + "22", color: TODO_FG, fontWeight: 800, fontSize: todo ? 16 : txIconSt.fontSize }}>
+        {todo ? "?" : c.icon}
+      </button>
+    );
+  };
+
+  // Renommer une opération en cliquant sur son libellé.
+  // Champ NON contrôlé : les vues sont recréées à chaque rendu du parent, un
+  // champ contrôlé perdrait le focus à chaque frappe.
+  const [renaming, setRenaming] = useState(null);   // id de l'opération | null
+  const renameTx = async (t, value) => {
+    setRenaming(null);
+    const note = value.trim();
+    if (note === (t.note || "")) return;
+    const r = await tx.updateTransaction(t.id, { ...t, note });
+    if (ok(r)) showToast("Opération renommée");
+  };
+  const RecTag = ({ t }) => {
+    if (!t.recurring_id) return null;
+    const r = rec.recurring.find(x => x.id === t.recurring_id);
+    return <span title={r ? `Récurrence : ${r.label} (${recurrenceLabel(r)})` : "Récurrence"} style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: C.accent, background: C.accentBg, padding: "2px 7px", borderRadius: 6, verticalAlign: "middle", whiteSpace: "nowrap" }}>↻ Récurrence</span>;
+  };
+  const TxLabel = ({ t, fallback }) => renaming === t.id
+    ? <input autoFocus defaultValue={t.note || ""} placeholder={fallback} aria-label="Nom de l'opération"
+        onFocus={e => e.currentTarget.select()}
+        onBlur={e => { if (e.currentTarget.dataset.cancel) return; renameTx(t, e.currentTarget.value); }}
+        onKeyDown={e => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") { e.currentTarget.dataset.cancel = "1"; setRenaming(null); }
+        }}
+        style={{ width: "100%", maxWidth: 360, background: C.surface2, border: `1px solid ${C.accent}`, borderRadius: 7, padding: "5px 8px", color: C.text, fontFamily: "inherit", fontSize: 13, outline: "none" }} />
+    : <span onClick={() => setRenaming(t.id)} title="Cliquer pour renommer" style={{ cursor: "text" }}>{t.note || fallback}</span>;
 
   // ── Ouvertures ──────────────────────────────────────────────────────────────
   const openTx = (t = null) => {
@@ -266,6 +351,18 @@ export default function FinancesModule({ userId }) {
     setF(r
       ? { type: r.type, label: r.label, amount: String(r.amount), category_id: r.category_id, uifreq: fromFreq(r), weeks: String(r.freq === "semaine" ? (r.interval ?? 1) : 2), next: r.next_occurrence, account_id: r.account_id }
       : { type: "depense", label: "", amount: "", category_id: expCats[0]?.id || null, uifreq: "monthly", weeks: "2", next: todayStr(), account_id: acc.accounts[0]?.id || null });
+    setModal("rec");
+  };
+  // Récurrence créée à partir d'une opération réelle : pré-remplie, mensuelle
+  // au même jour, et liée à son libellé bancaire pour la détection automatique.
+  const openRecFromTx = (t) => {
+    const day = Number(t.date.slice(8, 10));
+    setEditing(null);
+    setF({
+      type: t.type === "revenu" ? "revenu" : "depense", label: t.note || t.bank_label || "", amount: String(t.amount),
+      category_id: t.category_id, uifreq: "monthly", weeks: "2", account_id: t.account_id,
+      next: advanceOccurrence({ freq: "mois", interval: 1, day_of_month: day }, t.date), sourceTx: t,
+    });
     setModal("rec");
   };
   const openDebt = (d = null) => {
@@ -327,9 +424,22 @@ export default function FinancesModule({ userId }) {
     if (!amount || amount <= 0) return showToast("Montant invalide");
     const { freq, interval } = toFreq(f.uifreq, f.weeks);
     const payload = { label: f.label.trim(), type: f.type, amount, category_id: f.category_id, account_id: f.account_id, freq, interval, next_occurrence: f.next, is_subscription: false };
-    if (editing) await rec.updateRecurring(editing.id, payload);
-    else await rec.createRecurring(payload);
-    close(); showToast(editing ? "Modifié" : "Récurrence créée");
+    const src = !editing && f.sourceTx;
+    if (src) {
+      // « * » : liée mais libellé trop générique pour être reconnu. Reste non
+      // nul pour que le rattrapage ne génère pas d'opération en double.
+      payload.match_key = matchKeyOf(src.bank_label || src.note) || "*";
+      if (freq === "mois") payload.day_of_month = Number(src.date.slice(8, 10));
+    }
+    if (editing) { await rec.updateRecurring(editing.id, payload); close(); showToast("Modifié"); return; }
+    const created = await rec.createRecurring(payload);
+    if (!ok(created)) return;
+    if (src) {
+      await supabase.from("finance_transactions").update({ recurring_id: created.id }).eq("id", src.id);
+      window.dispatchEvent(new Event("finance-data-changed"));
+    }
+    close();
+    showToast(src && payload.match_key === "*" ? "Récurrence créée, mais libellé trop générique pour la détection automatique" : "Récurrence créée");
   };
   const payRec = async (r) => {
     await tx.createTransaction({
@@ -449,6 +559,7 @@ export default function FinancesModule({ userId }) {
     { id: "pea", label: "PEA / Bourse", icon: "📈" },
     { id: "bilan", label: "Bilan", icon: "◉" },
     { sep: true },
+    { id: "banks", label: "Banques", icon: "🏦" },
     { id: "settings", label: "Paramètres", icon: "⚙" },
   ];
 
@@ -526,6 +637,7 @@ export default function FinancesModule({ userId }) {
         {section === "pea" && <PeaView />}
         {section === "bilan" && <BilanView />}
         {section === "settings" && <SettingsView />}
+        {section === "banks" && <BankPanel userId={userId} getAcc={getAcc} onSynced={() => acc.refetch()} />}
       </div>
 
       {/* ── TOAST ── */}
@@ -560,8 +672,11 @@ export default function FinancesModule({ userId }) {
 
   function Dash() {
     const byCat = {};
-    monthTx.filter(t => t.type === "depense").forEach(t => { if (t.category_id) byCat[t.category_id] = (byCat[t.category_id] || 0) + t.amount; });
-    const cd = Object.entries(byCat).map(([id, v]) => ({ ...getCat(id), value: v })).sort((a, b) => b.value - a.value);
+    // Les opérations importées de la banque arrivent sans catégorie : on les
+    // compte à part au lieu de les ignorer (sinon le donut se croyait vide).
+    monthTx.filter(t => t.type === "depense").forEach(t => { const k = t.category_id || "_none"; byCat[k] = (byCat[k] || 0) + t.amount; });
+    const UNCAT = { name: "Sans catégorie", icon: "❔", color: "#94a3b8" };
+    const cd = Object.entries(byCat).map(([id, v]) => ({ ...(id === "_none" ? UNCAT : getCat(id)), value: v })).sort((a, b) => b.value - a.value);
     const recent = tx.transactions.slice(0, 6);
     return (
       <>
@@ -584,10 +699,13 @@ export default function FinancesModule({ userId }) {
             <div style={titleSt}>Répartition des dépenses</div>
             <div style={{ position: "relative", display: "flex", justifyContent: "center", marginBottom: 14 }}>
               <Donut data={cd} total={expense} />
-              <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" }}>
-                <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 700 }}>{fmtEUR(expense)}</div>
-                <div style={{ fontSize: 11, color: C.muted }}>ce mois</div>
-              </div>
+              {/* Sans dépense, le donut affiche son message vide : pas de « 0,00 € » par-dessus. */}
+              {expense > 0 && (
+                <div style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", textAlign: "center", pointerEvents: "none" }}>
+                  <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 700 }}>{fmtEUR(expense)}</div>
+                  <div style={{ fontSize: 11, color: C.muted }}>ce mois</div>
+                </div>
+              )}
             </div>
             {cd.slice(0, 5).map((d, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 0" }}>
@@ -606,9 +724,9 @@ export default function FinancesModule({ userId }) {
               const meta = isT ? `${getAcc(t.account_id)?.name || "—"} → ${getAcc(t.transfer_account_id)?.name || "—"}` : c.name;
               return (
                 <div key={t.id} style={txRowSt}>
-                  <div style={{ ...txIconSt, background: col + "22" }}>{icon}</div>
+                  {isT ? <div style={{ ...txIconSt, background: col + "22" }}>{icon}</div> : <CatEmoji t={t} c={c} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.note || (isT ? "Transfert" : c.name)}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><TxLabel t={t} fallback={isT ? "Transfert" : (t.category_id ? c.name : "Opération")} /><PendingTag t={t} /><RecTag t={t} /></div>
                     <div style={{ fontSize: 11, color: C.muted }}>{meta} · {d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</div>
                   </div>
                   <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: isT ? C.muted : t.type === "revenu" ? C.green : C.text }}>{isT ? "" : t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</div>
@@ -665,11 +783,11 @@ export default function FinancesModule({ userId }) {
                   return (
                     <tr key={t.id}>
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</td>
-                      <td style={{ ...tdSt, fontWeight: 500 }}>{t.note || (isT ? "Transfert" : "—")}</td>
-                      <td style={tdSt}>{isT ? <span style={badgeSt(C.accent)}>⇄ Transfert</span> : <span style={badgeSt(c.color)}>{c.icon} {c.name}</span>}</td>
+                      <td style={{ ...tdSt, fontWeight: 500 }}><TxLabel t={t} fallback={isT ? "Transfert" : "—"} /><PendingTag t={t} /><RecTag t={t} /></td>
+                      <td style={tdSt}>{isT ? <span style={badgeSt(C.accent)}>⇄ Transfert</span> : <CatEmoji t={t} c={c} badge />}</td>
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{isT ? `${a ? a.name : "—"} → ${dst ? dst.name : "—"}` : (a ? a.name : "—")}</td>
                       <td style={{ ...tdSt, fontFamily: MONO, fontWeight: 600, textAlign: "right", color: isT ? C.muted : t.type === "revenu" ? C.green : C.text }}>{isT ? "" : t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</td>
-                      <td style={tdSt}><RowActions>{rowBtn("✏️", () => openTx(t))}{rowBtn("✕", () => { tx.deleteTransaction(t.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
+                      <td style={tdSt}><RowActions>{!isT && !t.recurring_id && <span title="En faire une récurrence">{rowBtn("↻", () => openRecFromTx(t))}</span>}{rowBtn("✏️", () => openTx(t))}{rowBtn("✕", () => { tx.deleteTransaction(t.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
                     </tr>
                   );
                 })}
@@ -691,7 +809,7 @@ export default function FinancesModule({ userId }) {
     list = [...list].sort((a, b) => new Date(a.next_occurrence) - new Date(b.next_occurrence));
     return (
       <>
-        <PageHead title="Récurrences" sub="Dépenses & revenus récurrents" action={<Btn small onClick={() => openRec()}>+ Ajouter</Btn>} />
+        <PageHead title="Récurrences" sub="Dépenses & revenus récurrents" action={<Btn small onClick={() => setModal("recPick")}>+ Ajouter</Btn>} />
         <Tabs tabs={[["upcoming", "À venir (30j)"], ["all", "Toutes"], ["inactive", "Inactives"]]} value={tab} onChange={setTab} />
         <div style={{ ...cardSt, padding: 0, overflow: "hidden" }}>
           {!list.length ? <Empty icon="🔁" text="Aucune récurrence" /> : (
@@ -709,7 +827,9 @@ export default function FinancesModule({ userId }) {
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{recurrenceLabel(r)}</td>
                       <td style={{ ...tdSt, fontSize: 12 }}>{nd.toLocaleDateString("fr-FR")} <span style={{ color: col }}>{dtxt}</span></td>
                       <td style={{ ...tdSt, fontFamily: MONO, fontWeight: 600, textAlign: "right", color: r.type === "revenu" ? C.green : C.text }}>{r.type === "revenu" ? "+" : "-"}{fmtEUR(r.amount)}</td>
-                      <td style={tdSt}><RowActions>{rowBtn("✓ Payer", () => payRec(r), C.green)}{rowBtn("✏️", () => openRec(r))}{rowBtn(r.active ? "⏸" : "▶", () => rec.toggleActive(r))}{rowBtn("✕", () => { rec.deleteRecurring(r.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
+                      <td style={tdSt}><RowActions>{r.match_key
+                        ? <span title="Détectée automatiquement à chaque synchro bancaire" style={{ ...badgeSt(C.accent), alignSelf: "center" }}>Auto</span>
+                        : rowBtn("✓ Payer", () => payRec(r), C.green)}{rowBtn("✏️", () => openRec(r))}{rowBtn(r.active ? "⏸" : "▶", () => rec.toggleActive(r))}{rowBtn("✕", () => { rec.deleteRecurring(r.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
                     </tr>
                   );
                 })}
@@ -875,7 +995,7 @@ export default function FinancesModule({ userId }) {
           <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".12em", marginBottom: 10 }}>Patrimoine net total</div>
           <div style={{ fontFamily: MONO, fontSize: 52, fontWeight: 800, letterSpacing: "-.02em", color: netWorth >= 0 ? C.green : C.red }}>{fmtEUR(netWorth)}</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18, alignItems: "stretch" }}>
+        <div style={{ display: "grid", gridTemplateColumns: `repeat(${proAcc.length ? 4 : 3},1fr)`, gap: 18, alignItems: "stretch" }}>
           <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
             <div style={titleSt}>Comptes liquidité</div>
             <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: liquidTotal >= 0 ? C.green : C.red, marginBottom: 12 }}>{fmtEUR(liquidTotal)}</div>
@@ -919,6 +1039,24 @@ export default function FinancesModule({ userId }) {
                 </>)}
             </div>
           </div>
+
+          {proAcc.length > 0 && (
+            <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
+              <div style={titleSt}>Comptes pro</div>
+              <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: C.amber, marginBottom: 12 }}>{fmtEUR(proTotal)}</div>
+              <div style={{ flex: 1 }}>
+                {proAcc.map(a => (
+                  <div key={a.id} style={bilRowSt}>
+                    <span style={{ width: 9, height: 9, borderRadius: "50%", background: a.color || C.amber }} />
+                    <div style={{ flex: 1 }}>{a.name}</div>
+                    {rowBtn("✏️", () => openAccount(a))}
+                    <div style={{ fontFamily: MONO, fontWeight: 700, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 12, lineHeight: 1.5 }}>Argent de l'entreprise : hors patrimoine net.</div>
+            </div>
+          )}
 
           <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
             <div style={titleSt}>Poches</div>
@@ -986,6 +1124,7 @@ export default function FinancesModule({ userId }) {
                 {/* CA encaissé de l'entreprise */}
                 <div style={cardSt}>
                   <div style={titleSt}>CA entreprise · encaissé</div>
+                  {proAcc.length === 0 && <div style={{ fontSize: 11, color: C.faint, margin: "-4px 0 8px" }}>Astuce : passe le compte de ta boîte en nature « Pro » pour compter ses encaissements automatiquement.</div>}
                   <Big v={k.entreprise.month} />
                   <Sub>Cumul {yNum} : <b style={{ color: C.muted }}>{fmtEUR(k.entreprise.year)}</b></Sub>
                   <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 54, marginTop: 16 }}>
@@ -1080,20 +1219,29 @@ export default function FinancesModule({ userId }) {
           ))} onAdd={() => openEmployer()} addLabel="+ Employeur" />
 
         <SettingsList id="acc" title="Comptes" count={acc.accounts.length}
-          hint="Chaque compte est une liquidité ou un support d'investissement. Le bilan sépare les deux."
+          hint="Chaque compte est une liquidité, un support d'investissement ou le compte pro de ton entreprise. Le bilan les sépare ; les encaissements sur un compte pro comptent comme CA."
           items={acc.accounts.map(a => (
             <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0", borderBottom: `1px solid ${C.border}` }}>
               <span style={{ width: 12, height: 12, borderRadius: 3, background: a.color || C.accent }} />
               <div style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{a.name}</div>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: a.nature === "investissement" ? C.accent : C.muted,
-                background: a.nature === "investissement" ? `${C.accent}1f` : C.surface2,
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: a.nature === "investissement" ? C.accent : a.nature === "pro" ? C.amber : C.muted,
+                background: a.nature === "investissement" ? `${C.accent}1f` : a.nature === "pro" ? `${C.amber}1f` : C.surface2,
                 border: `1px solid ${C.border}`, borderRadius: 999, padding: "2px 8px" }}>
-                {a.nature === "investissement" ? "Investissement" : "Liquidité"}
+                {a.nature === "investissement" ? "Investissement" : a.nature === "pro" ? "Pro" : "Liquidité"}
               </span>
               <span style={{ fontFamily: MONO, fontSize: 13, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</span>
               <RowActions>{rowBtn("✏️", () => openAccount(a))}</RowActions>
             </div>
           ))} onAdd={() => openAccount()} addLabel="+ Compte" />
+
+        <div style={{ ...cardSt, marginTop: 22, border: `1px solid ${C.red}44` }}>
+          <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Repartir de zéro</div>
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>
+            Supprime toutes tes opérations ({tx.transactions.length}). Le solde de chaque compte est conservé tel quel.
+            Les comptes bancaires reliés ne réimportent que les opérations du jour. Récurrences, budgets, poches et comptes ne changent pas.
+          </div>
+          <Btn kind="g" small onClick={() => { setResetText(""); setResetOpen(true); }} style={{ color: C.red, borderColor: `${C.red}55` }}>Supprimer toutes les opérations</Btn>
+        </div>
       </>
     );
   }
@@ -1116,6 +1264,34 @@ export default function FinancesModule({ userId }) {
   function renderModals() {
     return (
       <>
+        <Modal open={!!catPick} onClose={() => setCatPick(null)} title="Changer la catégorie">
+          {catPick && (<>
+            <div style={{ fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
+              {catPick.note || "Opération"} · <span style={{ fontFamily: MONO }}>{fmtEUR(catPick.amount)}</span>
+            </div>
+            {cat.categories.some(c => c.kind === (catPick.type === "revenu" ? "revenu" : "depense"))
+              ? <CatGrid kind={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
+              : <div style={{ fontSize: 13, color: C.faint, marginBottom: 14 }}>Aucune catégorie de ce type. Crée-en dans Paramètres.</div>}
+            {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
+          </>)}
+        </Modal>
+
+        <Modal open={resetOpen} onClose={() => !resetBusy && setResetOpen(false)} title="Supprimer toutes les opérations ?">
+          <div style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
+            Les <b style={{ color: C.text }}>{tx.transactions.length} opérations</b> seront supprimées définitivement, sans retour possible.
+            Les soldes de tes comptes restent identiques.
+          </div>
+          <Field label="Tape EFFACER pour confirmer">
+            <TextIn value={resetText} onChange={e => setResetText(e.target.value)} placeholder="EFFACER" autoFocus />
+          </Field>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <Btn kind="g" small onClick={() => setResetOpen(false)}>Annuler</Btn>
+            <Btn small onClick={() => resetText.trim() === "EFFACER" && !resetBusy && resetOperations()}
+              style={{ background: C.red, opacity: resetText.trim() === "EFFACER" && !resetBusy ? 1 : 0.4, cursor: resetText.trim() === "EFFACER" ? "pointer" : "default" }}>
+              {resetBusy ? "Suppression…" : "Supprimer les opérations"}
+            </Btn>
+          </div>
+        </Modal>
         <Modal open={modal === "tx"} onClose={close} title={editing ? "Modifier l'opération" : "Nouvelle opération"}>
           <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: v === "transfert" ? null : (v === "revenu" ? incCats : expCats)[0]?.id || null, transfer_account_id: v === "transfert" ? (p.transfer_account_id && p.transfer_account_id !== p.account_id ? p.transfer_account_id : acc.accounts.find(a => a.id !== p.account_id)?.id || null) : p.transfer_account_id }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }, { v: "transfert", label: "⇄ Transfert", c: C.accent }]} />
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
@@ -1186,7 +1362,39 @@ export default function FinancesModule({ userId }) {
           <Btn onClick={submitTx}>Enregistrer</Btn>
         </Modal>
 
+        <Modal open={modal === "recPick"} onClose={close} title="Quelle opération se répète ?">
+          <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 12 }}>
+            Choisis une opération déjà passée. Les prochaines qui lui ressemblent (même compte, libellé proche, montant voisin) seront reconnues automatiquement.
+          </div>
+          {(() => {
+            const since = new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10);
+            const list = tx.transactions.filter(t => t.type !== "transfert" && !t.recurring_id && t.date >= since).slice(0, 80);
+            if (!list.length) return <Empty icon="📭" text="Aucune opération récente à lier" />;
+            return (
+              <div style={{ maxHeight: 380, overflowY: "auto", margin: "0 -6px" }}>
+                {list.map(t => {
+                  const c = getCat(t.category_id); const d = new Date(t.date);
+                  return (
+                    <button key={t.id} onClick={() => openRecFromTx(t)} style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", minHeight: 44, padding: "8px 6px", background: "none", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", color: C.text, textAlign: "left" }}
+                      onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.04)"} onMouseLeave={e => e.currentTarget.style.background = "none"}>
+                      <span style={{ width: 28, textAlign: "center" }}>{t.category_id ? c.icon : "?"}</span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.note || "Opération"}</span>
+                      <span style={{ fontSize: 12, color: C.muted }}>{d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</span>
+                      <span style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, width: 90, textAlign: "right", color: t.type === "revenu" ? C.green : C.text }}>{t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </Modal>
+
         <Modal open={modal === "rec"} onClose={close} title={editing ? "Modifier la récurrence" : "Nouvelle récurrence"}>
+          {!editing && f.sourceTx && (
+            <div style={{ fontSize: 12.5, color: C.muted, background: C.accentBg, borderRadius: 9, padding: "9px 12px", marginBottom: 14, lineHeight: 1.5 }}>
+              Liée à « {f.sourceTx.note || "Opération"} » du {new Date(f.sourceTx.date).toLocaleDateString("fr-FR")}. Les prochaines échéances seront reconnues à la synchro bancaire.
+            </div>
+          )}
           <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: (v === "revenu" ? incCats : expCats)[0]?.id || null }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }]} />
           <Field label="Nom"><TextIn value={f.label} onChange={e => set("label", e.target.value)} placeholder="Ex : Loyer, Netflix..." /></Field>
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
@@ -1260,6 +1468,7 @@ export default function FinancesModule({ userId }) {
             <SelectIn value={f.nature || "liquidite"} onChange={e => set("nature", e.target.value)}>
               <option value="liquidite">Liquidité — compte courant, livret</option>
               <option value="investissement">Investissement — PEA, CTO, assurance-vie</option>
+              <option value="pro">Pro — compte de ton entreprise (encaissements = CA)</option>
             </SelectIn>
           </Field>
           <Btn onClick={submitAccount}>Enregistrer</Btn>
@@ -1382,6 +1591,12 @@ const bilRowSt = { display: "flex", alignItems: "center", gap: 10, padding: "11p
 const badgeSt = (color) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: (color || C.muted) + "22", color: color || C.muted });
 const chipSt = (on) => ({ padding: "6px 14px", borderRadius: 99, border: `1px solid ${on ? C.accent : C.border}`, background: on ? C.accentBg : C.surface, color: on ? C.accent : C.muted, fontSize: 12, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" });
 
+// Opération encore « en attente » chez la banque (synchro) : elle sera
+// remplacée par sa version comptabilisée à une prochaine synchro.
+function PendingTag({ t }) {
+  if (!t.external_id?.startsWith("pending:")) return null;
+  return <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: C.amber, background: C.amber + "1F", padding: "2px 7px", borderRadius: 6, verticalAlign: "middle" }}>En attente</span>;
+}
 function Stat({ label, value, c }) {
   return <div style={statSt}><div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 500 }}>{label}</div><div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700, color: c || C.text }}>{value}</div></div>;
 }

@@ -2,26 +2,12 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../../supabase";
 import { setFinanceError } from "./financeError";
 import { pad, todayStr, monthKey, monthBounds } from "../../../utils/date";
+import { advanceOccurrence } from "../../../utils/recurrence";
 
 const emitChange = () => window.dispatchEvent(new Event("finance-data-changed"));
-const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-// Avance une date d'occurrence selon la récurrence (strictement > date donnée).
-export function advanceOccurrence(rec, fromStr) {
-  const d = new Date(fromStr + "T12:00:00");
-  const iv = Math.max(1, rec.interval || 1);
-  if (rec.freq === "jour") d.setDate(d.getDate() + iv);
-  else if (rec.freq === "semaine") d.setDate(d.getDate() + 7 * iv);
-  else if (rec.freq === "mois") {
-    d.setMonth(d.getMonth() + iv);
-    if (rec.day_of_month) { const lm = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(rec.day_of_month, lm)); }
-  } else if (rec.freq === "annee") {
-    d.setFullYear(d.getFullYear() + iv);
-    if (rec.month_of_year) d.setMonth(rec.month_of_year - 1);
-    if (rec.day_of_month) { const lm = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); d.setDate(Math.min(rec.day_of_month, lm)); }
-  }
-  return fmt(d);
-}
+// Calcul d'échéance partagé avec la fonction serveur (détection des récurrences).
+export { advanceOccurrence };
 
 // Coût ramené au mois (utilisé pour le total Abonnements).
 export function monthlyCostOf(r) {
@@ -80,6 +66,7 @@ export function useFinanceRecurring(userId) {
       freq: r.freq, interval: r.interval ?? 1,
       day_of_month: r.day_of_month ?? null, weekday: r.weekday ?? null, month_of_year: r.month_of_year ?? null,
       next_occurrence: r.next_occurrence, active: r.active ?? true,
+      match_key: r.match_key || null,
       revenu_kind: r.type === "revenu" ? (r.revenu_kind || null) : null,
       employer_id: r.type === "revenu" && r.revenu_kind === "salaire" ? (r.employer_id || null) : null,
       aide_type_id: r.type === "revenu" && r.revenu_kind === "aides_sociales" ? (r.aide_type_id || null) : null,
@@ -109,7 +96,10 @@ export function useFinanceRecurring(userId) {
     const today = todayStr();
     // Les abonnements (is_subscription) sont validés MANUELLEMENT depuis l'Aperçu — exclus de l'auto.
     const { data: recs } = await supabase.from("finance_recurring").select("*")
-      .eq("user_id", userId).eq("active", true).eq("is_subscription", false).lte("next_occurrence", today);
+      .eq("user_id", userId).eq("active", true).eq("is_subscription", false).lte("next_occurrence", today)
+      // Récurrence liée à une opération bancaire : c'est la synchro qui apporte
+      // chaque échéance. La générer ici la compterait deux fois.
+      .is("match_key", null);
     if (!recs || recs.length === 0) return;
 
     let changed = false;
