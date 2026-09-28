@@ -285,7 +285,7 @@ export default function FinancesModule({ userId }) {
     setCatPick(null);
     if (categoryId === t.category_id) return;
     const r = await tx.updateTransaction(t.id, { ...t, category_id: categoryId });
-    if (ok(r)) showToast("Catégorie modifiée");
+    if (ok(r)) showToast(categoryId ? "Catégorie modifiée" : "Catégorie retirée");
   };
 
   // Aucune catégorie de transfert encore : « Intercompte » est créée au vol.
@@ -1453,7 +1453,7 @@ export default function FinancesModule({ userId }) {
             })()}
             {/* Entrée d'argent : revenus ou transfert. Sortie : dépenses ou transfert. */}
             <CatGrid kind="all" kinds={catPick.type === "revenu" ? ["revenu", "transfert"] : catPick.type === "depense" ? ["depense", "transfert"] : ["transfert", "depense", "revenu"]}
-              value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
+              value={catPick.category_id} onPick={id => setTxCategory(catPick, id === catPick.category_id ? null : id)} />
             {trfCats.length === 0 && (<>
               <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>{GROUP_LABEL.transfert}</div>
               <button onClick={() => setTxIntercompte(catPick)}
@@ -1461,7 +1461,6 @@ export default function FinancesModule({ userId }) {
                 ⇄ Intercompte
               </button>
             </>)}
-            {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
             {(() => {
               const linked = catPick.recurring_id && rec.recurring.find(r => r.id === catPick.recurring_id);
               // Toutes les récurrences actives du même sens ; celles du compte de
