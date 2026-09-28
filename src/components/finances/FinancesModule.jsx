@@ -88,6 +88,9 @@ const cardSt = { background: C.surface, border: `1px solid ${C.border}`, borderR
 const statSt = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: 18, boxShadow: SHADOW_CARD };
 const titleSt = { fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".08em", marginBottom: 16 };
 
+// Titres des sections du choix de catégorie.
+const GROUP_LABEL = { depense: "Dépenses", revenu: "Revenus", transfert: "Transferts · hors totaux du mois" };
+
 function Btn({ children, onClick, kind = "p", small, style }) {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, border: "none", cursor: "pointer", fontFamily: "inherit", fontWeight: 600, borderRadius: small ? 9 : 11, padding: small ? "8px 16px" : "13px", fontSize: small ? 13 : 14, transition: "all .15s" };
   const kinds = {
@@ -1370,7 +1373,6 @@ export default function FinancesModule({ userId }) {
   }
 
   // ════════ MODALES ════════
-  const GROUP_LABEL = { depense: "Dépenses", revenu: "Revenus", transfert: "Transferts · hors totaux du mois" };
   function CatGrid({ kind, value, onPick, first = "depense", kinds }) {
     // Toutes les catégories, où qu'on soit : un virement reçu peut très bien
     // relever d'une catégorie de dépense (remboursement d'un ami…), et l'inverse.
