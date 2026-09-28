@@ -888,17 +888,15 @@ export default function FinancesModule({ userId }) {
         <PageHead title="Récurrences" sub="Dépenses & revenus récurrents" action={<Btn small onClick={() => setModal("recPick")}>+ Ajouter</Btn>} />
         {(() => {
           // Bandeau : coût mensuel des dépenses récurrentes actives et son équivalent
-          // annuel (un abonnement annuel compte pour 1/12 par mois). La barre montre
-          // la part de chacune, à la couleur de sa catégorie (détail au survol).
-          const items = rec.recurring.filter(r => r.active && r.type === "depense")
-            .map(r => ({ r, m: r.monthly_cost, color: getCat(r.category_id).color || C.accent }))
-            .sort((a, b) => b.m - a.m);
-          const month = items.reduce((s2, x) => s2 + x.m, 0);
+          // annuel (un abonnement annuel compte pour 1/12 par mois).
+          const items = rec.recurring.filter(r => r.active && r.type === "depense");
+          const month = items.reduce((s2, r) => s2 + r.monthly_cost, 0);
           if (!items.length) return null;
           return (
             <div style={{ position: "relative", overflow: "hidden", borderRadius: 20, padding: "22px 26px 20px", marginBottom: 20,
-              background: "linear-gradient(120deg, rgba(139,92,246,0.18), rgba(236,72,153,0.08) 60%, rgba(255,255,255,0.02))" }}>
-              <span aria-hidden="true" style={{ position: "absolute", right: -18, top: -34, fontSize: 150, lineHeight: 1, color: "rgba(255,255,255,0.04)", fontWeight: 800, pointerEvents: "none" }}>↻</span>
+              background: "linear-gradient(120deg, rgba(139,92,246,0.18), rgba(236,72,153,0.08) 60%, rgba(255,255,255,0.02))", paddingRight: 110 }}>
+              {/* Filigrane tenu dans le bandeau : centré verticalement, jamais rogné. */}
+              <span aria-hidden="true" style={{ position: "absolute", right: 22, top: "50%", transform: "translateY(-50%)", fontSize: 72, lineHeight: 1, color: "rgba(255,255,255,0.06)", fontWeight: 800, pointerEvents: "none" }}>↻</span>
               <div style={{ display: "flex", alignItems: "flex-end", gap: "10px 28px", flexWrap: "wrap", position: "relative" }}>
                 <div>
                   <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 6 }}>Tes récurrences te coûtent</div>
@@ -912,13 +910,6 @@ export default function FinancesModule({ userId }) {
                     {fmtEUR(month * 12)}<span style={{ fontSize: 13, fontWeight: 600, color: C.muted, marginLeft: 5 }}>/ an</span>
                   </div>
                 </div>
-              </div>
-              <div role="img" aria-label={`Répartition : ${items.map(x => `${x.r.label} ${fmtEUR(x.m)} par mois`).join(", ")}`}
-                style={{ display: "flex", gap: 3, height: 8, marginTop: 18, position: "relative" }}>
-                {items.map(x => (
-                  <span key={x.r.id} title={`${x.r.label} · ${fmtEUR(x.m)} / mois`}
-                    style={{ flex: `${Math.max(x.m, month * 0.012)} 0 0`, borderRadius: 4, background: x.color }} />
-                ))}
               </div>
             </div>
           );
