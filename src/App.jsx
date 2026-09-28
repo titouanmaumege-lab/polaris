@@ -194,6 +194,26 @@ const BOTTOM_NAV = [
 const NAV_PINNED_LEFT  = ["dashboard", "todo"];
 const NAV_PINNED_RIGHT = ["daily", "habitudes"];
 
+// Icônes dessinées (trait 1.75, même famille partout) : les emojis variaient
+// d'un OS à l'autre et chargeaient visuellement la barre.
+const NAV_ICON_PATHS = {
+  dashboard: "M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z",
+  todo:      "M9 11.5l2.2 2.2L15.5 9.5M5 4.5h14a.5.5 0 0 1 .5.5v14a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V5a.5.5 0 0 1 .5-.5z",
+  habitudes: "M12 20.5c3.6 0 6-2.5 6-6 0-3.2-2.2-5.4-3.6-7.2-.3 1.9-1.2 3-2.4 3.4.3-2.8-.9-5.6-3.2-7.2.2 3-1.6 4.8-2.9 6.6C5 11.5 6 20.5 12 20.5z",
+  workperf:  "M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 1.8M9.5 2.5h5",
+  daily:     "M6 3.5h11.5a.5.5 0 0 1 .5.5v16a.5.5 0 0 1-.5.5H6A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5zM8.5 8h6M8.5 11.5h6",
+  objectifs: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM12 12.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z",
+  base:      "M4.5 5.5c2.5-1 5-1 7.5.5 2.5-1.5 5-1.5 7.5-.5v13c-2.5-1-5-1-7.5.5-2.5-1.5-5-1.5-7.5-.5zM12 6v13",
+  finances:  "M3.5 7.5h17v10a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1zM3.5 7.5 6 4.5h12l2.5 3M16 13h1.5",
+};
+function NavIcon({ id, size = 18 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d={NAV_ICON_PATHS[id]} stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function BottomNav({ current, onNav, mobile, onPerso }) {
   const [vw, setVw] = useState(window.innerWidth);
   const [hubOpen, setHubOpen] = useState(false);
@@ -206,42 +226,29 @@ function BottomNav({ current, onNav, mobile, onPerso }) {
   const pos = mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 };
   const go = id => { setHubOpen(false); onNav(id); };
 
+  // Compact : icône au-dessus du libellé. Desktop : icône et libellé côte à côte.
   const tab = n => {
     const active = current === n.id;
     return (
-      <div key={n.id} onClick={() => go(n.id)} style={{
-        flex: 1, display: "flex", flexDirection: "column",
-        alignItems: "center", justifyContent: "center", gap: 2,
-        cursor: "pointer", position: "relative", transition: TR,
-        userSelect: "none",
-      }}>
-        {active && (
-          <div style={{
-            position: "absolute", top: 6, width: 20, height: 3,
-            background: GRAD, borderRadius: 2,
-            boxShadow: GLOW_SM,
-          }} />
-        )}
-        <span style={{ fontSize: 16, lineHeight: 1, marginTop: 10 }}>{n.icon}</span>
-        <span style={{
-          fontSize: 9, fontWeight: active ? 600 : 400,
-          color: active ? C.accent : C.faint,
-          letterSpacing: "0.01em",
-        }}>{n.label}</span>
-      </div>
+      <button key={n.id} onClick={() => go(n.id)} aria-current={active ? "page" : undefined}
+        className={`bnav-tab${active ? " is-active" : ""}${compact ? " is-compact" : ""}`}>
+        <NavIcon id={n.id} size={compact ? 19 : 17} />
+        <span>{n.label}</span>
+      </button>
     );
   };
 
   const barSt = {
     position: "fixed", bottom: 0, zIndex: 50, ...pos,
-    height: 64, background: "rgba(13,13,26,0.96)", backdropFilter: "blur(24px)",
-    borderTop: `1px solid ${C.border}`,
-    display: "flex", alignItems: "stretch",
+    height: `calc(${compact ? 58 : 48}px + env(safe-area-inset-bottom))`,
+    background: "rgba(11,10,22,0.92)", backdropFilter: "blur(20px)",
+    borderTop: "1px solid rgba(255,255,255,0.05)",
+    display: "flex", alignItems: "stretch", justifyContent: "center",
     paddingBottom: "env(safe-area-inset-bottom)",
   };
 
-  // ── Desktop large : les 8 onglets tiennent, barre inchangée ──
-  if (!compact) return <div style={barSt}>{BOTTOM_NAV.map(tab)}</div>;
+  // ── Desktop large : onglets groupés au centre, pas étirés sur toute la largeur ──
+  if (!compact) return <nav style={barSt}><div className="bnav-row">{BOTTOM_NAV.map(tab)}</div></nav>;
 
   // ── Compact : 4 onglets + hub central ✦ (launcher plein écran) ──
   const byId = id => BOTTOM_NAV.find(n => n.id === id);
@@ -251,7 +258,7 @@ function BottomNav({ current, onNav, mobile, onPerso }) {
       {hubOpen && (
         <div onClick={() => setHubOpen(false)} style={{ position:"fixed", inset:0, zIndex:49, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(10px)" }}>
           <div className="slide-up" onClick={e=>e.stopPropagation()} style={{
-            position:"absolute", bottom:64, ...(mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 }),
+            position:"absolute", bottom:58, ...(mobile ? { left:"50%", transform:"translateX(-50%)", width:390 } : { left:0, right:0 }),
             padding:"22px 18px calc(18px + env(safe-area-inset-bottom))",
             background:"rgba(13,13,26,0.97)", borderTop:`1px solid ${C.borderMid}`,
             borderRadius:"22px 22px 0 0", boxShadow:"0 -18px 60px rgba(0,0,0,0.55)",
@@ -268,7 +275,7 @@ function BottomNav({ current, onNav, mobile, onPerso }) {
                     border: `1px solid ${active ? C.accent : C.border}`,
                     boxShadow: active ? GLOW_SM : "none",
                   }}>
-                    <span style={{ fontSize:22, lineHeight:1 }}>{n.icon}</span>
+                    <NavIcon id={n.id} size={22} />
                     <span style={{ fontSize:10, fontWeight:active?700:500, color:active?C.accent:C.muted }}>{n.label}</span>
                   </div>
                 );
@@ -282,11 +289,10 @@ function BottomNav({ current, onNav, mobile, onPerso }) {
         {NAV_PINNED_LEFT.map(id => tab(byId(id)))}
         <div onClick={() => setHubOpen(o => !o)} style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", userSelect:"none" }}>
           <div style={{
-            width:46, height:46, borderRadius:"50%", marginTop:-14,
+            width:42, height:42, borderRadius:"50%",
             background:GRAD, boxShadow:GLOW_SM,
             display:"flex", alignItems:"center", justifyContent:"center",
             fontSize:19, color:"#fff", lineHeight:1,
-            border:"2px solid rgba(13,13,26,0.9)",
             transform: hubOpen ? "rotate(180deg) scale(1.06)" : "none", transition:"transform 0.25s ease",
           }}>✦</div>
         </div>
@@ -430,8 +436,10 @@ function WeeklyCalendar() {
   const [editId, setEditId] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [addDate, setAddDate] = useState(null);
+  const [addType, setAddType] = useState(null);
   const [toast, setToast] = useState(null); // { id, name }
   const [listSheet, setListSheet] = useState(null); // { title, items }
+  const [boardMeasureRef, boardW] = useBoxWidth();
   const toastTimer = useRef(null);
   // DnD : payload dans un ref (dataTransfer illisible pendant dragover)
   const dragRef = useRef(null); // { kind:'move'|'resize-start'|'resize-end', id, originDay }
@@ -656,7 +664,21 @@ function WeeklyCalendar() {
     const next = subs.find(x => !x.done);
     const late = it.dateFin && it.dateFin < today && !it.done;
     const dLeft = it.dateFin ? daysTo(it.dateFin) : null;
-    const shown = subs.slice(0, SUB_MAX);
+
+    // Largeur réelle de la barre : le nom doit rester lisible même sur un
+    // projet d'une seule journée, donc c'est le reste qui disparaît.
+    const span = s.endCol - s.startCol + 1;
+    const barPx = boardW ? (boardW / 7) * span - 6 : 200;
+    const wide  = barPx >= 300;
+    const mid   = barPx >= 190;
+
+    const deadline = !it.dateFin || cr ? null
+      : late ? `Retard ${Math.abs(dLeft)} j` : dLeft === 0 ? "Aujourd'hui" : `J-${dLeft}`;
+    // Une phrase à gauche, l'échéance à droite : la chaîne jointe par points
+    // médians était un tic de mise en page, pas une information.
+    const lead = mid && next ? `Ensuite ${next.name}`
+      : subs.length ? `${subs.length - done} sur ${subs.length} à faire`
+      : null;
 
     const Grip = ({ kind, edgeSide }) => (
       <span draggable
@@ -664,9 +686,9 @@ function WeeklyCalendar() {
         onDragEnd={endDrag} onClick={e => e.stopPropagation()}
         title={kind === "resize-end" ? "Étirer la fin" : "Étirer le début"}
         className="cal-drag-handle"
-        style={{ flexShrink:0, width:9, alignSelf:"stretch", display:"inline-flex", alignItems:"center", justifyContent:"center",
-          color:"rgba(255,255,255,0.75)", fontSize:10, fontWeight:900,
-          [edgeSide === "left" ? "marginLeft" : "marginRight"]:-4 }}>⋮</span>
+        style={{ position:"absolute", top:0, bottom:0, [edgeSide]:0, width:8, cursor:"ew-resize",
+          display:"inline-flex", alignItems:"center", justifyContent:"center",
+          color:"rgba(255,255,255,0.7)", fontSize:9, fontWeight:900 }}>⋮</span>
     );
 
     return (
@@ -674,73 +696,67 @@ function WeeklyCalendar() {
         onDragStart={e => startDrag(e, { kind:"move", id: it.id, originDay: days7[colFromEvent(e)] })}
         onDragEnd={endDrag}
         onClick={() => setEditId(it.id)}
-        title={it.name}
+        title={`${it.name}${deadline ? " — " + deadline : ""}`}
         style={{
           gridColumn: `${s.startCol + 1} / ${s.endCol + 2}`, gridRow: s.lane + 1,
           position:"relative", overflow:"hidden", minWidth:0,
-          display:"flex", flexDirection:"column", gap:5,
+          display:"flex", flexDirection:"column", gap:2,
           margin:"0 3px", padding:"7px 9px 8px", minHeight:40,
           fontFamily:"inherit", cursor:"grab", textAlign:"left", color:"#fff",
           background: PROJ_GRAD,
-          border:`1px solid ${late ? RED : "rgba(255,255,255,0.22)"}`,
+          border:`1px solid ${late ? RED : "rgba(255,255,255,0.18)"}`,
           borderLeftWidth: cl ? 0 : 1, borderRightWidth: cr ? 0 : 1,
-          borderTopLeftRadius: cl ? 0 : 11, borderBottomLeftRadius: cl ? 0 : 11,
-          borderTopRightRadius: cr ? 0 : 11, borderBottomRightRadius: cr ? 0 : 11,
-          boxShadow: late ? `0 0 14px ${RED}55` : "0 0 14px rgba(139,92,246,0.45)",
+          borderTopLeftRadius: cl ? 0 : 12, borderBottomLeftRadius: cl ? 0 : 12,
+          borderTopRightRadius: cr ? 0 : 12, borderBottomRightRadius: cr ? 0 : 12,
+          boxShadow: late ? `0 0 12px ${RED}44` : "none",
         }}>
-        {/* Progression : remplissage plus clair, proportionnel aux sous-tâches faites */}
+        {/* Progression : on assombrit le restant, jamais le texte */}
         {subs.length > 0 && pct < 100 && (
           <span style={{ position:"absolute", left:`${pct}%`, right:0, top:0, bottom:0,
-            background:"rgba(0,0,0,0.28)", pointerEvents:"none" }} />
+            background:"rgba(0,0,0,0.26)", pointerEvents:"none" }} />
         )}
+        {!cl && <Grip kind="resize-start" edgeSide="left" />}
+        {!cr && <Grip kind="resize-end" edgeSide="right" />}
 
-        {/* Ligne titre */}
-        <span style={{ position:"relative", display:"flex", alignItems:"center", gap:7, minWidth:0 }}>
-          {!cl && <Grip kind="resize-start" edgeSide="left" />}
-          {cl && <span style={{ fontSize:11, opacity:0.8, marginLeft:-2 }}>‹</span>}
-          <span style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column", gap:1 }}>
-            <span style={{ fontSize:12.5, fontWeight:700, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-              textShadow:"0 1px 3px rgba(0,0,0,0.35)" }}>{it.name}</span>
-            {next && (
-              <span style={{ fontSize:9.5, color:"rgba(255,255,255,0.92)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
-                → {next.name}
-              </span>
-            )}
-          </span>
-          {subs.length > 0 && (
-            <span style={{ flexShrink:0, fontSize:10.5, fontWeight:800, fontVariantNumeric:"tabular-nums",
-              color:"#fff", background:"rgba(0,0,0,0.24)", borderRadius:999, padding:"1px 6px" }}>{done}/{subs.length}</span>
+        {/* Ligne 1 — le nom, et lui seul, plus la coche */}
+        <span style={{ position:"relative", display:"flex", alignItems:"center", gap:8, minWidth:0, paddingLeft: cl ? 6 : 4, paddingRight: cr ? 6 : 4 }}>
+          {cl && <span style={{ fontSize:10, opacity:0.75 }}>‹</span>}
+          <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:700, whiteSpace:"nowrap",
+            overflow:"hidden", textOverflow:"ellipsis", textShadow:"0 1px 2px rgba(0,0,0,0.3)" }}>{it.name}</span>
+          {subs.length > 0 && mid && (
+            <span style={{ flexShrink:0, fontSize:10, fontWeight:600, color:"rgba(255,255,255,0.72)", fontVariantNumeric:"tabular-nums" }}>{done}/{subs.length}</span>
           )}
-          {!cr && it.dateFin && (
-            <span style={{ flexShrink:0, display:"inline-flex", alignItems:"center", gap:3,
-              fontSize:9.5, fontWeight:800, whiteSpace:"nowrap",
-              color:"#fff", background: late ? RED : "rgba(0,0,0,0.24)", borderRadius:999, padding:"2px 7px" }}>
-              <svg width="8" height="9" viewBox="0 0 8 9" fill="none" aria-hidden="true" style={{ flexShrink:0 }}>
-                <path d="M1 .5v8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                <path d="M1.8 1.1h4.9L5.3 3l1.4 1.9H1.8z" fill="currentColor" />
-              </svg>
-              {late ? `En retard · ${Math.abs(dLeft)} j` : dLeft === 0 ? "Aujourd'hui" : `J-${dLeft}`}
-            </span>
-          )}
-          <CheckDot onDone={() => markDone(it)} color="#fff" label={it.name} />
-          {!cr && <Grip kind="resize-end" edgeSide="right" />}
+          <CheckDot onDone={() => markDone(it)} color="#fff" size={16} label={it.name} />
         </span>
 
-        {/* Sous-tâches visibles dans la barre */}
-        {shown.length > 0 && (
-          <span style={{ position:"relative", display:"flex", flexDirection:"column", gap:2 }}>
-            {shown.map(st => (
+        {/* Ligne 2 — la prochaine action à gauche, l'échéance à droite */}
+        {(lead || deadline) && (
+          <span style={{ position:"relative", display:"flex", alignItems:"baseline", gap:10, minWidth:0,
+            paddingLeft: cl ? 6 : 4, paddingRight: cr ? 6 : 4, fontSize:10,
+            color: late ? "#FFD4D4" : "rgba(255,255,255,0.86)" }}>
+            <span style={{ flex:1, minWidth:0, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{lead}</span>
+            {deadline && (
+              <span style={{ flexShrink:0, fontVariantNumeric:"tabular-nums", fontWeight: late ? 700 : 500 }}>{deadline}</span>
+            )}
+          </span>
+        )}
+
+        {/* Sous-tâches seulement si la barre est assez large pour les lire */}
+        {wide && subs.length > 0 && (
+          <span style={{ position:"relative", display:"flex", flexDirection:"column", gap:1, marginTop:3, paddingLeft: cl ? 6 : 4 }}>
+            {subs.slice(0, SUB_MAX).map(st => (
               <span key={st.id} onClick={e => { e.stopPropagation(); toggleSub(it.id, st.id); }}
                 title={st.name}
                 style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, cursor:"pointer",
-                  padding:"2px", borderRadius:5, minHeight:22, opacity: st.done ? 0.78 : 1 }}>
-                <span style={{ flexShrink:0, fontSize:10, lineHeight:1, color:"#fff" }}>{st.done ? "●" : "○"}</span>
+                  minHeight:18, borderRadius:4, opacity: st.done ? 0.65 : 1 }}>
+                <span style={{ flexShrink:0, width:9, height:9, borderRadius:"50%", boxSizing:"border-box",
+                  border:"1.5px solid rgba(255,255,255,0.85)", background: st.done ? "rgba(255,255,255,0.85)" : "transparent" }} />
                 <span style={{ flex:1, minWidth:0, fontSize:10.5, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
                   textDecoration: st.done ? "line-through" : "none" }}>{st.name}</span>
               </span>
             ))}
             {subs.length > SUB_MAX && (
-              <span style={{ fontSize:10, color:"rgba(255,255,255,0.92)", paddingLeft:2 }}>+{subs.length - SUB_MAX} autres</span>
+              <span style={{ fontSize:9.5, color:"rgba(255,255,255,0.8)", paddingLeft:15 }}>+{subs.length - SUB_MAX}</span>
             )}
           </span>
         )}
@@ -827,7 +843,8 @@ function WeeklyCalendar() {
     <>
       <div className="cal-root">
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-          <span style={{ fontSize:11, color:"var(--c-accent)", fontWeight:700, textTransform:"uppercase", letterSpacing:"0.16em" }}>{wkLabel}</span>
+          <span style={{ fontSize:12.5, color:"var(--c-muted)", fontWeight:600 }}>{wkLabel}</span>
+          <span style={{ flex:1, height:1, background:"var(--c-border)", margin:"0 14px" }} />
           <div style={{ display:"flex", gap:8 }}><NavBtn dir={-1} /><NavBtn dir={1} /></div>
         </div>
 
@@ -843,7 +860,7 @@ function WeeklyCalendar() {
               <span style={{ fontSize:10, color:"#34D399", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.14em" }}>✓ Check Tasks</span>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontSize:11, color:"var(--c-muted)", fontVariantNumeric:"tabular-nums" }}>{checkTasks.length}</span>
-                <button onClick={() => setAddDate(today)} title="Nouvelle tâche"
+                <button onClick={() => { setAddType("check"); setAddDate(today); }} title="Nouvelle check task"
                   style={{ width:22, height:22, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:13, lineHeight:1,
                     display:"inline-flex", alignItems:"center", justifyContent:"center",
                     background:"rgba(52,211,153,0.14)", border:"1px solid rgba(52,211,153,0.4)", color:"#34D399" }}>+</button>
@@ -876,7 +893,7 @@ function WeeklyCalendar() {
             </div>
           </div>
 
-          <div className="cal-board-wrap">
+          <div className="cal-board-wrap" ref={boardMeasureRef}>
           <div className="cal-board" ref={boardRef}>
             {/* Grille des jours en fond : traits continus sur toute la hauteur,
                 colonne du jour accentuée, y compris derrière les barres projets. */}
@@ -1046,8 +1063,9 @@ function WeeklyCalendar() {
       {addDate && (
         <DayCreateModal
           date={addDate}
-          onCreate={obj => { addTodo(obj); setAddDate(null); }}
-          onClose={() => setAddDate(null)}
+          initialType={addType}
+          onCreate={obj => { addTodo(obj); setAddDate(null); setAddType(null); }}
+          onClose={() => { setAddDate(null); setAddType(null); }}
         />
       )}
 
@@ -1206,38 +1224,28 @@ function HighlightPickerSheet({ todos, onPick, onCreateTask, onClose }) {
   );
 }
 
-// ── Habitudes sur Home — densité adaptative, jusqu'à 16 habitudes ───────────
-// On garde toujours le nom lisible : on resserre la ligne et on ajoute des
-// colonnes plutôt que de basculer sur des tuiles emoji sans libellé.
-// Mesures vérifiées à 375×812 : budget 224 px pour ce bloc.
-const HABIT_DENSITIES = [
-  { key:"confort", row:44, gap:8, minCol:170, emoji:19, font:13.5, check:30, pad:"7px 11px" },
-  { key:"compact", row:38, gap:8, minCol:148, emoji:17, font:12.5, check:26, pad:"5px 10px" },
-  { key:"dense",   row:32, gap:6, minCol:128, emoji:15, font:11.5, check:22, pad:"4px 8px"  },
-];
-// Hauteur occupée par le reste de Home : header, highlight, actions, calendrier, marges.
-const HOME_FIXED_PX = 588;
+// ── Habitudes sur Home ──────────────────────────────────────────────────────
+// Disposition : 1 ou 2 rubans pleine largeur, jamais une ligne orpheline.
+// La hauteur totale du bloc est constante — 1 ruban occupe la hauteur des 2 —
+// pour que Home garde exactement le même gabarit sans défilement.
+const HABIT_ROW = 44, HABIT_GAP = 8, HABIT_MIN_W = 190;
 
-function pickHabitDensity(n, width, viewportH) {
-  const budget = Math.max(110, viewportH - HOME_FIXED_PX);
-  const measure = d => {
-    const cols = Math.max(1, Math.floor((width + d.gap) / (d.minCol + d.gap)));
-    const rows = Math.ceil(n / cols);
-    return { ...d, cols, rows, height: rows * d.row + (rows - 1) * d.gap };
-  };
-  for (const d of HABIT_DENSITIES) {
-    const m = measure(d);
-    if (m.height <= budget) return { ...m, budget, fits: true };
-  }
-  // Rien ne rentre (beaucoup d'habitudes sur un petit écran) : le plus dense
-  // possible, et ce bloc seul défile — la page, elle, ne bouge pas.
-  return { ...measure(HABIT_DENSITIES[HABIT_DENSITIES.length - 1]), budget, fits: false };
+function pickHabitLayout(n, width) {
+  if (n <= 0) return { rows: 1, cols: 1, scroll: false };
+  const colsMax = Math.max(1, Math.floor((width + HABIT_GAP) / (HABIT_MIN_W + HABIT_GAP)));
+  if (n <= colsMax) return { rows: 1, cols: n, scroll: false };
+  // Pair : deux rubans égaux. Impair : le premier prend l'élément en plus.
+  const half = Math.ceil(n / 2);
+  if (half <= colsMax) return { rows: 2, cols: half, scroll: false };
+  // Écran trop étroit pour tenir en 2 rubans (mobile) : on garde la hauteur
+  // figée et c'est ce bloc seul qui défile, jamais la page.
+  return { rows: Math.ceil(n / colsMax), cols: colsMax, scroll: true };
 }
 
 function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
   const C = CF, GRAD = CF_GRAD, FONT_D = CF_FONT;
   const [ref, W] = useBoxWidth();
-  const [vh, setVh] = useState(() => (typeof window === "undefined" ? 812 : window.innerHeight));
+  const [vh, setVh] = useState(() => (typeof window === "undefined" ? 900 : window.innerHeight));
   useEffect(() => {
     const on = () => setVh(window.innerHeight);
     window.addEventListener("resize", on);
@@ -1245,31 +1253,40 @@ function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
   }, []);
 
   const done = habits.filter(h => habitValidated(h, today)).length;
-  const d = pickHabitDensity(habits.length || 1, W || 343, vh);
+  const L = pickHabitLayout(habits.length, W || 343);
+  // À 100 % de zoom sur un 1080p, le viewport CSS fait ~940 px : le gabarit
+  // se resserre au lieu de se faire rogner par le overflow:hidden de Home.
+  const baseRow = vh >= 1000 ? 44 : vh >= 860 ? 40 : 36;
+  const blockH = baseRow * 2 + HABIT_GAP;
+  // 1 ruban = la hauteur des 2, pour que le bloc garde le même encombrement.
+  const rowH = L.rows === 1 ? blockH : baseRow;
+  const tall = L.rows === 1;
 
   return (
     <div className="dash-habits-block">
-      <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:8 }}>
-        <span style={{ fontSize:11, color:C.accent, textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700 }}>Habitudes</span>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:7 }}>
+        <span style={{ fontSize:12.5, color:C.muted, fontWeight:600 }}>Habitudes</span>
+        <span style={{ flex:1, height:1, background:C.border }} />
         {habits.length > 0 && (
-          <span style={{ marginLeft:"auto", fontFamily:FONT_D, fontSize:13, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{done}/{habits.length}</span>
+          <span style={{ fontFamily:FONT_D, fontSize:12.5, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{done} sur {habits.length}</span>
         )}
       </div>
 
       {habits.length === 0 ? (
         <p style={{ fontSize:13, color:C.muted }}>Aucune habitude. Va dans l'onglet Habits pour en créer.</p>
       ) : (<>
-        <div style={{ height:4, borderRadius:999, background:C.surface3, overflow:"hidden", marginBottom:8, flexShrink:0 }}>
-          <div style={{ height:"100%", width:`${done / habits.length * 100}%`, background:GRAD, borderRadius:999, transition:"width 0.5s cubic-bezier(0.4,0,0.2,1)" }} />
+        <div style={{ height:2, borderRadius:999, background:"rgba(255,255,255,0.06)", overflow:"hidden", marginBottom:10, flexShrink:0 }}>
+          <div style={{ height:"100%", width:`${done / habits.length * 100}%`, background:C.green, borderRadius:999, transition:"width 0.5s cubic-bezier(0.4,0,0.2,1)" }} />
         </div>
 
         <div ref={ref} style={{
           display:"grid",
-          gridTemplateColumns:`repeat(${d.cols}, minmax(0, 1fr))`,
-          gap:d.gap,
+          gridTemplateColumns:`repeat(${L.cols}, minmax(0, 1fr))`,
+          gridAutoRows:`${rowH}px`,
+          gap:HABIT_GAP,
+          height:blockH,
           minHeight:0,
-          overflowY: d.fits ? "visible" : "auto",
-          maxHeight: d.fits ? undefined : d.budget,
+          overflowY: L.scroll ? "auto" : "hidden",
         }}>
           {habits.map(h => {
             const status = (h.dailyStatus || {})[today] ?? null;
@@ -1280,32 +1297,32 @@ function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
             const nItems = items.filter(it => dayItems[it.id] === "validated").length;
             return (
               <div key={h.id} onClick={() => onOpen(h.id)} title={`${h.name} — voir les stats`} style={{
-                display:"flex", alignItems:"center", gap:d.gap, minWidth:0,
-                height:d.row, padding:d.pad, borderRadius:d.row >= 44 ? 12 : 10, boxSizing:"border-box",
-                background: isDone ? "rgba(52,211,153,0.12)" : inv ? "rgba(251,113,133,0.10)" : C.surface2,
-                border:`1px solid ${isDone ? "rgba(52,211,153,0.35)" : inv ? "rgba(251,113,133,0.30)" : C.border}`,
+                display:"flex", alignItems:"center", gap:10, minWidth:0,
+                height:"100%", padding: tall ? "10px 13px" : "7px 11px", borderRadius:"var(--r-row)", boxSizing:"border-box",
+                background: isDone ? "rgba(52,211,153,0.08)" : inv ? "rgba(251,113,133,0.07)" : "rgba(255,255,255,0.025)",
+                border:"none",
                 cursor:"pointer", transition:TR,
               }}>
-                <span style={{ fontSize:d.emoji, flexShrink:0, lineHeight:1, opacity: isDone ? 0.55 : 1 }}>{h.emoji}</span>
+                <span style={{ fontSize: tall ? 24 : 19, flexShrink:0, lineHeight:1, opacity: isDone ? 0.55 : 1 }}>{h.emoji}</span>
                 <span style={{
-                  flex:1, minWidth:0, fontSize:d.font, fontWeight:500,
+                  flex:1, minWidth:0, fontSize: tall ? 14.5 : 13.5, fontWeight:500,
                   overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap",
                   color: isDone ? C.muted : inv ? C.red : C.text, textDecoration: isDone ? "line-through" : "none",
                 }}>{h.name}</span>
-                {h.multiple && items.length > 0 && d.key === "confort" && (
+                {h.multiple && items.length > 0 && ((
                   <span style={{ flexShrink:0, fontSize:10.5, fontWeight:700, color:C.muted, fontVariantNumeric:"tabular-nums" }}>{nItems}/{items.length}</span>
-                )}
+                ))}
                 <button
                   onClick={e => { e.stopPropagation(); onToggle(h.id); }}
                   aria-label={`${isDone ? "Annuler" : "Valider"} : ${h.name}`}
                   className={animating.has(h.id) ? "habit-pop" : ""}
                   style={{
-                    flexShrink:0, width:d.check, height:d.check, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
+                    flexShrink:0, width: tall ? 34 : 30, height: tall ? 34 : 30, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
                     display:"flex", alignItems:"center", justifyContent:"center", transition:TR,
-                    fontSize: d.check >= 30 ? 13 : 11, fontWeight:700, color:"#fff",
+                    fontSize: tall ? 14 : 13, fontWeight:700, color:"#fff",
                     background: isDone ? "linear-gradient(135deg,#10b981,#059669)" : inv ? "#ef4444" : "transparent",
-                    border:`2px solid ${isDone ? "#10b981" : inv ? "#ef4444" : C.borderMid}`,
-                    boxShadow: isDone ? "0 0 10px rgba(16,185,129,0.4)" : "none",
+                    border:`1.5px solid ${isDone ? "#10b981" : inv ? "#ef4444" : "rgba(255,255,255,0.16)"}`,
+                    boxShadow:"none",
                   }}>{isDone ? "✓" : inv ? "✕" : ""}</button>
               </div>
             );
@@ -1328,35 +1345,28 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
     onToggle();
   };
 
-  const Eyebrow = (
-    <div style={{ display:"flex", alignItems:"center", gap:7, minWidth:0 }}>
-      <span aria-hidden="true" style={{ fontSize:11, lineHeight:1, color:"#C4A4FF", textShadow:"0 0 10px rgba(168,85,247,0.9)" }}>✦</span>
-      <span style={{ fontSize:10.5, color:"#C4A4FF", textTransform:"uppercase", letterSpacing:"0.16em", fontWeight:700, whiteSpace:"nowrap" }}>
-        Highlight du jour
-      </span>
-    </div>
-  );
 
+
+  // Bouton compact, aligné à droite du titre : l'action ne doit pas peser
+  // plus lourd que la question qu'elle résout.
   const PickBtn = ({ label }) => (
-    <button onClick={onPick} style={{
-      width:"100%", minHeight:46, marginTop:14, borderRadius:13, border:"none", background:GRAD, color:"#fff",
-      fontSize:14.5, fontWeight:700, fontFamily:"inherit", cursor:"pointer", boxShadow:"0 6px 20px rgba(139,92,246,0.35)",
-    }}>{label}</button>
+    <button onClick={onPick} className="hl-pick">{label}</button>
   );
 
-  // États sans tâche reliée : même carte, bordure en pointillés.
+  // États sans tâche reliée : une seule ligne, question à gauche, action à droite.
   const Placeholder = ({ text, muted, action }) => (
     <div className="hl-wrap">
-      <div className="hl-halo" />
       <div className="hl-card is-empty">
-        {Eyebrow}
-        <p className="hl-title" style={{ color: muted ? C.muted : C.text, marginTop:12 }}>{text}</p>
-        <PickBtn label={action} />
+        <span className="hl-needle" aria-hidden="true" />
+        <div className="hl-row">
+          <p className="hl-title" style={{ color: muted ? C.muted : C.text }}>{text}</p>
+          <PickBtn label={action} />
+        </div>
       </div>
     </div>
   );
 
-  if (!hl) return <Placeholder text="La tâche qui a le plus d'impact dans ta vie" muted action="Choisir ma tâche du jour" />;
+  if (!hl) return <Placeholder text="Choisis la tâche qui compte aujourd'hui" muted action="Choisir ma tâche du jour" />;
   if (hl.status === "missing") return <Placeholder text="Tâche supprimée" muted action="Choisir ma tâche du jour" />;
   if (hl.status === "legacy")  return <Placeholder text={hl.label} action="Relier à une tâche" />;
 
@@ -1365,20 +1375,11 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
 
   return (
     <div className="hl-wrap">
-      {/* Halo éteint une fois la tâche faite */}
-      {!done && <div className="hl-halo" />}
       <div className={`hl-card${done ? " is-done" : ""}`}>
-        {/* Label + « Changer » en haut à droite */}
-        <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
-          {Eyebrow}
-          <button onClick={onPick} style={{
-            marginLeft:"auto", flexShrink:0, background:"transparent", border:"none", padding:"4px 0",
-            fontFamily:"inherit", fontSize:12, color:C.muted, cursor:"pointer", textDecoration:"underline",
-            textUnderlineOffset:3,
-          }}>Changer</button>
-        </div>
+        <span className="hl-needle" aria-hidden="true" />
+        <button onClick={onPick} className="hl-change">Changer</button>
 
-        <div style={{ display:"flex", alignItems:"center", gap:18 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ flex:1, minWidth:0 }}>
             {hl.parentLabel && (
               <div style={{ fontSize:12, color:C.muted, marginBottom:6, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
@@ -1391,7 +1392,7 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
               cursor:"pointer", overflowWrap:"anywhere",
             }}>{hl.label}</div>
             {(sp || done) && (
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:10, flexWrap:"wrap" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:7, flexWrap:"wrap" }}>
                 {sp && (
                   <span style={{ fontSize:11, fontWeight:600, padding:"4px 11px", borderRadius:999, color:sp.c, background:`${sp.c}22`, border:`1px solid ${sp.c}4d` }}>
                     {sp.label}
@@ -1408,8 +1409,8 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
             title={done ? "Décocher" : "Valider"}
             className={done ? (pop ? "hl-pop" : "") : `hl-check${pop ? " hl-pop" : ""}`}
             style={{
-              flexShrink:0, width:48, height:48, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:21, fontWeight:800, color:"#fff",
+              flexShrink:0, width:44, height:44, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:19, fontWeight:800, color:"#fff",
               background: done ? "linear-gradient(135deg,#10b981,#059669)" : "rgba(168,85,247,0.10)",
               border: `2px solid ${done ? "#10b981" : C.accent}`,
               boxShadow: done ? "0 0 18px rgba(16,185,129,0.45)" : undefined,
@@ -1421,7 +1422,7 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
   );
 }
 
-function Dashboard({ onOpenLogs, onRequestSession }) {
+function Dashboard({ onRequestSession }) {
   const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const t = todayStr();
   const { todos, addTodo, updateTodo, deleteTodo, toggleDone } = useTodos();
@@ -1474,48 +1475,54 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
   const now = new Date();
   const headerDate = now.toLocaleDateString("fr-FR", { weekday:"short", day:"numeric", month:"short" });
 
-  // Volontairement discrets : ils ne doivent pas concurrencer le highlight.
-  const ActionBtn = ({ icon, label, onClick }) => (
-    <button onClick={onClick} style={{
-      flex:1, minHeight:46, display:"flex", alignItems:"center", justifyContent:"center", gap:8,
-      padding:"12px 10px", borderRadius:13, background:"transparent", border:`1px solid ${C.border}`,
-      color:C.muted, fontSize:13, fontWeight:500, fontFamily:"inherit", cursor:"pointer", transition:TR,
-    }}>
-      <span style={{ fontSize:15, opacity:0.85 }}>{icon}</span><span>{label}</span>
-    </button>
+  // Une seule barre segmentée plutôt que deux rectangles : moins de chrome,
+  // et des icônes dessinées — les emojis rendaient différemment d'un OS à l'autre.
+  const IcoTimer = () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="13" r="8" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M12 9.5V13l2.2 1.6M9.5 2.5h5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+  const IcoPlus = () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 5.5v13M5.5 12h13" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+  const ActionBar = () => (
+    <div className="dash-actions">
+      <button onClick={() => onRequestSession?.()}><IcoTimer />Démarrer une session</button>
+      <span className="dash-actions-sep" aria-hidden="true" />
+      <button onClick={() => setCreating(true)}><IcoPlus />Ajouter une tâche</button>
+    </div>
   );
 
   return (
     <div className="theme-light dash-page" style={{ fontFamily:"var(--font-body)" }}>
       {/* HEADER — inchangé : logo + mantra + nom + date */}
-      <div style={{ padding:"22px 16px 12px", display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:12 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:14, minWidth:0 }}>
-        <PolarisLogo size={52} style={{ flexShrink:0 }} />
-        <div style={{ minWidth:0 }}>
-          {editingMantra
-            ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}
-                onBlur={()=>{ setLS("lp_mantra", mantra); setEditingMantra(false); }}
-                onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_mantra", mantra); setEditingMantra(false); }}}
-                style={{ fontSize:10, color:C.accent, textTransform:"uppercase", letterSpacing:"0.18em", fontWeight:700, background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:220, fontFamily:"inherit" }}
-              />
-            : <div onClick={()=>setEditingMantra(true)} style={{ fontSize:10, color:C.accent, textTransform:"uppercase", letterSpacing:"0.18em", fontWeight:700, marginBottom:4, cursor:"pointer" }} title="Cliquer pour modifier">✦ {mantra}</div>
-          }
-          {editingName
-            ? <input autoFocus value={appName} onChange={e=>setAppName(e.target.value)}
-                onBlur={()=>{ setLS("lp_app_name", appName); setEditingName(false); }}
-                onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_app_name", appName); setEditingName(false); }}}
-                style={{ fontFamily:FONT_D, fontSize:26, fontWeight:800, letterSpacing:"-0.02em", color:C.text, background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:200 }}
-              />
-            : <div onClick={()=>setEditingName(true)} style={{ fontFamily:FONT_D, fontSize:26, fontWeight:800, letterSpacing:"-0.02em", color:C.text, lineHeight:1, cursor:"pointer" }} title="Cliquer pour modifier">{appName}</div>
-          }
-        </div>
-        </div>
-        <div style={{ display:"flex", alignItems:"center", gap:12, flexShrink:0, paddingTop:2 }}>
-          <span style={{ fontSize:12, color:C.muted }}>{headerDate}</span>
-          <div onClick={onOpenLogs} style={{ display:"flex", flexDirection:"column", gap:4, cursor:"pointer", padding:"4px 6px" }}>
-            {[0,1,2].map(i=><div key={i} style={{width:18,height:2,background:C.muted,borderRadius:2}}/>)}
-          </div>
-        </div>
+      {/* Cartouche d'identité : un seul bandeau, la marque en lettrage espacé,
+          la devise à côté derrière un filet — plus d'eyebrow en capitales. */}
+      <div className="dash-header">
+        <PolarisLogo className="dash-logo" size={38} style={{ flexShrink:0 }} />
+        {editingName
+          ? <input autoFocus value={appName} onChange={e=>setAppName(e.target.value)}
+              onBlur={()=>{ setLS("lp_app_name", appName); setEditingName(false); }}
+              onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_app_name", appName); setEditingName(false); }}}
+              className="dash-wordmark" style={{ background:"transparent", border:"none", borderBottom:`1px solid ${C.accent}`, outline:"none", width:180 }} />
+          : <button onClick={()=>setEditingName(true)} title="Renommer" className="dash-wordmark"
+              style={{ background:"none", border:"none", padding:0, cursor:"pointer" }}>{appName}</button>}
+
+        <span className="dash-rule" aria-hidden="true" />
+
+        {editingMantra
+          ? <input autoFocus value={mantra} onChange={e=>setMantra(e.target.value)}
+              onBlur={()=>{ setLS("lp_mantra", mantra); setEditingMantra(false); }}
+              onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Escape"){ setLS("lp_mantra", mantra); setEditingMantra(false); }}}
+              className="dash-motto" style={{ background:"transparent", border:"none", borderBottom:`1px solid ${C.borderMid}`, outline:"none", width:220 }} />
+          : <button onClick={()=>setEditingMantra(true)} title="Modifier la devise" className="dash-motto"
+              style={{ background:"none", border:"none", padding:0, cursor:"pointer", textAlign:"left" }}>{mantra}</button>}
+
+        <span style={{ flex:1 }} />
+        <span className="dash-date">{headerDate}</span>
       </div>
 
       <div className="dash-wrap">
@@ -1526,10 +1533,7 @@ function Dashboard({ onOpenLogs, onRequestSession }) {
           onOpenTask={() => hl?.task && setEditId(hl.task.id)}
         />
 
-        <div style={{ display:"flex", gap:10 }}>
-          <ActionBtn icon="⏱️" label="Session Deep Work" onClick={() => onRequestSession?.()} />
-          <ActionBtn icon="＋" label="Tâche" onClick={() => setCreating(true)} />
-        </div>
+        <ActionBar />
 
         <div className="dash-cal"><WeeklyCalendar /></div>
 
@@ -2537,8 +2541,10 @@ function useTodos() {
 
 // ── TaskSummaryModal ──
 // ── DayCreateModal — clic sur un jour → choix du type → formulaire complet (date pré-remplie)
-function DayCreateModal({ date, onCreate, onClose }) {
-  const [gtd, setGtd] = useState(null);
+// initialType : ouvre directement le formulaire d'un type donné (ex. le « + »
+// du panneau Check Tasks), sans passer par le choix du type.
+function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
+  const [gtd, setGtd] = useState(initialType);
   const [form, setForm] = useState({
     name:"", sphere:null, matrice:null,
     dateDebut:date, dateFin:date, dateFinType:"duedate",
@@ -2618,7 +2624,7 @@ function DayCreateModal({ date, onCreate, onClose }) {
 
           {/* Step 2 — full form */}
           {gtd && (<>
-            <button onClick={() => setGtd(null)} style={{ display:"inline-flex", alignItems:"center", gap:5, marginBottom:16, background:"transparent", border:"none", color:C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>‹ Changer de type</button>
+            {!initialType && <button onClick={() => setGtd(null)} style={{ display:"inline-flex", alignItems:"center", gap:5, marginBottom:16, background:"transparent", border:"none", color:C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>‹ Changer de type</button>}
 
             <div style={{ marginBottom:14 }}>
               <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Nom</div>
@@ -5865,6 +5871,14 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
     saveObjs([...weeklyObjs, {id:uid(), weekId:targetWeekId, title:newObjInput.trim(), completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
     setNewObjInput("");
   };
+  // Sans ça, une semaine sans objectif n'offrait aucun moyen d'en ajouter :
+  // le bloc entier était masqué et Home n'a plus de saisie d'objectifs hebdo.
+  const [curObjInput, setCurObjInput] = useState("");
+  const addCurrentObj = () => {
+    if (!curObjInput.trim()) return;
+    saveObjs([...weeklyObjs, {id:uid(), weekId:reviewedWeekId, title:curObjInput.trim(), completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
+    setCurObjInput("");
+  };
   const deleteObj = id => saveObjs(weeklyObjs.filter(o=>o.id!==id));
   const startEditObj = obj => { setEditObjId(obj.id); setEditObjTitle(obj.title); };
   const commitEditObj = id => { saveObjs(weeklyObjs.map(o=>o.id===id?{...o,title:editObjTitle}:o)); setEditObjId(null); };
@@ -6279,9 +6293,23 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 
           {/* ── OBJECTIFS DE SEMAINE ── */}
           <WRSection title="OBJECTIFS DE SEMAINE">
-            {currentObjs.length > 0 && (
+            {(
               <div style={{marginBottom:16}}>
-                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:10,textTransform:'uppercase',letterSpacing:'0.06em'}}>Cette semaine — bilan</div>
+                <div style={{fontSize:11,color:C.muted,fontWeight:600,marginBottom:10,textTransform:'uppercase',letterSpacing:'0.06em'}}>Semaine du bilan ({reviewedWeekId})</div>
+                {currentObjs.length === 0 && (
+                  <div style={{fontSize:12.5,color:C.faint,lineHeight:1.6,marginBottom:12}}>
+                    Aucun objectif posé pour cette semaine. Normalement ils viennent de la review précédente,
+                    dans « Semaine suivante ». Tu peux les ajouter ici pour faire le point quand même.
+                  </div>
+                )}
+                {!locked && (
+                  <div style={{display:'flex',gap:8,marginBottom:12}}>
+                    <input value={curObjInput} onChange={e=>setCurObjInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addCurrentObj()}
+                      placeholder="Objectif de cette semaine..."
+                      style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'10px 14px',borderRadius:12,fontSize:13,fontFamily:'inherit',outline:'none'}} />
+                    <button onClick={addCurrentObj} style={{background:GRAD,color:'#fff',border:'none',borderRadius:12,padding:'10px 18px',fontWeight:700,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>+ Ajouter</button>
+                  </div>
+                )}
                 {currentObjs.map(obj=>{
                   const isDone=obj.completed, isMissed=obj.missed, isPartial=obj.partial;
                   const statusColor = isDone?C.green:isPartial?C.amber:isMissed?C.red:C.border;
@@ -6300,6 +6328,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
                             <span style={{flex:1,fontSize:14,fontWeight:600,color:isDone?C.green:isPartial?C.amber:isMissed?C.red:C.text}}>{obj.title}</span>
                             <button onClick={()=>startEditObj(obj)} style={{background:'none',border:'none',color:C.faint,fontSize:12,cursor:'pointer',padding:'2px 4px',flexShrink:0}}>✏️</button>
+                            {!locked && <span onClick={()=>deleteObj(obj.id)} title="Supprimer" style={{fontSize:14,color:C.faint,cursor:'pointer',flexShrink:0}}>×</span>}
                           </div>
                           <div style={{display:'flex',gap:6,marginBottom:obj.completed||obj.missed||obj.partial?10:0}}>
                             <button onClick={()=>updateObjStatus(obj.id,{completed:!isDone,missed:false,partial:false})}
@@ -6623,15 +6652,10 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
                             <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{reviews.length} review{reviews.length>1?"s":""}</span>
                           </div>
                           {mOpen&&reviews.map(r=>{
-                            const lk=isReviewLocked(r.weekStart,r);
                             return (
-                              <div key={r.id} onClick={()=>openReview(r.weekStart)} style={{marginLeft:12,marginBottom:6,padding:"12px 14px",background:C.surface2,border:`1px solid ${lk?C.border:C.borderMid}`,borderRadius:12,cursor:"pointer",transition:TR}}>
+                              <div key={r.id} onClick={()=>openReview(r.weekStart)} style={{marginLeft:12,marginBottom:6,padding:"12px 14px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",transition:TR}}>
                                 <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
                                   <span style={{fontSize:12,fontWeight:700,color:C.text}}>Sem. {fmtWkShort(r.weekStart)} → {fmtWkShort(r.weekEnd)}</span>
-                                  {lk
-                                    ? <span style={{marginLeft:"auto",fontSize:10,color:C.amber}}>🔒</span>
-                                    : <span style={{marginLeft:"auto",fontSize:10,color:C.accent,background:C.accentBg,padding:"2px 7px",borderRadius:999}}>Modifiable</span>
-                                  }
                                 </div>
                                 <div style={{display:"flex",gap:10,fontSize:11,color:C.faint}}>
                                   <span>🔥 {r.summary?.habitsPct!=null?`${r.summary.habitsPct}%`:`${r.summary?.habitsDaysAll??0}/7j`}</span>
@@ -6930,7 +6954,8 @@ function PersonalisationModal({ onClose, onSave }) {
 // APP ROOT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App({ session, signOut }) {
-  const [module, setModule]   = useState(()=>getLS("lp_active_module","dashboard"));
+  // /bank-callback = retour de la banque après consentement (cf. BankPanel).
+  const [module, setModule]   = useState(()=>window.location.pathname==="/bank-callback"?"finances":getLS("lp_active_module","dashboard"));
   const [objTab, setObjTab]   = useState("lt");
   const navTo = id => {
     if (typeof id === "string" && id.startsWith("objectifs:")) { setObjTab(id.slice(10)); setModule("objectifs"); return; }
@@ -7038,7 +7063,7 @@ export default function App({ session, signOut }) {
       onTouchEnd={onTouchEnd}
     >
       <div key={`${module}-${persoKey}`} className="fade-in">
-        {module === "dashboard" && <Dashboard onOpenLogs={()=>setLogsOpen(true)} onRequestSession={()=>setShowSessionChoice(true)} />}
+        {module === "dashboard" && <Dashboard onRequestSession={()=>setShowSessionChoice(true)} />}
         {module === "objectifs" && <ObjectifsModule initialTab={objTab} />}
         {module === "habitudes" && <HabitudesModule />}
         {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}

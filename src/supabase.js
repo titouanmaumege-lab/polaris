@@ -5,7 +5,7 @@ export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
-const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews"];
+const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews", "lp_weekly_objectives"];
 
 export async function loadUserData(userId) {
   const { data, error } = await supabase
@@ -27,10 +27,17 @@ export async function syncToSupabase(userId) {
     workperf:        JSON.parse(localStorage.getItem("lp_workperf")         || "[]"),
     highlight:       JSON.parse(localStorage.getItem("lp_highlight")        || "{}"),
     weekly_reviews:  JSON.parse(localStorage.getItem("lp_weekly_reviews")   || "[]"),
+    weekly_objectives: JSON.parse(localStorage.getItem("lp_weekly_objectives") || "[]"),
     view_mode:       localStorage.getItem("lp_view_mode") || "pc",
     updated_at:      new Date().toISOString(),
   };
-  const { error } = await supabase.from("user_data").upsert(payload);
+  let { error } = await supabase.from("user_data").upsert(payload);
+  // Migration 012 pas encore appliquée : on synchronise le reste plutôt que
+  // de bloquer toute la sauvegarde sur une colonne manquante.
+  if (error && /weekly_objectives/.test(error.message || "")) {
+    const { weekly_objectives, ...rest } = payload;
+    ({ error } = await supabase.from("user_data").upsert(rest));
+  }
   if (error) {
     console.error("Supabase sync error:", error);
     window._syncStatus = "error: " + error.message;
@@ -57,4 +64,12 @@ export function hydrateLocalStorage(data) {
   if (hasContent(data.highlight))       localStorage.setItem("lp_highlight",       JSON.stringify(data.highlight));
   if (hasContent(data.weekly_reviews))  localStorage.setItem("lp_weekly_reviews",  JSON.stringify(data.weekly_reviews));
   if (data.view_mode)                   localStorage.setItem("lp_view_mode",       data.view_mode);
+  // Fusion par id plutôt qu'écrasement : avant la synchro, chaque appareil a pu
+  // accumuler ses propres objectifs en local. Le serveur gagne en cas de conflit.
+  if (hasContent(data.weekly_objectives)) {
+    const local = JSON.parse(localStorage.getItem("lp_weekly_objectives") || "[]");
+    const byId = new Map(local.map(o => [o.id, o]));
+    data.weekly_objectives.forEach(o => byId.set(o.id, o));
+    localStorage.setItem("lp_weekly_objectives", JSON.stringify([...byId.values()]));
+  }
 }

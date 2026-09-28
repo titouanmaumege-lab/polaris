@@ -40,13 +40,9 @@ export const weekEnd = dateStr => {
   return d.toISOString().split("T")[0];
 };
 export const isWeekLocked = wkStart => new Date() > new Date(weekEnd(wkStart) + "T23:59:59");
-// Verrou d'une weekly review. Semaine passée sans review = rattrapage autorisé.
-// Review rattrapée (late) = modifiable jusqu'au dimanche de la semaine où elle a été créée.
-export const isReviewLocked = (wkStart, review) => {
-  if (!isWeekLocked(wkStart) || !review) return false;
-  if (review.late && review.createdAt) return isWeekLocked(weekStart(review.createdAt.slice(0, 10)));
-  return true;
-};
+// Les weekly reviews ne se verrouillent plus : on peut revenir sur une semaine
+// passée à tout moment (typiquement le lundi, pour finir celle de la veille).
+export const isReviewLocked = () => false;
 export const monthDates = (y, m) => Array.from({ length: new Date(y, m + 1, 0).getDate() }, (_, i) => new Date(y, m, i + 1).toISOString().split("T")[0]);
 export const fmtDate = s => new Date(s + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 

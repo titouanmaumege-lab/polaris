@@ -1,10 +1,11 @@
 // Logo POLARIS — étoile polaire / rose des vents, SVG vectoriel stylisé.
 // Facettes lit/ombre pour relief 3D, halo néon cyan. Scalable + themable.
-export default function PolarisLogo({ size = 52, glow = true, style }) {
+export default function PolarisLogo({ size = 52, glow = true, style, className }) {
   const uid = "plr"; // ids gradients/filtre (unique suffisant ici)
   return (
     <svg
       width={size} height={size} viewBox="0 0 100 100"
+      className={className}
       role="img" aria-label="Polaris"
       style={{ display: "block", overflow: "visible", ...style }}
     >
