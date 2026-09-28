@@ -148,12 +148,19 @@ function Confidentialite() {
           <tr><Td><B>Compte</B></Td><Td>Adresse email, mot de passe (haché, jamais stocké en clair), horodatages de connexion</Td></tr>
           <tr><Td><B>Bien-être — données de santé</B></Td><Td>Journal quotidien : niveaux d'énergie, de concentration, de stress et de bonheur ; bilans et remarques en texte libre ; habitudes à caractère santé (sommeil, sport…) ; objectifs de forme physique</Td></tr>
           <tr><Td><B>Organisation personnelle</B></Td><Td>Habitudes, tâches, objectifs, sessions de travail, revues hebdomadaires, notes et bases de connaissances</Td></tr>
-          <tr><Td><B>Finances personnelles</B></Td><Td>Comptes, transactions, budgets, abonnements, dettes, investissements (saisis manuellement — aucune connexion bancaire)</Td></tr>
+          <tr><Td><B>Finances personnelles</B></Td><Td>Comptes, transactions, budgets, abonnements, dettes, investissements — saisis par vous, ou importés depuis vos banques si vous activez la synchronisation bancaire</Td></tr>
+          <tr><Td><B>Données bancaires</B> (optionnel)</Td><Td>Uniquement si vous connectez une banque : opérations (date, montant, libellé, nom de l'émetteur ou du bénéficiaire), soldes, nom de la banque, 4 derniers chiffres de l'IBAN ; identifiant et clé privée de votre application Enable Banking (clé chiffrée)</Td></tr>
           <tr><Td><B>Partage</B></Td><Td>Email des membres lorsque vous partagez une base de connaissances</Td></tr>
           <tr><Td><B>Technique</B></Td><Td>Adresse IP et user-agent dans les journaux techniques de nos hébergeurs</Td></tr>
         </tbody>
       </table></div>
       <div style={S.warn}>⚠️ <B>Données de bien-être :</B> les niveaux d'énergie, de stress, de concentration et de bonheur, ainsi que vos bilans quotidiens, sont des <B>données de santé</B> au sens de l'article 9 du RGPD. Elles ne sont traitées qu'avec votre <B>consentement explicite</B>, recueilli séparément à l'inscription, et que vous pouvez retirer à tout moment dans les réglages.</div>
+
+      <div style={S.warn}>🏦 <B>Synchronisation bancaire :</B> elle est <B>facultative</B> et ne s'active que si vous connectez vous-même une banque depuis Finances → Banques.
+        L'accès passe par <B>Enable Banking Oy</B>, prestataire agréé au titre de la directive européenne sur les services de paiement (DSP2), via une application que vous créez à votre nom chez Enable Banking.
+        L'accès est en <B>lecture seule</B> : POLARIS ne peut ni effectuer de paiement ni modifier vos comptes. Vous choisissez les comptes partagés lors de la validation sur le site de votre banque ;
+        l'accès expire au plus tard après 180 jours, et vous pouvez le révoquer à tout moment (bouton « Déconnecter », ou depuis votre banque).
+        La clé privée de votre application est chiffrée (AES-256-GCM) avec un secret qui n'existe que sur le serveur : elle n'est jamais stockée en clair ni renvoyée au navigateur.</div>
 
       <h2 style={S.h2}>3. Finalités et bases légales</h2>
       <div style={S.tableWrap}><table style={S.table}>
@@ -162,6 +169,7 @@ function Confidentialite() {
           <tr><Td>Compte et authentification</Td><Td>Créer et sécuriser votre compte</Td><Td>Exécution du contrat (art. 6(1)(b))</Td></tr>
           <tr><Td>Journal de bien-être</Td><Td>Auto-suivi de votre état quotidien</Td><Td><B>Consentement explicite (art. 9(2)(a))</B></Td></tr>
           <tr><Td>Organisation personnelle, finances, notes</Td><Td>Fournir les fonctionnalités de l'application</Td><Td>Exécution du contrat (art. 6(1)(b))</Td></tr>
+          <tr><Td>Synchronisation bancaire</Td><Td>Importer automatiquement vos opérations et soldes, reconnaître vos récurrences</Td><Td>Exécution du contrat, à votre demande (art. 6(1)(b))</Td></tr>
           <tr><Td>Partage de bases</Td><Td>Permettre l'invitation de membres</Td><Td>Exécution du contrat (art. 6(1)(b))</Td></tr>
           <tr><Td>Journaux techniques</Td><Td>Sécurité et diagnostic</Td><Td>Intérêt légitime (art. 6(1)(f))</Td></tr>
         </tbody>
@@ -174,6 +182,8 @@ function Confidentialite() {
         <tbody>
           <tr><Td>Données de compte et contenus</Td><Td>Durée de vie du compte, puis suppression complète dans les 30 jours suivant la suppression du compte</Td></tr>
           <tr><Td>Données de bien-être</Td><Td>Idem ; suppression anticipée possible dès le retrait du consentement</Td></tr>
+          <tr><Td>Données bancaires importées</Td><Td>Comme vos autres données financières. Déconnecter une banque révoque l'accès et arrête les imports ; les opérations déjà importées restent jusqu'à ce que vous les supprimiez</Td></tr>
+          <tr><Td>Clé Enable Banking</Td><Td>Jusqu'à ce que vous la supprimiez (Finances → Banques) ou que vous supprimiez votre compte</Td></tr>
           <tr><Td>Journaux techniques</Td><Td>12 mois maximum</Td></tr>
           <tr><Td>Copies de sauvegarde</Td><Td>Écrasées au plus tard 30 jours après la suppression</Td></tr>
         </tbody>
@@ -187,6 +197,7 @@ function Confidentialite() {
           <tr><Td>Supabase Inc.</Td><Td>Base de données, authentification, emails de compte</Td><Td><B>Union européenne</B> (AWS eu-west-1, Irlande)</Td><Td>Accord de sous-traitance (DPA) incluant les clauses contractuelles types de la Commission européenne</Td></tr>
           <tr><Td>Vercel Inc.</Td><Td>Hébergement de l'interface, réseau de diffusion, journaux techniques</Td><Td>États-Unis / points de présence mondiaux</Td><Td>DPA avec clauses contractuelles types ; certification EU-U.S. Data Privacy Framework</Td></tr>
           <tr><Td>Amazon Web Services</Td><Td>Infrastructure sous-jacente de Supabase</Td><Td>Union européenne (Irlande)</Td><Td>Sous-traitant ultérieur, DPA AWS</Td></tr>
+          <tr><Td>Enable Banking Oy</Td><Td>Accès à vos comptes bancaires (DSP2), uniquement si vous activez la synchronisation</Td><Td><B>Union européenne</B> (Finlande)</Td><Td>Relation directe entre vous et Enable Banking via l'application que vous créez chez eux, selon leurs propres conditions</Td></tr>
         </tbody>
       </table></div>
       <p style={S.p}>Vos contenus (journal, finances, notes) sont stockés au repos dans l'Union européenne. Les transferts résiduels vers les États-Unis (diffusion de l'interface, journaux techniques) sont encadrés par les mécanismes ci-dessus.</p>
