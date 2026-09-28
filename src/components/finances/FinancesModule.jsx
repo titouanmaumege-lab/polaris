@@ -10,7 +10,7 @@ import { useFinanceInvestments } from "./hooks/useFinanceInvestments";
 import { useFinanceDebts } from "./hooks/useFinanceDebts";
 import { useFinanceRecurring, advanceOccurrence, recurrenceLabel } from "./hooks/useFinanceRecurring";
 import { supabase } from "../../supabase";
-import { matchKeyOf } from "../../utils/recurrence";
+import { matchKeyOf, recKeys, nextAfter } from "../../utils/recurrence";
 import { todayStr, monthKey } from "../../utils/date";
 import BankPanel, { BANK_CALLBACK_PATH, autoSyncBanks } from "./BankPanel";
 import { C, GRAD } from "../../ui/tokens";
@@ -294,6 +294,43 @@ export default function FinancesModule({ userId }) {
     else { setCatPick(null); showToast(kind ? "Revenu classé" : "Nature retirée"); }
   };
 
+  // Rattacher à la main une opération que la synchro n'a pas reconnue. Son
+  // libellé est ajouté aux variantes de la récurrence : la prochaine fois, elle
+  // sera reconnue toute seule.
+  const linkTxToRec = async (t, r) => {
+    // Hérite de la catégorie / nature de la récurrence si elle n'en a pas.
+    const txPatch = { recurring_id: r.id };
+    if (!t.category_id && r.category_id) txPatch.category_id = r.category_id;
+    if (t.type === "revenu" && !t.revenu_kind && r.revenu_kind) Object.assign(txPatch, { revenu_kind: r.revenu_kind, employer_id: r.employer_id || null, aide_type_id: r.aide_type_id || null });
+    const { error } = await supabase.from("finance_transactions").update(txPatch).eq("id", t.id);
+    if (error) { showToast(`Échec : ${error.message}`); return; }
+    const key = matchKeyOf(t.bank_label || t.note);
+    const keys = recKeys(r);
+    const recPatch = {};
+    if (key && !keys.includes(key)) recPatch.match_keys = [...keys, key];
+    // Opération de l'échéance en cours (ou plus tard) : l'échéance avance.
+    const soonest = new Date(new Date(r.next_occurrence + "T12:00:00").getTime() - 15 * 864e5).toISOString().slice(0, 10);
+    if (t.date >= soonest) recPatch.next_occurrence = nextAfter(r, t);
+    if (Object.keys(recPatch).length) {
+      const { error: eR } = await supabase.from("finance_recurring").update(recPatch).eq("id", r.id);
+      // Migration 020 absente : le rattachement reste fait, seul l'apprentissage manque.
+      if (eR && recPatch.match_keys) {
+        delete recPatch.match_keys;
+        if (Object.keys(recPatch).length) await supabase.from("finance_recurring").update(recPatch).eq("id", r.id);
+      }
+    }
+    setCatPick(null);
+    window.dispatchEvent(new Event("finance-data-changed"));
+    showToast(recPatch.match_keys ? "Liée · ce libellé sera reconnu la prochaine fois" : "Liée à la récurrence");
+  };
+  const unlinkTx = async (t) => {
+    const { error } = await supabase.from("finance_transactions").update({ recurring_id: null }).eq("id", t.id);
+    if (error) { showToast(`Échec : ${error.message}`); return; }
+    setCatPick(null);
+    window.dispatchEvent(new Event("finance-data-changed"));
+    showToast("Détachée de la récurrence");
+  };
+
   const resetOperations = async () => {
     setResetBusy(true);
     const { data, error } = await supabase.rpc("finance_reset_operations");
@@ -461,6 +498,7 @@ export default function FinancesModule({ userId }) {
       // « * » : liée mais libellé trop générique pour être reconnu. Reste non
       // nul pour que le rattrapage ne génère pas d'opération en double.
       payload.match_key = matchKeyOf(src.bank_label || src.note) || "*";
+      payload.match_keys = payload.match_key === "*" ? null : [payload.match_key];
       // Un salaire garde sa nature et son employeur sur les échéances suivantes.
       Object.assign(payload, { revenu_kind: f.revenu_kind, employer_id: f.employer_id, aide_type_id: f.aide_type_id });
       if (freq === "mois") payload.day_of_month = Number(src.date.slice(8, 10));
@@ -762,7 +800,7 @@ export default function FinancesModule({ userId }) {
                     ? <button onClick={() => setCatPick(t)} title="Choisir une catégorie" style={{ ...txIconSt, background: col + "22", border: "none", cursor: "pointer", color: C.accent }}>{icon}</button>
                     : <CatEmoji t={t} c={c} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><TxLabel t={t} fallback={isT ? "Transfert" : (t.category_id ? c.name : "Opération")} /><PendingTag t={t} /><RecTag t={t} /></div>
+                    <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><TxLabel t={t} fallback={isT ? "Transfert" : (t.category_id ? c.name : "Opération")} /><RecTag t={t} /></div>
                     <div style={{ fontSize: 11, color: C.muted }}>{meta} · {d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</div>
                   </div>
                   <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: isT ? C.muted : t.type === "revenu" ? C.green : C.text }}>{isT ? "" : t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</div>
@@ -819,7 +857,7 @@ export default function FinancesModule({ userId }) {
                   return (
                     <tr key={t.id}>
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</td>
-                      <td style={{ ...tdSt, fontWeight: 500 }}><TxLabel t={t} fallback={isT ? "Transfert" : "—"} /><PendingTag t={t} /><RecTag t={t} /></td>
+                      <td style={{ ...tdSt, fontWeight: 500 }}><TxLabel t={t} fallback={isT ? "Transfert" : "—"} /><RecTag t={t} /></td>
                       <td style={tdSt}>{isT && !t.category_id
                         ? <button onClick={() => setCatPick(t)} title="Choisir une catégorie" style={{ ...badgeSt(C.accent), border: "none", cursor: "pointer", fontFamily: "inherit" }}>⇄ Transfert</button>
                         : <CatEmoji t={t} c={c} badge />}</td>
@@ -848,6 +886,22 @@ export default function FinancesModule({ userId }) {
     return (
       <>
         <PageHead title="Récurrences" sub="Dépenses & revenus récurrents" action={<Btn small onClick={() => setModal("recPick")}>+ Ajouter</Btn>} />
+        {(() => {
+          // Récurrences actives ramenées au mois (un abonnement annuel compte pour 1/12).
+          const act = rec.recurring.filter(r => r.active && r.type !== "transfert");
+          const out = act.filter(r => r.type === "depense").reduce((s2, r) => s2 + r.monthly_cost, 0);
+          const inc = act.filter(r => r.type === "revenu").reduce((s2, r) => s2 + r.monthly_cost, 0);
+          const nOut = act.filter(r => r.type === "depense").length;
+          if (!act.length) return null;
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: 14, marginBottom: 18 }}>
+              <Stat label={`Dépenses récurrentes · ${nOut} par mois`} value={fmtEUR(out)} c={C.red} />
+              <Stat label="Soit par an" value={fmtEUR(out * 12)} />
+              <Stat label="Revenus récurrents · par mois" value={fmtEUR(inc)} c={C.green} />
+              <Stat label="Reste après récurrences · par mois" value={fmtEUR(inc - out)} c={inc - out >= 0 ? C.green : C.red} />
+            </div>
+          );
+        })()}
         <Tabs tabs={[["upcoming", "À venir (30j)"], ["all", "Toutes"], ["inactive", "Inactives"]]} value={tab} onChange={setTab} />
         <div style={{ ...cardSt, padding: 0, overflow: "hidden" }}>
           {!list.length ? <Empty icon="🔁" text="Aucune récurrence" /> : (
@@ -1364,6 +1418,32 @@ export default function FinancesModule({ userId }) {
             })()}
             <CatGrid kind="all" first={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
             {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
+            {(() => {
+              const linked = catPick.recurring_id && rec.recurring.find(r => r.id === catPick.recurring_id);
+              const candidates = rec.recurring.filter(r => r.active && r.match_key && r.account_id === catPick.account_id && r.type === catPick.type);
+              if (!linked && !candidates.length) return null;
+              return (
+                <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 8px" }}>Récurrence</div>
+                  {linked ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 13 }}>
+                      <span style={{ ...badgeSt(C.accent) }}>↻ {linked.label}</span>
+                      <Btn kind="g" small onClick={() => unlinkTx(catPick)}>Détacher</Btn>
+                    </div>
+                  ) : (<>
+                    <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 8, lineHeight: 1.5 }}>Pas reconnue automatiquement ? Lie-la : son libellé sera reconnu la prochaine fois.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                      {candidates.map(r => (
+                        <button key={r.id} onClick={() => linkTxToRec(catPick, r)}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, minHeight: 36, padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.border}`, background: C.surface2, color: C.text }}>
+                          ↻ {r.label} <span style={{ color: C.muted, fontWeight: 500, fontFamily: MONO }}>{fmtEUR(r.amount)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>)}
+                </div>
+              );
+            })()}
           </>)}
         </Modal>
 
@@ -1682,12 +1762,6 @@ const bilRowSt = { display: "flex", alignItems: "center", gap: 10, padding: "11p
 const badgeSt = (color) => ({ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: (color || C.muted) + "22", color: color || C.muted });
 const chipSt = (on) => ({ padding: "6px 14px", borderRadius: 99, border: `1px solid ${on ? C.accent : C.border}`, background: on ? C.accentBg : C.surface, color: on ? C.accent : C.muted, fontSize: 12, fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "inherit" });
 
-// Opération encore « en attente » chez la banque (synchro) : elle sera
-// remplacée par sa version comptabilisée à une prochaine synchro.
-function PendingTag({ t }) {
-  if (!t.external_id?.startsWith("pending:")) return null;
-  return <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 600, color: C.amber, background: C.amber + "1F", padding: "2px 7px", borderRadius: 6, verticalAlign: "middle" }}>En attente</span>;
-}
 function Stat({ label, value, c }) {
   return <div style={statSt}><div style={{ fontSize: 11, color: C.muted, marginBottom: 6, fontWeight: 500 }}>{label}</div><div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 700, color: c || C.text }}>{value}</div></div>;
 }

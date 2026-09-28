@@ -354,9 +354,12 @@ async function actionSync(creds, sb, user) {
 
       // Récurrences liées : rattache les opérations qui leur correspondent.
       let recognized = 0;
-      const { data: recs } = await sb.from("finance_recurring")
-        .select("id, account_id, type, amount, freq, interval, day_of_month, month_of_year, next_occurrence, active, match_key, category_id, revenu_kind, employer_id, aide_type_id")
+      const REC_COLS = "id, account_id, type, amount, freq, interval, day_of_month, month_of_year, next_occurrence, active, match_key, category_id, revenu_kind, employer_id, aide_type_id";
+      const recQuery = cols => sb.from("finance_recurring").select(cols)
         .eq("account_id", r.account_id).eq("active", true).not("match_key", "is", null);
+      let { data: recs, error: eRec } = await recQuery(`${REC_COLS}, match_keys`);
+      // Migration 020 pas encore appliquée : détection sur le libellé d'origine seul.
+      if (eRec) ({ data: recs } = await recQuery(REC_COLS));
       if (recs?.length) {
         const { data: open } = await sb.from("finance_transactions")
           .select("id, account_id, type, amount, date, note, bank_label, category_id, recurring_id, revenu_kind")

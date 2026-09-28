@@ -27,7 +27,8 @@ export function advanceOccurrence(rec, fromStr) {
 const STOP = new Set([
   "prlv", "prelevement", "sepa", "vir", "virement", "inst", "instantane", "recu", "emis", "sct", "sdd",
   "carte", "paiement", "achat", "retrait", "dab", "ref", "reference", "mandat", "ech", "echeance",
-  "frais", "date", "motif", "objet", "libelle", "the", "and", "des", "les", "pour", "par", "sur", "avec", "com", "www", "fra",
+  "frais", "date", "motif", "objet", "libelle", "the",
+  "sas", "sasu", "sarl", "eurl", "sci", "ste", "societe", "cie", "and", "des", "les", "pour", "par", "sur", "avec", "com", "www", "fra",
   "janv", "fevr", "mars", "avril", "mai", "juin", "juil", "aout", "sept", "octo", "nove", "dece",
   "janvier", "fevrier", "juillet", "septembre", "octobre", "novembre", "decembre",
 ]);
@@ -46,17 +47,37 @@ export const matchKeyOf = label => [...new Set(labelTokens(label))].slice(0, 3).
 const WINDOW = { jour: 1, semaine: 3, mois: 10, annee: 30 };
 const daysBetween = (a, b) => Math.round((new Date(a + "T12:00:00") - new Date(b + "T12:00:00")) / 864e5);
 
+// Libellés connus d'une récurrence : celui d'origine + ceux appris à la main.
+export const recKeys = rec => [...new Set([...(rec.match_keys || []), rec.match_key].filter(k => k && k !== "*"))];
+
+// Un libellé ressemble-t-il à une empreinte ? Le premier mot (en général le
+// prestataire ou l'employeur) doit être là, plus au moins un tiers des mots :
+// « acme salaire » reconnaît « ACME PAIE OCTOBRE », pas « DUPONT SALAIRE » ;
+// « carrefour market paris » reconnaît « CARREFOUR CITY ». Le montant et la
+// date (vérifiés à côté) évitent de confondre deux achats chez la même enseigne.
+export function labelMatchesKey(key, tokens) {
+  const want = key.split(" ").filter(Boolean);
+  if (!want.length || !tokens.has(want[0])) return false;
+  return want.filter(w => tokens.has(w)).length >= Math.ceil(want.length / 3);
+}
+
 // Une opération correspond-elle à cette récurrence ?
 export function matchesRecurring(rec, t) {
   if (!rec.active || !rec.match_key || t.recurring_id) return false;
   if (rec.account_id !== t.account_id || rec.type !== t.type) return false;
-  const want = rec.match_key.split(" ").filter(Boolean);
   const have = new Set(labelTokens(t.bank_label || t.note));
-  if (!want.length || !want.every(w => have.has(w))) return false;
+  if (!recKeys(rec).some(k => labelMatchesKey(k, have))) return false;
   const tol = Math.max(2, Number(rec.amount) * 0.25);        // salaires et factures varient un peu
   if (Math.abs(Number(t.amount) - Number(rec.amount)) > tol) return false;
   // Pas plus tôt que l'échéance moins la fenêtre ; en retard, on accepte.
   return daysBetween(t.date, rec.next_occurrence) >= -(WINDOW[rec.freq] ?? 10);
+}
+
+// Échéance suivante une fois l'opération t rattachée (payée en avance ou en retard).
+export function nextAfter(rec, t) {
+  let next = rec.next_occurrence;
+  do { next = advanceOccurrence(rec, next); } while (next <= t.date);
+  return next;
 }
 
 // Rattache les opérations aux récurrences. Renvoie les changements à écrire,
@@ -76,8 +97,7 @@ export function planRecurringMatches(recs, txs) {
     }
     txUpdates.push({ id: t.id, patch });
     // L'opération consomme l'échéance en cours, même payée un peu en avance.
-    let next = rec.next_occurrence;
-    do { next = advanceOccurrence(rec, next); } while (next <= t.date);
+    const next = nextAfter(rec, t);
     rec.next_occurrence = next;
     recUpdates.set(rec.id, next);
   }

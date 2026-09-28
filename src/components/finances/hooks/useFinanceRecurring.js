@@ -58,7 +58,7 @@ export function useFinanceRecurring(userId) {
   }, [fetch]);
 
   const createRecurring = async (r) => {
-    const { data, error } = await supabase.from("finance_recurring").insert({
+    const row = {
       user_id: userId, label: r.label, type: r.type, amount: r.amount,
       account_id: r.account_id, transfer_account_id: r.type === "transfert" ? (r.transfer_account_id ?? null) : null,
       category_id: r.category_id ?? null,
@@ -67,10 +67,17 @@ export function useFinanceRecurring(userId) {
       day_of_month: r.day_of_month ?? null, weekday: r.weekday ?? null, month_of_year: r.month_of_year ?? null,
       next_occurrence: r.next_occurrence, active: r.active ?? true,
       match_key: r.match_key || null,
+      match_keys: r.match_keys || null,
       revenu_kind: r.type === "revenu" ? (r.revenu_kind || null) : null,
       employer_id: r.type === "revenu" && r.revenu_kind === "salaire" ? (r.employer_id || null) : null,
       aide_type_id: r.type === "revenu" && r.revenu_kind === "aides_sociales" ? (r.aide_type_id || null) : null,
-    }).select().single();
+    };
+    let { data, error } = await supabase.from("finance_recurring").insert(row).select().single();
+    // Migration 020 pas encore appliquée : on crée sans la liste des libellés.
+    if (error && /match_keys/.test(error.message || "")) {
+      const { match_keys, ...rest } = row;
+      ({ data, error } = await supabase.from("finance_recurring").insert(rest).select().single());
+    }
     if (error) { setFinanceError("createRecurring error:", error); return null;  }
     await fetch();
     return data;
