@@ -43,7 +43,7 @@ export function useFinanceTransactions(userId, filters = {}) {
       user_id: userId,
       account_id: tx.account_id,
       transfer_account_id: tx.type === "transfert" ? (tx.transfer_account_id ?? null) : null,
-      category_id: tx.type === "transfert" ? null : (tx.category_id ?? null),
+      category_id: tx.category_id ?? null,
       type: tx.type,
       amount: tx.amount,
       date: tx.date,
@@ -65,7 +65,7 @@ export function useFinanceTransactions(userId, filters = {}) {
     const patch = {
       account_id: tx.account_id,
       transfer_account_id: tx.type === "transfert" ? (tx.transfer_account_id ?? null) : null,
-      category_id: tx.type === "transfert" ? null : (tx.category_id ?? null),
+      category_id: tx.category_id ?? null,
       type: tx.type,
       amount: tx.amount,
       date: tx.date,

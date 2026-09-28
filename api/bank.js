@@ -135,7 +135,9 @@ function toRow(t, userId, accountId) {
     account_id: accountId,
     type: credit ? "revenu" : "depense",
     amount: Math.round(Math.abs(raw) * 100) / 100,
-    date: t.booking_date || t.value_date || t.transaction_date,
+    // Une opération en attente arrive parfois sans aucune date : c'est un achat
+    // du jour, on la date d'aujourd'hui plutôt que de la perdre.
+    date: t.booking_date || t.value_date || t.transaction_date || (t.status === "PDNG" ? isoDay(new Date()) : null),
     note,
     bank_label: note,                                       // reste intact si l'utilisateur renomme
     source: "sync",
@@ -284,18 +286,32 @@ async function actionSync(creds, sb, user) {
       const txs = await fetchTransactions(creds, r.account_uid, isoDay(since));
 
       let ignored = 0;
-      const rowsOf = list => list.map(t => {
-        const row = toRow(t, user.id, r.account_id);
-        if (row && isPending(t)) row.external_id = PENDING_PREFIX + row.external_id;
-        return row;
-      }).filter(x => {
+      const rowsOf = list => {
+        // Deux opérations au contenu identique (deux cafés au même prix le même
+        // jour, sans référence bancaire) auraient la même empreinte : sans ce
+        // rang, la seconde écrasait la première. Le rang est stable d'une synchro
+        // à l'autre puisque les opérations identiques sont interchangeables.
+        const rank = new Map();
+        return list.map(t => {
+          const row = toRow(t, user.id, r.account_id);
+          if (!row) return row;
+          if (row.external_id.startsWith("h:")) {
+            const n = rank.get(row.external_id) || 0;
+            rank.set(row.external_id, n + 1);
+            if (n) row.external_id += `#${n}`;
+          }
+          if (isPending(t)) row.external_id = PENDING_PREFIX + row.external_id;
+          return row;
+        });
+      };
+      const keep = list => list.filter(x => {
         if (!x || !x.date) return false;
         // Après une remise à zéro, les opérations antérieures sont déjà dans le solde.
         if (r.ignore_before && x.date < r.ignore_before) { ignored++; return false; }
         return true;
       });
-      const booked  = rowsOf(txs.filter(t => !isPending(t)));
-      const pending = rowsOf(txs.filter(isPending));
+      const booked  = keep(rowsOf(txs.filter(t => !isPending(t))));
+      const pending = keep(rowsOf(txs.filter(isPending)));
 
       // Les « en attente » de la synchro précédente sont remplacées. On garde
       // leur catégorie pour la reporter sur l'opération comptabilisée qui leur

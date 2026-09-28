@@ -61,7 +61,7 @@ export function useFinanceRecurring(userId) {
     const { data, error } = await supabase.from("finance_recurring").insert({
       user_id: userId, label: r.label, type: r.type, amount: r.amount,
       account_id: r.account_id, transfer_account_id: r.type === "transfert" ? (r.transfer_account_id ?? null) : null,
-      category_id: r.type === "transfert" ? null : (r.category_id ?? null),
+      category_id: r.category_id ?? null,
       is_subscription: r.is_subscription ?? false,
       freq: r.freq, interval: r.interval ?? 1,
       day_of_month: r.day_of_month ?? null, weekday: r.weekday ?? null, month_of_year: r.month_of_year ?? null,
@@ -115,7 +115,7 @@ export function useFinanceRecurring(userId) {
           inserts.push({
             user_id: userId, account_id: rec.account_id,
             transfer_account_id: rec.type === "transfert" ? rec.transfer_account_id : null,
-            category_id: rec.type === "transfert" ? null : rec.category_id,
+            category_id: rec.category_id,
             type: rec.type, amount: rec.amount, date: nextOcc,
             note: rec.label, source: "recurrent", recurring_id: rec.id,
             // Un revenu récurrent transmet sa nature, sinon il arriverait
@@ -150,7 +150,7 @@ export function useFinanceRecurring(userId) {
     const { error } = await supabase.from("finance_transactions").insert({
       user_id: userId, account_id: rec.account_id,
       transfer_account_id: rec.type === "transfert" ? rec.transfer_account_id : null,
-      category_id: rec.type === "transfert" ? null : rec.category_id,
+      category_id: rec.category_id,
       type: rec.type, amount: rec.amount, date, note: rec.label, source: "recurrent", recurring_id: rec.id,
     });
     if (error) { setFinanceError("toggleSubscriptionPaid insert error:", error); return null;  }

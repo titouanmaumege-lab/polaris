@@ -11,7 +11,7 @@ import { C, GRAD } from "../../ui/tokens";
 export const BANK_CALLBACK_PATH = "/bank-callback";
 const STATE_KEY = "lp_bank_state";
 
-async function callBank(action, payload = {}) {
+export async function callBank(action, payload = {}) {
   const { data } = await supabase.auth.getSession();
   const token = data?.session?.access_token;
   const r = await fetch("/api/bank", {
@@ -46,6 +46,25 @@ const fmtAgo = d => {
   return `le ${fmtDate(d)}`;
 };
 
+// Synchro silencieuse à l'ouverture de Finances, au plus toutes les 4 h : les
+// banques limitent les accès faits sans l'utilisateur (souvent 4 par jour).
+const AUTO_KEY = "lp_bank_autosync";
+const AUTO_EVERY = 4 * 3600e3;
+export async function autoSyncBanks(userId) {
+  try {
+    const last = Number(localStorage.getItem(`${AUTO_KEY}:${userId}`) || 0);
+    if (Date.now() - last < AUTO_EVERY) return false;
+    const { count } = await supabase.from("finance_bank_links").select("id", { count: "exact", head: true }).eq("user_id", userId);
+    if (!count) return false;
+    localStorage.setItem(`${AUTO_KEY}:${userId}`, String(Date.now()));
+    await callBank("sync");
+    window.dispatchEvent(new Event("finance-data-changed"));
+    return true;
+  } catch {
+    return false;                                   // silencieux : le bouton Synchroniser reste là
+  }
+}
+
 export default function BankPanel({ userId, getAcc, onSynced }) {
   const [links, setLinks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -79,6 +98,7 @@ export default function BankPanel({ userId, getAcc, onSynced }) {
     setBusy("sync"); setMsg(null);
     try {
       const { results } = await callBank("sync");
+      try { localStorage.setItem(`${AUTO_KEY}:${userId}`, String(Date.now())); } catch { /* stockage indisponible */ }
       const sum = k => results.reduce((s, r) => s + (r[k] || 0), 0);
       const added = sum("added"), pending = sum("pending"), ignored = sum("ignored"), recognized = sum("recognized");
       const failed = results.filter(r => r.error);

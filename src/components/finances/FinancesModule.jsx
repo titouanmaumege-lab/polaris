@@ -12,7 +12,7 @@ import { useFinanceRecurring, advanceOccurrence, recurrenceLabel } from "./hooks
 import { supabase } from "../../supabase";
 import { matchKeyOf } from "../../utils/recurrence";
 import { todayStr, monthKey } from "../../utils/date";
-import BankPanel, { BANK_CALLBACK_PATH } from "./BankPanel";
+import BankPanel, { BANK_CALLBACK_PATH, autoSyncBanks } from "./BankPanel";
 import { C, GRAD } from "../../ui/tokens";
 
 // DA partagée avec le reste de l'app : tokens `C` + thème `.theme-light`
@@ -166,6 +166,8 @@ export default function FinancesModule({ userId }) {
   const rec = useFinanceRecurring(userId);
 
   useEffect(() => { rec.runRecurringCatchup?.(); }, [rec.runRecurringCatchup]);
+  // Pas au retour de la banque : BankPanel y lance déjà sa propre synchro.
+  useEffect(() => { if (window.location.pathname !== BANK_CALLBACK_PATH) autoSyncBanks(userId); }, [userId]);
 
   const getCat = (id) => cat.categories.find(c => c.id === id) || { name: "—", icon: "📦", color: C.muted };
   const getAcc = (id) => acc.accounts.find(a => a.id === id);
@@ -409,7 +411,7 @@ export default function FinancesModule({ userId }) {
     const payload = {
       account_id: f.account_id,
       transfer_account_id: f.type === "transfert" ? f.transfer_account_id : null,
-      category_id: f.type === "transfert" ? null : f.category_id,
+      category_id: f.category_id || null,
       type: f.type, amount, date: f.date, note: f.note,
       revenu_kind: f.revenu_kind, employer_id: f.employer_id, aide_type_id: f.aide_type_id,
     };
@@ -456,11 +458,11 @@ export default function FinancesModule({ userId }) {
     if (!amount || amount <= 0) return showToast("Montant invalide");
     const payload = { person: f.person.trim(), description: f.description, amount, dir: f.dir, due_date: f.due_date };
     if (editing) await debt.updateDebt(editing.id, { person: payload.person, description: payload.description || null, amount, dir: f.dir, due_date: f.due_date || null });
-    else await debt.createDebt(payload, f.account_id || null);
+    else await debt.createDebt(payload);
     close(); showToast(editing ? "Modifié" : "Ajouté");
   };
   const confirmSettle = async () => {
-    await debt.settleDebt(editing, { accountId: f.account_id || null, date: f.date });
+    await debt.settleDebt(editing, { date: f.date });
     close(); showToast("Réglé");
   };
   const submitBudget = async () => {
@@ -724,7 +726,9 @@ export default function FinancesModule({ userId }) {
               const meta = isT ? `${getAcc(t.account_id)?.name || "—"} → ${getAcc(t.transfer_account_id)?.name || "—"}` : c.name;
               return (
                 <div key={t.id} style={txRowSt}>
-                  {isT ? <div style={{ ...txIconSt, background: col + "22" }}>{icon}</div> : <CatEmoji t={t} c={c} />}
+                  {isT && !t.category_id
+                    ? <button onClick={() => setCatPick(t)} title="Choisir une catégorie" style={{ ...txIconSt, background: col + "22", border: "none", cursor: "pointer", color: C.accent }}>{icon}</button>
+                    : <CatEmoji t={t} c={c} />}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><TxLabel t={t} fallback={isT ? "Transfert" : (t.category_id ? c.name : "Opération")} /><PendingTag t={t} /><RecTag t={t} /></div>
                     <div style={{ fontSize: 11, color: C.muted }}>{meta} · {d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</div>
@@ -784,7 +788,9 @@ export default function FinancesModule({ userId }) {
                     <tr key={t.id}>
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{d.getDate()} {MONTH_FR[d.getMonth()].slice(0, 3)}.</td>
                       <td style={{ ...tdSt, fontWeight: 500 }}><TxLabel t={t} fallback={isT ? "Transfert" : "—"} /><PendingTag t={t} /><RecTag t={t} /></td>
-                      <td style={tdSt}>{isT ? <span style={badgeSt(C.accent)}>⇄ Transfert</span> : <CatEmoji t={t} c={c} badge />}</td>
+                      <td style={tdSt}>{isT && !t.category_id
+                        ? <button onClick={() => setCatPick(t)} title="Choisir une catégorie" style={{ ...badgeSt(C.accent), border: "none", cursor: "pointer", fontFamily: "inherit" }}>⇄ Transfert</button>
+                        : <CatEmoji t={t} c={c} badge />}</td>
                       <td style={{ ...tdSt, color: C.muted, fontSize: 12 }}>{isT ? `${a ? a.name : "—"} → ${dst ? dst.name : "—"}` : (a ? a.name : "—")}</td>
                       <td style={{ ...tdSt, fontFamily: MONO, fontWeight: 600, textAlign: "right", color: isT ? C.muted : t.type === "revenu" ? C.green : C.text }}>{isT ? "" : t.type === "revenu" ? "+" : "-"}{fmtEUR(t.amount)}</td>
                       <td style={tdSt}><RowActions>{!isT && !t.recurring_id && <span title="En faire une récurrence">{rowBtn("↻", () => openRecFromTx(t))}</span>}{rowBtn("✏️", () => openTx(t))}{rowBtn("✕", () => { tx.deleteTransaction(t.id); showToast("Supprimé"); }, C.red)}</RowActions></td>
@@ -1247,7 +1253,20 @@ export default function FinancesModule({ userId }) {
   }
 
   // ════════ MODALES ════════
-  function CatGrid({ kind, value, onPick }) {
+  function CatGrid({ kind, value, onPick, first = "depense" }) {
+    // Toutes les catégories, où qu'on soit : un virement reçu peut très bien
+    // relever d'une catégorie de dépense (remboursement d'un ami…), et l'inverse.
+    if (kind === "all") {
+      const order = first === "revenu" ? ["revenu", "depense"] : ["depense", "revenu"];
+      const groups = order.map(k => [k, cat.categories.filter(c => c.kind === k)]).filter(([, l]) => l.length);
+      if (!groups.length) return <div style={{ fontSize: 13, color: C.faint, marginBottom: 14 }}>Aucune catégorie. Crée-en dans Paramètres.</div>;
+      return groups.map(([k, l]) => (
+        <div key={k}>
+          <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>{k === "revenu" ? "Revenus" : "Dépenses"}</div>
+          <CatGrid kind={k} value={value} onPick={onPick} />
+        </div>
+      ));
+    }
     const list = cat.categories.filter(c => c.kind === kind);
     return (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 7, marginBottom: 14 }}>
@@ -1269,9 +1288,7 @@ export default function FinancesModule({ userId }) {
             <div style={{ fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
               {catPick.note || "Opération"} · <span style={{ fontFamily: MONO }}>{fmtEUR(catPick.amount)}</span>
             </div>
-            {cat.categories.some(c => c.kind === (catPick.type === "revenu" ? "revenu" : "depense"))
-              ? <CatGrid kind={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
-              : <div style={{ fontSize: 13, color: C.faint, marginBottom: 14 }}>Aucune catégorie de ce type. Crée-en dans Paramètres.</div>}
+            <CatGrid kind="all" first={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
             {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
           </>)}
         </Modal>
@@ -1293,13 +1310,14 @@ export default function FinancesModule({ userId }) {
           </div>
         </Modal>
         <Modal open={modal === "tx"} onClose={close} title={editing ? "Modifier l'opération" : "Nouvelle opération"}>
-          <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: v === "transfert" ? null : (v === "revenu" ? incCats : expCats)[0]?.id || null, transfer_account_id: v === "transfert" ? (p.transfer_account_id && p.transfer_account_id !== p.account_id ? p.transfer_account_id : acc.accounts.find(a => a.id !== p.account_id)?.id || null) : p.transfer_account_id }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }, { v: "transfert", label: "⇄ Transfert", c: C.accent }]} />
+          <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: p.category_id || (v === "transfert" ? null : (v === "revenu" ? incCats : expCats)[0]?.id || null), transfer_account_id: v === "transfert" ? (p.transfer_account_id && p.transfer_account_id !== p.account_id ? p.transfer_account_id : acc.accounts.find(a => a.id !== p.account_id)?.id || null) : p.transfer_account_id }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }, { v: "transfert", label: "⇄ Transfert", c: C.accent }]} />
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
           <Field label="Description"><TextIn value={f.note} onChange={e => set("note", e.target.value)} placeholder={f.type === "transfert" ? "Ex : Vers épargne" : "Ex : Courses Monoprix"} /></Field>
           {f.type === "transfert" ? (
             <>
               <Field label="Compte source"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
               <Field label="Compte destination"><SelectIn value={f.transfer_account_id || ""} onChange={e => set("transfer_account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
+              <Field label="Catégorie (optionnel)"><CatGrid kind="all" value={f.category_id} onPick={id => set("category_id", f.category_id === id ? null : id)} /></Field>
             </>
           ) : (
             <>
@@ -1354,7 +1372,7 @@ export default function FinancesModule({ userId }) {
                   )}
                 </>
               )}
-              <Field label="Catégorie"><CatGrid kind={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
+              <Field label="Catégorie"><CatGrid kind="all" first={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
               <Field label="Compte"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
             </>
           )}
@@ -1398,7 +1416,7 @@ export default function FinancesModule({ userId }) {
           <TypeToggle value={f.type} onChange={v => setF(p => ({ ...p, type: v, category_id: (v === "revenu" ? incCats : expCats)[0]?.id || null }))} options={[{ v: "depense", label: "💸 Dépense", c: C.red }, { v: "revenu", label: "💰 Revenu", c: C.green }]} />
           <Field label="Nom"><TextIn value={f.label} onChange={e => set("label", e.target.value)} placeholder="Ex : Loyer, Netflix..." /></Field>
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
-          <Field label="Catégorie"><CatGrid kind={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
+          <Field label="Catégorie"><CatGrid kind="all" first={f.type} value={f.category_id} onPick={id => set("category_id", id)} /></Field>
           <Field label="Fréquence"><SelectIn value={f.uifreq} onChange={e => set("uifreq", e.target.value)}>{UIFREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</SelectIn></Field>
           {f.uifreq === "nweeks" && (
             <Field label="Intervalle">
@@ -1421,13 +1439,12 @@ export default function FinancesModule({ userId }) {
           <Field label="Description"><TextIn value={f.description} onChange={e => set("description", e.target.value)} placeholder="Ex : Resto samedi..." /></Field>
           <Field label="Montant (€)"><TextIn type="number" value={f.amount} onChange={e => set("amount", e.target.value)} placeholder="0.00" /></Field>
           <Field label="Date limite (optionnel)"><TextIn type="date" value={f.due_date} onChange={e => set("due_date", e.target.value)} /></Field>
-          {!editing && <Field label="Impacter un compte maintenant (optionnel)"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}><option value="">Aucun</option>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>}
           <Btn onClick={submitDebt}>Enregistrer</Btn>
         </Modal>
 
         <Modal open={modal === "settle"} onClose={close} title="Régler le remboursement">
           {editing && <div style={{ background: C.surface2, borderRadius: 10, padding: 14, marginBottom: 18, fontSize: 13 }}><b>{editing.dir === "in" ? "On me doit " : "Je dois "}{fmtEUR(editing.amount)}</b> — {editing.person}{editing.description ? ` (${editing.description})` : ""}</div>}
-          <Field label="Compte à impacter"><SelectIn value={f.account_id || ""} onChange={e => set("account_id", e.target.value)}><option value="">Aucun (ne pas créer de transaction)</option>{acc.accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</SelectIn></Field>
+          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>Le remboursement passe simplement en « Réglé ». Aucun compte n'est modifié.</div>
           <Field label="Date"><TextIn type="date" value={f.date} onChange={e => set("date", e.target.value)} /></Field>
           <Btn onClick={confirmSettle}>Confirmer le règlement</Btn>
         </Modal>
