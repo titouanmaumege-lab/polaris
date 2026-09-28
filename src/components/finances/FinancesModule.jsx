@@ -174,6 +174,10 @@ export default function FinancesModule({ userId }) {
   const expCats  = cat.categories.filter(c => c.kind === "depense");
   const incCats  = cat.categories.filter(c => c.kind === "revenu");
   const aideCats = cat.categories.filter(c => c.kind === "aide");
+  const trfCats  = cat.categories.filter(c => c.kind === "transfert");
+  // Classée en transfert (intercompte) : ni revenu ni dépense du mois.
+  const trfIds = useMemo(() => new Set(trfCats.map(c => c.id)), [trfCats.map(c => c.id).join()]);
+  const isTrf = t => t.type === "transfert" || trfIds.has(t.category_id);
   const liquidAcc = acc.accounts.filter(a => (a.nature || "liquidite") === "liquidite");
   const investAcc = acc.accounts.filter(a => a.nature === "investissement");
   const proAcc = acc.accounts.filter(a => a.nature === "pro");
@@ -187,8 +191,8 @@ export default function FinancesModule({ userId }) {
   const monthTx = useMemo(() =>
     tx.transactions.filter(t => { const d = new Date(t.date); return d.getFullYear() === yNum && d.getMonth() + 1 === mNum; }),
     [tx.transactions, yNum, mNum]);
-  const income = monthTx.filter(t => t.type === "revenu").reduce((s, t) => s + t.amount, 0);
-  const expense = monthTx.filter(t => t.type === "depense").reduce((s, t) => s + t.amount, 0);
+  const income = monthTx.filter(t => t.type === "revenu" && !isTrf(t)).reduce((s, t) => s + t.amount, 0);
+  const expense = monthTx.filter(t => t.type === "depense" && !isTrf(t)).reduce((s, t) => s + t.amount, 0);
   const pocketsTotal = goal.goals.reduce((s, g) => s + g.current_amount, 0);
   // Le compte pro appartient à l'entreprise, pas à l'utilisateur : hors patrimoine.
   const netWorth = acc.totalBalance - proTotal + pocketsTotal + inv.totalMarketValue;
@@ -199,7 +203,7 @@ export default function FinancesModule({ userId }) {
   const revStats = useMemo(() => {
     const inYear = t => new Date(t.date).getFullYear() === yNum;
     const inMonth = t => { const d = new Date(t.date); return d.getFullYear() === yNum && d.getMonth() + 1 === mNum; };
-    const revenus = tx.transactions.filter(t => t.type === "revenu");
+    const revenus = tx.transactions.filter(t => t.type === "revenu" && !trfIds.has(t.category_id));
     const sum = a => a.reduce((s, t) => s + t.amount, 0);
     // Tout revenu encaissé sur un compte pro est du CA, quelle que soit sa nature
     // saisie. Un transfert depuis un compte perso n'est pas un revenu : exclu.
@@ -243,7 +247,7 @@ export default function FinancesModule({ userId }) {
 
     const unclassified = revenus.filter(t => !t.revenu_kind && !proIds.has(t.account_id) && inYear(t));
     return { kind, byEmp, byAide, caMonths, unclassified: unclassified.length, unclassifiedSum: sum(unclassified) };
-  }, [tx.transactions, emp.employers, aideCats, yNum, mNum, proIds]);
+  }, [tx.transactions, emp.employers, aideCats, yNum, mNum, proIds, trfIds]);
 
   const today0 = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const recDue = rec.recurring.filter(r => r.active && new Date(r.next_occurrence) <= new Date(today0.getTime() + 7 * 864e5));
@@ -281,6 +285,13 @@ export default function FinancesModule({ userId }) {
     if (ok(r)) showToast("Catégorie modifiée");
   };
 
+  // Aucune catégorie de transfert encore : « Intercompte » est créée au vol.
+  const setTxIntercompte = async (t) => {
+    const c = await cat.createCategory({ name: "Intercompte", kind: "transfert", icon: "⇄", color: "#94a3b8" });
+    if (!c) { setCatPick(null); showToast("Exécute d'abord la migration 021 dans Supabase."); return; }
+    setTxCategory(t, c.id);
+  };
+
   // Nature d'un revenu depuis la fenêtre rapide (alimente le bloc Revenus du
   // Bilan). Salaire et aides sociales ont un second choix (employeur, type
   // d'aide) : la fenêtre reste ouverte pour le faire. Re-cliquer retire.
@@ -308,6 +319,10 @@ export default function FinancesModule({ userId }) {
     const keys = recKeys(r);
     const recPatch = {};
     if (key && !keys.includes(key)) recPatch.match_keys = [...keys, key];
+    // Récurrence saisie à la main, liée à une opération de la banque : c'est
+    // désormais la synchro qui apporte ses échéances (le rattrapage ne doit
+    // plus en générer, sinon doublons).
+    if (!r.match_key && t.source === "sync") recPatch.match_key = key || "*";
     // Opération de l'échéance en cours (ou plus tard) : l'échéance avance.
     const soonest = new Date(new Date(r.next_occurrence + "T12:00:00").getTime() - 15 * 864e5).toISOString().slice(0, 10);
     if (t.date >= soonest) recPatch.next_occurrence = nextAfter(r, t);
@@ -746,7 +761,7 @@ export default function FinancesModule({ userId }) {
     const byCat = {};
     // Les opérations importées de la banque arrivent sans catégorie : on les
     // compte à part au lieu de les ignorer (sinon le donut se croyait vide).
-    monthTx.filter(t => t.type === "depense").forEach(t => { const k = t.category_id || "_none"; byCat[k] = (byCat[k] || 0) + t.amount; });
+    monthTx.filter(t => t.type === "depense" && !isTrf(t)).forEach(t => { const k = t.category_id || "_none"; byCat[k] = (byCat[k] || 0) + t.amount; });
     const UNCAT = { name: "Sans catégorie", icon: "❔", color: "#94a3b8" };
     const cd = Object.entries(byCat).map(([id, v]) => ({ ...(id === "_none" ? UNCAT : getCat(id)), value: v })).sort((a, b) => b.value - a.value);
     const recent = tx.transactions.slice(0, 6);
@@ -1308,6 +1323,10 @@ export default function FinancesModule({ userId }) {
           hint="Les catégories proposées quand tu saisis un revenu. À ne pas confondre avec la nature du revenu (salaire, aides, entreprise…), qui est figée et pilote le bilan."
           items={incCats.map(catRow)} onAdd={() => openCatKind("revenu")} addLabel="+ Type de revenu" />
 
+        <SettingsList id="trf" title="Types de transfert" count={trfCats.length}
+          hint="Mouvements entre tes propres comptes (épargne, compte joint…). Une opération classée ici sort des revenus, des dépenses, de la répartition du mois et des budgets."
+          items={trfCats.map(catRow)} onAdd={() => openCatKind("transfert")} addLabel="+ Type de transfert" />
+
         <SettingsList id="aide" title="Types d'aide sociale" count={aideCats.length}
           hint="Sous-types du revenu « Aides sociales » : APL, RSA, prime d'activité… Ils détaillent le bloc Aides du bilan."
           items={aideCats.map(catRow)} onAdd={() => openCatKind("aide")} addLabel="+ Type d'aide" />
@@ -1351,16 +1370,18 @@ export default function FinancesModule({ userId }) {
   }
 
   // ════════ MODALES ════════
-  function CatGrid({ kind, value, onPick, first = "depense" }) {
+  const GROUP_LABEL = { depense: "Dépenses", revenu: "Revenus", transfert: "Transferts · hors totaux du mois" };
+  function CatGrid({ kind, value, onPick, first = "depense", kinds }) {
     // Toutes les catégories, où qu'on soit : un virement reçu peut très bien
     // relever d'une catégorie de dépense (remboursement d'un ami…), et l'inverse.
+    // `kinds` restreint et ordonne les sections affichées.
     if (kind === "all") {
-      const order = first === "revenu" ? ["revenu", "depense"] : ["depense", "revenu"];
+      const order = kinds || (first === "revenu" ? ["revenu", "depense", "transfert"] : first === "transfert" ? ["transfert", "depense", "revenu"] : ["depense", "revenu", "transfert"]);
       const groups = order.map(k => [k, cat.categories.filter(c => c.kind === k)]).filter(([, l]) => l.length);
       if (!groups.length) return <div style={{ fontSize: 13, color: C.faint, marginBottom: 14 }}>Aucune catégorie. Crée-en dans Paramètres.</div>;
       return groups.map(([k, l]) => (
         <div key={k}>
-          <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>{k === "revenu" ? "Revenus" : "Dépenses"}</div>
+          <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>{GROUP_LABEL[k]}</div>
           <CatGrid kind={k} value={value} onPick={onPick} />
         </div>
       ));
@@ -1386,12 +1407,12 @@ export default function FinancesModule({ userId }) {
             <div style={{ fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
               {catPick.note || "Opération"} · <span style={{ fontFamily: MONO }}>{fmtEUR(catPick.amount)}</span>
             </div>
-            {catPick.type === "revenu" && proIds.has(catPick.account_id) && (
+            {catPick.type === "revenu" && proIds.has(catPick.account_id) && !trfIds.has(catPick.category_id) && (
               <div style={{ fontSize: 13, background: `${C.amber}1a`, color: C.text, borderRadius: 10, padding: "10px 12px", marginBottom: 16, lineHeight: 1.5 }}>
                 📈 Encaissement sur un compte pro : compté automatiquement comme <b>CA</b> dans le Bilan. Une catégorie reste possible ci-dessous.
               </div>
             )}
-            {catPick.type === "revenu" && !proIds.has(catPick.account_id) && (() => {
+            {catPick.type === "revenu" && !proIds.has(catPick.account_id) && !trfIds.has(catPick.category_id) && (() => {
               const chip = (on, onClick, children, key) => (
                 <button key={key} onClick={onClick} aria-pressed={on}
                   style={{ display: "inline-flex", alignItems: "center", gap: 7, minHeight: 36, padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600,
@@ -1428,11 +1449,23 @@ export default function FinancesModule({ userId }) {
                 </div>
               );
             })()}
-            <CatGrid kind="all" first={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
+            {/* Entrée d'argent : revenus ou transfert. Sortie : dépenses ou transfert. */}
+            <CatGrid kind="all" kinds={catPick.type === "revenu" ? ["revenu", "transfert"] : catPick.type === "depense" ? ["depense", "transfert"] : ["transfert", "depense", "revenu"]}
+              value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
+            {trfCats.length === 0 && (<>
+              <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>{GROUP_LABEL.transfert}</div>
+              <button onClick={() => setTxIntercompte(catPick)}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, minHeight: 36, padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, border: `1px solid ${C.border}`, background: C.surface2, color: C.text, marginBottom: 14 }}>
+                ⇄ Intercompte
+              </button>
+            </>)}
             {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
             {(() => {
               const linked = catPick.recurring_id && rec.recurring.find(r => r.id === catPick.recurring_id);
-              const candidates = rec.recurring.filter(r => r.active && r.match_key && r.account_id === catPick.account_id && r.type === catPick.type);
+              // Toutes les récurrences actives du même sens ; celles du compte de
+              // l'opération d'abord (seules celles-là sont reconnues à la synchro).
+              const candidates = rec.recurring.filter(r => r.active && r.type === catPick.type)
+                .sort((a, b) => (b.account_id === catPick.account_id) - (a.account_id === catPick.account_id));
               if (!linked && !candidates.length) return null;
               return (
                 <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${C.border}` }}>
@@ -1739,7 +1772,7 @@ export default function FinancesModule({ userId }) {
         </Modal>
 
         <Modal open={modal === "cat"} onClose={close} title={editing ? "Modifier la catégorie" : "Nouvelle catégorie"}>
-          <Field label="Type"><SelectIn value={f.kind} onChange={e => set("kind", e.target.value)}><option value="depense">Dépense</option><option value="revenu">Revenu</option><option value="aide">Type d'aide sociale</option></SelectIn></Field>
+          <Field label="Type"><SelectIn value={f.kind} onChange={e => set("kind", e.target.value)}><option value="depense">Dépense</option><option value="revenu">Revenu</option><option value="transfert">Transfert (intercompte)</option><option value="aide">Type d'aide sociale</option></SelectIn></Field>
           <Field label="Emoji"><div style={{ display: "flex", gap: 8 }}><TextIn value={f.emoji} onChange={e => set("emoji", e.target.value)} maxLength={2} style={{ width: 70, flexShrink: 0, textAlign: "center", fontSize: 22 }} /><Btn kind="g" style={{ flex: 1 }} onClick={() => openEmoji("emoji")}>Choisir 🌞</Btn></div></Field>
           <Field label="Nom"><TextIn value={f.name} onChange={e => set("name", e.target.value)} placeholder="Ex : Sport, Cadeaux..." /></Field>
           <Field label="Couleur"><div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>{COLORS.map(c => <div key={c} onClick={() => set("color", c)} style={{ width: 28, height: 28, borderRadius: 7, cursor: "pointer", background: c, border: `2px solid ${f.color === c ? "#fff" : "transparent"}`, transform: f.color === c ? "scale(1.15)" : "none" }} />)}</div></Field>

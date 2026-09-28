@@ -16,12 +16,13 @@ export function useFinanceBudgets(userId, ym = monthKey()) {
     const [{ data: budData }, { data: txData }] = await Promise.all([
       supabase.from("finance_budgets").select("*")
         .eq("user_id", userId).eq("year", y).eq("month", m),
-      supabase.from("finance_transactions").select("amount, category_id")
+      supabase.from("finance_transactions").select("amount, category_id, cat:finance_categories(kind)")
         .eq("user_id", userId).eq("type", "depense").gte("date", first).lte("date", last),
     ]);
     const spentByCat = {};
     let spentTotal = 0;
-    (txData || []).forEach(t => {
+    // Transfert intercompte : pas une dépense, hors budgets.
+    (txData || []).filter(t => t.cat?.kind !== "transfert").forEach(t => {
       spentTotal += Number(t.amount);
       if (t.category_id) spentByCat[t.category_id] = (spentByCat[t.category_id] || 0) + Number(t.amount);
     });
