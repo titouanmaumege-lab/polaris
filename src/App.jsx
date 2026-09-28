@@ -447,6 +447,13 @@ function WeeklyCalendar() {
   const [dragOverDay, setDragOverDay] = useState(null);
   const [overCheck, setOverCheck] = useState(false);
   const [dragging, setDragging] = useState(false);
+  // Projets dont les sous-tâches sont dépliées (repliées par défaut)
+  const [openSubs, setOpenSubs] = useState(() => new Set());
+  const toggleOpenSubs = id => setOpenSubs(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
   const editItem = editId ? todos.find(t => t.id === editId) : null;
   const closeModal = () => { setEditId(null); setEditMode(false); };
   const toggleSub = (todoId, stId) => {
@@ -638,7 +645,6 @@ function WeeklyCalendar() {
   const RED       = "#ef4444";
   const MEMO_MAX  = 4;   // au-delà : chip « +N »
   const WAIT_MAX  = 2;
-  const SUB_MAX   = 4;   // sous-tâches visibles dans une barre projet
 
   const daysTo    = d => diffDaysISO(d, today);
   const daysSince = iso => { const d = (iso || "").slice(0, 10); return d ? Math.max(0, diffDaysISO(today, d)) : 0; };
@@ -664,12 +670,12 @@ function WeeklyCalendar() {
     const next = subs.find(x => !x.done);
     const late = it.dateFin && it.dateFin < today && !it.done;
     const dLeft = it.dateFin ? daysTo(it.dateFin) : null;
+    const open  = subs.length > 0 && openSubs.has(it.id);
 
     // Largeur réelle de la barre : le nom doit rester lisible même sur un
     // projet d'une seule journée, donc c'est le reste qui disparaît.
     const span = s.endCol - s.startCol + 1;
     const barPx = boardW ? (boardW / 7) * span - 6 : 200;
-    const wide  = barPx >= 300;
     const mid   = barPx >= 190;
 
     const deadline = !it.dateFin || cr ? null
@@ -723,8 +729,18 @@ function WeeklyCalendar() {
           {cl && <span style={{ fontSize:10, opacity:0.75 }}>‹</span>}
           <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:700, whiteSpace:"nowrap",
             overflow:"hidden", textOverflow:"ellipsis", textShadow:"0 1px 2px rgba(0,0,0,0.3)" }}>{it.name}</span>
-          {subs.length > 0 && mid && (
-            <span style={{ flexShrink:0, fontSize:10, fontWeight:600, color:"rgba(255,255,255,0.72)", fontVariantNumeric:"tabular-nums" }}>{done}/{subs.length}</span>
+          {subs.length > 0 && (
+            <span role="button" tabIndex={0}
+              aria-expanded={open} aria-label={open ? "Replier les sous-tâches" : "Déplier les sous-tâches"}
+              title={open ? "Replier les sous-tâches" : "Voir les sous-tâches"}
+              onClick={e => { e.stopPropagation(); toggleOpenSubs(it.id); }}
+              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggleOpenSubs(it.id); } }}
+              style={{ flexShrink:0, display:"inline-flex", alignItems:"center", gap:3, cursor:"pointer", padding:"4px 2px",
+                fontSize:10, fontWeight:600, color:"rgba(255,255,255,0.8)", fontVariantNumeric:"tabular-nums" }}>
+              {mid && <span>{done}/{subs.length}</span>}
+              <span aria-hidden="true" style={{ display:"inline-block", fontSize:9, transition:"transform .15s",
+                transform: open ? "rotate(90deg)" : "none" }}>▸</span>
+            </span>
           )}
           <CheckDot onDone={() => markDone(it)} color="#fff" size={16} label={it.name} />
         </span>
@@ -741,10 +757,10 @@ function WeeklyCalendar() {
           </span>
         )}
 
-        {/* Sous-tâches seulement si la barre est assez large pour les lire */}
-        {wide && subs.length > 0 && (
+        {/* Sous-tâches repliées par défaut, dépliables via le chevron */}
+        {open && (
           <span style={{ position:"relative", display:"flex", flexDirection:"column", gap:1, marginTop:3, paddingLeft: cl ? 6 : 4 }}>
-            {subs.slice(0, SUB_MAX).map(st => (
+            {subs.map(st => (
               <span key={st.id} onClick={e => { e.stopPropagation(); toggleSub(it.id, st.id); }}
                 title={st.name}
                 style={{ display:"flex", alignItems:"center", gap:6, minWidth:0, cursor:"pointer",
@@ -755,9 +771,6 @@ function WeeklyCalendar() {
                   textDecoration: st.done ? "line-through" : "none" }}>{st.name}</span>
               </span>
             ))}
-            {subs.length > SUB_MAX && (
-              <span style={{ fontSize:9.5, color:"rgba(255,255,255,0.8)", paddingLeft:15 }}>+{subs.length - SUB_MAX}</span>
-            )}
           </span>
         )}
       </div>
