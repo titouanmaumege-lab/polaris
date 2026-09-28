@@ -1390,7 +1390,6 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
     <div className="hl-wrap">
       <div className={`hl-card${done ? " is-done" : ""}`}>
         <span className="hl-needle" aria-hidden="true" />
-        <button onClick={onPick} className="hl-change">Changer</button>
 
         <div style={{ display:"flex", alignItems:"center", gap:16 }}>
           <div style={{ flex:1, minWidth:0 }}>
@@ -1404,16 +1403,20 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
               textDecoration: done ? "line-through" : "none",
               cursor:"pointer", overflowWrap:"anywhere",
             }}>{hl.label}</div>
-            {(sp || done) && (
-              <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:7, flexWrap:"wrap" }}>
-                {sp && (
-                  <span style={{ fontSize:11, fontWeight:600, padding:"4px 11px", borderRadius:999, color:sp.c, background:`${sp.c}22`, border:`1px solid ${sp.c}4d` }}>
-                    {sp.label}
-                  </span>
-                )}
-                {done && <span style={{ fontSize:12, fontWeight:700, color:C.green }}>Fait</span>}
-              </div>
-            )}
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:7, flexWrap:"wrap" }}>
+              {sp && (
+                <span style={{ fontSize:11, fontWeight:600, padding:"4px 11px", borderRadius:999, color:sp.c, background:`${sp.c}22`, border:`1px solid ${sp.c}4d` }}>
+                  {sp.label}
+                </span>
+              )}
+              {done && <span style={{ fontSize:12, fontWeight:700, color:C.green }}>Fait</span>}
+              <button onClick={onPick} className="hl-change" aria-label="Changer de tâche du jour" title="Changer de tâche">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M20 11a8 8 0 0 0-14.3-4.9M4 13a8 8 0 0 0 14.3 4.9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  <path d="M5.5 2.5v4h4M18.5 21.5v-4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           <button
