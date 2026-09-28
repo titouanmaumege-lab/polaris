@@ -69,6 +69,11 @@ export function planRecurringMatches(recs, txs) {
     if (!rec) continue;
     const patch = { recurring_id: rec.id };
     if (!t.category_id && rec.category_id) patch.category_id = rec.category_id;
+    if (t.type === "revenu" && !t.revenu_kind && rec.revenu_kind) {
+      patch.revenu_kind = rec.revenu_kind;
+      if (rec.revenu_kind === "salaire" && rec.employer_id) patch.employer_id = rec.employer_id;
+      if (rec.revenu_kind === "aides_sociales" && rec.aide_type_id) patch.aide_type_id = rec.aide_type_id;
+    }
     txUpdates.push({ id: t.id, patch });
     // L'opération consomme l'échéance en cours, même payée un peu en avance.
     let next = rec.next_occurrence;

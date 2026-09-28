@@ -281,6 +281,17 @@ export default function FinancesModule({ userId }) {
     if (ok(r)) showToast("Catégorie modifiée");
   };
 
+  // Salaire d'un employeur, depuis la fenêtre rapide : fixe la nature « salaire »
+  // et l'employeur (ce qui alimente le bloc Revenus du Bilan). Re-cliquer retire.
+  const setTxEmployer = async (t, employerId) => {
+    const same = t.revenu_kind === "salaire" && t.employer_id === employerId;
+    const r = await tx.updateTransaction(t.id, same
+      ? { ...t, revenu_kind: null, employer_id: null }
+      : { ...t, revenu_kind: "salaire", employer_id: employerId });
+    setCatPick(null);
+    if (ok(r)) showToast(same ? "Employeur retiré" : "Salaire attribué");
+  };
+
   const resetOperations = async () => {
     setResetBusy(true);
     const { data, error } = await supabase.rpc("finance_reset_operations");
@@ -364,6 +375,7 @@ export default function FinancesModule({ userId }) {
       type: t.type === "revenu" ? "revenu" : "depense", label: t.note || t.bank_label || "", amount: String(t.amount),
       category_id: t.category_id, uifreq: "monthly", weeks: "2", account_id: t.account_id,
       next: advanceOccurrence({ freq: "mois", interval: 1, day_of_month: day }, t.date), sourceTx: t,
+      revenu_kind: t.revenu_kind || null, employer_id: t.employer_id || null, aide_type_id: t.aide_type_id || null,
     });
     setModal("rec");
   };
@@ -431,6 +443,8 @@ export default function FinancesModule({ userId }) {
       // « * » : liée mais libellé trop générique pour être reconnu. Reste non
       // nul pour que le rattrapage ne génère pas d'opération en double.
       payload.match_key = matchKeyOf(src.bank_label || src.note) || "*";
+      // Un salaire garde sa nature et son employeur sur les échéances suivantes.
+      Object.assign(payload, { revenu_kind: f.revenu_kind, employer_id: f.employer_id, aide_type_id: f.aide_type_id });
       if (freq === "mois") payload.day_of_month = Number(src.date.slice(8, 10));
     }
     if (editing) { await rec.updateRecurring(editing.id, payload); close(); showToast("Modifié"); return; }
@@ -1288,6 +1302,25 @@ export default function FinancesModule({ userId }) {
             <div style={{ fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
               {catPick.note || "Opération"} · <span style={{ fontFamily: MONO }}>{fmtEUR(catPick.amount)}</span>
             </div>
+            {catPick.type === "revenu" && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>Salaire versé par</div>
+                {emp.employers.length === 0
+                  ? <div style={{ fontSize: 12.5, color: C.faint, lineHeight: 1.5 }}>Aucun employeur. Ajoute-les dans Paramètres → Employeurs.</div>
+                  : <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                      {emp.employers.map(e2 => {
+                        const on = catPick.revenu_kind === "salaire" && catPick.employer_id === e2.id;
+                        return (
+                          <button key={e2.id} onClick={() => setTxEmployer(catPick, e2.id)} aria-pressed={on}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 7, minHeight: 36, padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600,
+                              border: `1px solid ${on ? C.green : C.border}`, background: on ? `${C.green}1f` : C.surface2, color: on ? C.green : C.text }}>
+                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: e2.color || C.green }} />💼 {e2.name}
+                          </button>
+                        );
+                      })}
+                    </div>}
+              </div>
+            )}
             <CatGrid kind="all" first={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
             {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
           </>)}

@@ -355,11 +355,11 @@ async function actionSync(creds, sb, user) {
       // Récurrences liées : rattache les opérations qui leur correspondent.
       let recognized = 0;
       const { data: recs } = await sb.from("finance_recurring")
-        .select("id, account_id, type, amount, freq, interval, day_of_month, month_of_year, next_occurrence, active, match_key, category_id")
+        .select("id, account_id, type, amount, freq, interval, day_of_month, month_of_year, next_occurrence, active, match_key, category_id, revenu_kind, employer_id, aide_type_id")
         .eq("account_id", r.account_id).eq("active", true).not("match_key", "is", null);
       if (recs?.length) {
         const { data: open } = await sb.from("finance_transactions")
-          .select("id, account_id, type, amount, date, note, bank_label, category_id, recurring_id")
+          .select("id, account_id, type, amount, date, note, bank_label, category_id, recurring_id, revenu_kind")
           .eq("account_id", r.account_id).is("recurring_id", null)
           .gte("date", isoDay(since)).not("external_id", "like", `${PENDING_PREFIX}%`);
         const plan = planRecurringMatches(recs, open || []);
