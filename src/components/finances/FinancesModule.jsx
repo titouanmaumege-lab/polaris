@@ -281,15 +281,17 @@ export default function FinancesModule({ userId }) {
     if (ok(r)) showToast("Catégorie modifiée");
   };
 
-  // Salaire d'un employeur, depuis la fenêtre rapide : fixe la nature « salaire »
-  // et l'employeur (ce qui alimente le bloc Revenus du Bilan). Re-cliquer retire.
-  const setTxEmployer = async (t, employerId) => {
-    const same = t.revenu_kind === "salaire" && t.employer_id === employerId;
-    const r = await tx.updateTransaction(t.id, same
-      ? { ...t, revenu_kind: null, employer_id: null }
-      : { ...t, revenu_kind: "salaire", employer_id: employerId });
-    setCatPick(null);
-    if (ok(r)) showToast(same ? "Employeur retiré" : "Salaire attribué");
+  // Nature d'un revenu depuis la fenêtre rapide (alimente le bloc Revenus du
+  // Bilan). Salaire et aides sociales ont un second choix (employeur, type
+  // d'aide) : la fenêtre reste ouverte pour le faire. Re-cliquer retire.
+  const setTxKind = async (t, kind, sub = {}) => {
+    const next = { ...t, revenu_kind: kind, employer_id: null, aide_type_id: null, ...sub };
+    const r = await tx.updateTransaction(t.id, next);
+    if (!ok(r)) return;
+    const needsSub = (kind === "salaire" && !sub.employer_id && emp.employers.length)
+                  || (kind === "aides_sociales" && !sub.aide_type_id && aideCats.length);
+    if (needsSub) setCatPick(next);
+    else { setCatPick(null); showToast(kind ? "Revenu classé" : "Nature retirée"); }
   };
 
   const resetOperations = async () => {
@@ -309,11 +311,27 @@ export default function FinancesModule({ userId }) {
   // Sans catégorie (typiquement une opération qui vient d'arriver de la banque) :
   // un « ? » rouge pâle, à cliquer pour la classer.
   const TODO_BG = "rgba(248,113,113,0.16)", TODO_FG = "#fca5a5";
-  const CatEmoji = ({ t, c, size = 34, badge }) => {
-    const todo = !t.category_id;
+  // Ce qu'on affiche pour une opération : sa catégorie ; à défaut, pour un
+  // revenu, « CA » s'il arrive sur un compte pro, sinon sa nature ; sinon « ? ».
+  const KIND_INFO = Object.fromEntries(REVENU_KINDS.map(([k, l, ic]) => [k, { name: l, icon: ic }]));
+  const txDisplay = (t, c) => {
+    if (t.category_id) return c;
+    if (t.type === "revenu" && proIds.has(t.account_id)) return { icon: "📈", name: "CA", color: C.amber };
+    if (t.type === "revenu" && KIND_INFO[t.revenu_kind]) {
+      const k = KIND_INFO[t.revenu_kind];
+      const who = t.revenu_kind === "salaire" ? emp.employers.find(e2 => e2.id === t.employer_id)?.name
+                : t.revenu_kind === "aides_sociales" ? aideCats.find(a2 => a2.id === t.aide_type_id)?.name : null;
+      return { icon: k.icon, name: who ? `${k.name} · ${who}` : k.name, color: C.green };
+    }
+    return null;
+  };
+  const CatEmoji = ({ t, c: cat0, size = 34, badge }) => {
+    const shown = txDisplay(t, cat0);
+    const todo = !shown;
+    const c = shown || cat0;
     if (badge) return todo
       ? <button onClick={() => setCatPick(t)} title="Choisir la catégorie" style={{ ...badgeSt(TODO_FG), background: TODO_BG, border: "none", cursor: "pointer", fontFamily: "inherit" }}><b>?</b> À classer</button>
-      : <button onClick={() => setCatPick(t)} title="Changer la catégorie" style={{ ...badgeSt(c.color), border: "none", cursor: "pointer", fontFamily: "inherit" }}>{c.icon} {c.name}</button>;
+      : <button onClick={() => setCatPick(t)} title="Changer" style={{ ...badgeSt(c.color), border: "none", cursor: "pointer", fontFamily: "inherit" }}>{c.icon} {c.name}</button>;
     return (
       <button onClick={() => setCatPick(t)} title={todo ? "Choisir la catégorie" : "Changer la catégorie"}
         aria-label={todo ? "Sans catégorie. Choisir" : `Catégorie : ${c.name}. Changer`}
@@ -737,7 +755,7 @@ export default function FinancesModule({ userId }) {
             {recent.length === 0 ? <Empty icon="📭" text="Aucune transaction" /> : recent.map(t => {
               const isT = t.type === "transfert"; const c = getCat(t.category_id); const d = new Date(t.date);
               const icon = isT ? "⇄" : c.icon; const col = isT ? C.accent : (c.color || C.muted);
-              const meta = isT ? `${getAcc(t.account_id)?.name || "—"} → ${getAcc(t.transfer_account_id)?.name || "—"}` : c.name;
+              const meta = isT ? `${getAcc(t.account_id)?.name || "—"} → ${getAcc(t.transfer_account_id)?.name || "—"}` : (txDisplay(t, c)?.name || "À classer");
               return (
                 <div key={t.id} style={txRowSt}>
                   {isT && !t.category_id
@@ -1297,30 +1315,53 @@ export default function FinancesModule({ userId }) {
   function renderModals() {
     return (
       <>
-        <Modal open={!!catPick} onClose={() => setCatPick(null)} title="Changer la catégorie">
+        <Modal open={!!catPick} onClose={() => setCatPick(null)} title={catPick?.type === "revenu" ? "Classer ce revenu" : "Changer la catégorie"}>
           {catPick && (<>
             <div style={{ fontSize: 13, color: C.muted, marginBottom: 14, lineHeight: 1.5 }}>
               {catPick.note || "Opération"} · <span style={{ fontFamily: MONO }}>{fmtEUR(catPick.amount)}</span>
             </div>
-            {catPick.type === "revenu" && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>Salaire versé par</div>
-                {emp.employers.length === 0
-                  ? <div style={{ fontSize: 12.5, color: C.faint, lineHeight: 1.5 }}>Aucun employeur. Ajoute-les dans Paramètres → Employeurs.</div>
-                  : <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                      {emp.employers.map(e2 => {
-                        const on = catPick.revenu_kind === "salaire" && catPick.employer_id === e2.id;
-                        return (
-                          <button key={e2.id} onClick={() => setTxEmployer(catPick, e2.id)} aria-pressed={on}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 7, minHeight: 36, padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600,
-                              border: `1px solid ${on ? C.green : C.border}`, background: on ? `${C.green}1f` : C.surface2, color: on ? C.green : C.text }}>
-                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: e2.color || C.green }} />💼 {e2.name}
-                          </button>
-                        );
-                      })}
-                    </div>}
+            {catPick.type === "revenu" && proIds.has(catPick.account_id) && (
+              <div style={{ fontSize: 13, background: `${C.amber}1a`, color: C.text, borderRadius: 10, padding: "10px 12px", marginBottom: 16, lineHeight: 1.5 }}>
+                📈 Encaissement sur un compte pro : compté automatiquement comme <b>CA</b> dans le Bilan. Une catégorie reste possible ci-dessous.
               </div>
             )}
+            {catPick.type === "revenu" && !proIds.has(catPick.account_id) && (() => {
+              const chip = (on, onClick, children, key) => (
+                <button key={key} onClick={onClick} aria-pressed={on}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 7, minHeight: 36, padding: "6px 12px", borderRadius: 999, cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600,
+                    border: `1px solid ${on ? C.green : C.border}`, background: on ? `${C.green}1f` : C.surface2, color: on ? C.green : C.text }}>{children}</button>
+              );
+              const label = txt => <div style={{ fontSize: 11, color: C.muted, fontWeight: 600, margin: "0 0 6px" }}>{txt}</div>;
+              const k = catPick.revenu_kind;
+              return (
+                <div style={{ marginBottom: 16 }}>
+                  {label("Nature du revenu")}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                    {REVENU_KINDS.map(([v, l, ic]) => chip(k === v, () => setTxKind(catPick, k === v ? null : v), <><span aria-hidden="true">{ic}</span>{l}</>, v))}
+                  </div>
+                  {k === "salaire" && (
+                    <div style={{ marginTop: 12 }}>
+                      {label("Versé par")}
+                      {emp.employers.length === 0
+                        ? <div style={{ fontSize: 12.5, color: C.faint, lineHeight: 1.5 }}>Aucun employeur. Ajoute-les dans Paramètres → Employeurs.</div>
+                        : <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                            {emp.employers.map(e2 => chip(catPick.employer_id === e2.id, () => setTxKind(catPick, "salaire", { employer_id: e2.id }),
+                              <><span style={{ width: 8, height: 8, borderRadius: "50%", background: e2.color || C.green }} />{e2.name}</>, e2.id))}
+                          </div>}
+                    </div>
+                  )}
+                  {k === "aides_sociales" && aideCats.length > 0 && (
+                    <div style={{ marginTop: 12 }}>
+                      {label("Type d'aide")}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                        {aideCats.map(a2 => chip(catPick.aide_type_id === a2.id, () => setTxKind(catPick, "aides_sociales", { aide_type_id: a2.id }),
+                          <>{a2.icon ? <span aria-hidden="true">{a2.icon}</span> : null}{a2.name}</>, a2.id))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <CatGrid kind="all" first={catPick.type === "revenu" ? "revenu" : "depense"} value={catPick.category_id} onPick={id => setTxCategory(catPick, id)} />
             {catPick.category_id && <Btn kind="g" small onClick={() => setTxCategory(catPick, null)}>Retirer la catégorie</Btn>}
           </>)}
