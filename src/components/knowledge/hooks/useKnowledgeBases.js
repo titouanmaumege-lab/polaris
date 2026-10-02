@@ -77,7 +77,8 @@ export function useKnowledgeBases(userId) {
     const { data } = await supabase.from("knowledge_bases")
       .update({ ...patch, updated_at: new Date().toISOString() })
       .eq("id", id).select().single();
-    if (data) setBases(b => b.map(x => x.id === id ? data : x));
+    // Merge : conserver les champs dérivés (_isOwner, _role, _isShared)
+    if (data) setBases(b => b.map(x => x.id === id ? { ...x, ...data } : x));
     return data;
   };
 

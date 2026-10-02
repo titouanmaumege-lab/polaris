@@ -798,8 +798,26 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
   const [expandedPages, setExpandedPages] = useState({});
   const [showCreateSub, setShowCreateSub] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkLabel, setLinkLabel] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkError, setLinkError] = useState("");
   const canWrite = memberRole !== "viewer";
-  const isOwner = memberRole === "owner";
+  const isOwner = memberRole === "owner" && (!base.owner_id || base.owner_id === userId);
+
+  const openLinkEditor = () => {
+    setLinkLabel(base.link_label || "");
+    setLinkUrl(base.link_url || "");
+    setLinkError("");
+    setLinkOpen(o => !o);
+  };
+
+  const saveLink = async () => {
+    const url = linkUrl.trim();
+    if (url && !safeHttpsUrl(url)) { setLinkError("L'adresse doit commencer par https://"); return; }
+    await onBaseUpdate(base.id, { link_label: url ? (linkLabel.trim() || null) : null, link_url: url || null });
+    setLinkOpen(false);
+  };
   const { members } = useShareBase(base.id, userId);
   const roleLabel = { viewer: "Lecture", editor: "Éditeur" };
   const subBases = (allBases || []).filter(b => b.parent_id === base.id);
@@ -855,6 +873,12 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             readOnly={!isOwner}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: C.text, fontSize: 16, fontWeight: 700, fontFamily: "inherit" }} />
           {isOwner && (
+            <button onClick={openLinkEditor} title="Lien externe" aria-label="Lien externe"
+              style={{ width: 44, height: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: linkOpen ? C.accentBg : "none", border: "none", borderRadius: 10, color: linkOpen ? C.accent : C.muted, cursor: "pointer" }}>
+              <ExternalLinkIcon size={18} />
+            </button>
+          )}
+          {isOwner && (
             <button onClick={() => setShowShare(true)}
               style={{ background: "none", border: "none", color: C.muted, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Partager">👥</button>
           )}
@@ -866,6 +890,27 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             }} style={{ background: "none", border: "none", color: C.red, fontSize: 16, cursor: "pointer", padding: "0 4px" }} title="Supprimer cette base">🗑</button>
           )}
         </div>
+        {/* Édition du lien externe (propriétaire) */}
+        {isOwner && linkOpen && (
+          <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            <input value={linkLabel} onChange={e => setLinkLabel(e.target.value)} placeholder="Libellé (ex. PREPA BOOST)"
+              style={{ width: "100%", minHeight: 44, background: C.surface2, border: `1px solid ${C.border}`, color: C.text, padding: "9px 14px", borderRadius: 12, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            <input value={linkUrl} onChange={e => { setLinkUrl(e.target.value); setLinkError(""); }} placeholder="https://…" inputMode="url"
+              onKeyDown={e => e.key === "Enter" && saveLink()}
+              style={{ width: "100%", minHeight: 44, background: C.surface2, border: `1px solid ${linkError ? C.red : C.border}`, color: C.text, padding: "9px 14px", borderRadius: 12, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            {linkError && <div style={{ fontSize: 12, color: C.red }}>{linkError}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={saveLink}
+                style={{ flex: 1, minHeight: 44, background: GRAD, color: "#fff", border: "none", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Enregistrer</button>
+              {base.link_url && (
+                <button onClick={async () => { await onBaseUpdate(base.id, { link_label: null, link_url: null }); setLinkOpen(false); }}
+                  style={{ minHeight: 44, padding: "0 14px", background: C.surface3, color: C.red, border: `1px solid ${C.border}`, borderRadius: 12, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Retirer</button>
+              )}
+              <button onClick={() => setLinkOpen(false)}
+                style={{ minHeight: 44, padding: "0 14px", background: C.surface3, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 12, fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Annuler</button>
+            </div>
+          </div>
+        )}
         {/* Membres partagés */}
         {isOwner && members.length > 0 && (
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -892,6 +937,8 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
       </div>
 
       <div style={{ padding: "16px 16px 100px" }}>
+        <ExternalLinkCard base={base} />
+
         {/* Sous-bases */}
         {(subBases.length > 0 || true) && (
           <div style={{ marginBottom: 20 }}>
@@ -1149,6 +1196,104 @@ function CreateBaseModal({ onClose, onCreate, parentBase = null }) {
   );
 }
 
+// ─── LIEN EXTERNE ────────────────────────────────────────────────────────────
+// N'accepte que https:// (bloque javascript:, data:, http:…)
+function safeHttpsUrl(url) {
+  if (typeof url !== "string" || !url.trim().startsWith("https://")) return null;
+  try { return new URL(url.trim()).protocol === "https:" ? url.trim() : null; } catch { return null; }
+}
+
+function ExternalLinkIcon({ size = 18, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
+}
+
+function ExternalLinkCard({ base }) {
+  const url = safeHttpsUrl(base?.link_url);
+  if (!url) return null;
+  let host = "";
+  try { host = new URL(url).host; } catch {}
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer"
+      onClick={e => { e.preventDefault(); window.open(url, "_blank", "noopener,noreferrer"); }}
+      style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 44, padding: "12px 14px", borderRadius: 14, marginBottom: 14, background: C.accentBg, border: `1px solid ${C.borderMid}`, textDecoration: "none", cursor: "pointer", transition: TR, boxSizing: "border-box" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{base.link_label || host}</div>
+        {host && <div style={{ fontSize: 11, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{host}</div>}
+      </div>
+      <ExternalLinkIcon color={C.accent} />
+    </a>
+  );
+}
+
+// ─── TABS MODAL ──────────────────────────────────────────────────────────────
+function TabsModal({ candidates, onClose, onSave }) {
+  // Ordre : bases cochées (par tab_position) puis non cochées
+  const [order, setOrder] = useState(() =>
+    candidates.filter(b => b.tab_position != null).sort((a, b) => a.tab_position - b.tab_position).map(b => b.id)
+  );
+  const [saving, setSaving] = useState(false);
+  const byId = Object.fromEntries(candidates.map(b => [b.id, b]));
+  const unchecked = candidates.filter(b => !order.includes(b.id));
+
+  const toggle = (id) => setOrder(o => o.includes(id) ? o.filter(x => x !== id) : [...o, id]);
+  const move = (i, dir) => setOrder(o => {
+    const j = i + dir;
+    if (j < 0 || j >= o.length) return o;
+    const n = [...o]; [n[i], n[j]] = [n[j], n[i]]; return n;
+  });
+
+  const iconBtn = (label, onClick, disabled) => (
+    <button onClick={onClick} disabled={disabled} aria-label={label}
+      style={{ width: 44, height: 44, flexShrink: 0, background: "none", border: "none", color: disabled ? C.faint : C.muted, opacity: disabled ? 0.4 : 1, fontSize: 16, cursor: disabled ? "default" : "pointer", fontFamily: "inherit" }}>
+      {label === "Monter" ? "↑" : "↓"}
+    </button>
+  );
+
+  const row = (b, checked, i) => (
+    <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 4, borderBottom: `1px solid ${C.border}` }}>
+      <label style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 10, minHeight: 44, cursor: "pointer" }}>
+        <input type="checkbox" checked={checked} onChange={() => toggle(b.id)} style={{ width: 18, height: 18, accentColor: C.accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 16, flexShrink: 0 }}>{b.emoji}</span>
+        <span style={{ fontSize: 14, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.name}</span>
+      </label>
+      {checked && iconBtn("Monter", () => move(i, -1), i === 0)}
+      {checked && iconBtn("Descendre", () => move(i, 1), i === order.length - 1)}
+    </div>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} />
+      <div style={{ position: "relative", width: "min(440px,100%)", maxHeight: "85dvh", overflowY: "auto", background: C.surface, borderRadius: 24, border: `1px solid ${C.borderMid}`, padding: 24, boxSizing: "border-box" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: C.text, textAlign: "center", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>Onglets</div>
+        <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginBottom: 16 }}>Afficher une base en onglet sur l'accueil</div>
+        {candidates.length === 0
+          ? <div style={{ fontSize: 13, color: C.faint, textAlign: "center", padding: 16 }}>Aucune base.</div>
+          : <>
+              {order.map((id, i) => byId[id] && row(byId[id], true, i))}
+              {unchecked.map(b => row(b, false))}
+            </>
+        }
+        <button onClick={async () => { setSaving(true); await onSave(order); setSaving(false); }}
+          disabled={saving}
+          style={{ width: "100%", minHeight: 44, background: GRAD, color: "#fff", border: "none", borderRadius: 14, padding: 14, fontSize: 14, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.5 : 1, fontFamily: "inherit", marginTop: 20 }}>
+          {saving ? "Enregistrement…" : "Enregistrer"}
+        </button>
+        <button onClick={onClose}
+          style={{ width: "100%", minHeight: 44, background: C.surface2, border: `1px solid ${C.border}`, color: C.muted, padding: "10px", borderRadius: 12, fontSize: 13, cursor: "pointer", fontFamily: "inherit", marginTop: 8 }}>
+          Annuler
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── SHARE MODAL ─────────────────────────────────────────────────────────────
 function ShareModal({ base, userId, onClose }) {
   const { members, addMember, removeMember, updateRole } = useShareBase(base.id, userId);
@@ -1234,7 +1379,12 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
   const [expanded, setExpanded] = useState({});
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState("");
-  const [activeTab, setActiveTab] = useState("mine");
+  // "mine" (Toutes) | "shared" | id d'une base racine affichée en onglet
+  const tabKey = `lp_base_tab_${userId}`;
+  const [activeTab, setActiveTab] = useState(() => {
+    try { return localStorage.getItem(tabKey) || "mine"; } catch { return "mine"; }
+  });
+  const [showTabs, setShowTabs] = useState(false);
   const [seenIds, setSeenIds] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem("lp_seen_shared") || "[]")); } catch { return new Set(); }
   });
@@ -1263,8 +1413,28 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
   const sharedBases = [...sharedBasesMap.values()];
   const newSharedCount = sharedBases.filter(b => !seenIds.has(b.id)).length;
 
+  // Onglets perso : mes bases racine avec tab_position (undefined si migration 022 absente)
+  const tabBases = myRootBases
+    .filter(b => b.tab_position != null)
+    .sort((a, b) => a.tab_position - b.tab_position);
+  const currentTab = activeTab === "mine" || activeTab === "shared" || tabBases.some(b => b.id === activeTab)
+    ? activeTab : "mine";
+  const currentTabBase = tabBases.find(b => b.id === currentTab);
+
+  const selectTab = (tab) => {
+    setActiveTab(tab);
+    try { localStorage.setItem(tabKey, tab); } catch {}
+  };
+
+  const saveTabs = async (orderedIds) => {
+    const pos = new Map(orderedIds.map((id, i) => [id, i]));
+    const changed = myRootBases.filter(b => (pos.has(b.id) ? pos.get(b.id) : null) !== (b.tab_position ?? null));
+    await Promise.all(changed.map(b => updateBase(b.id, { tab_position: pos.has(b.id) ? pos.get(b.id) : null })));
+    setShowTabs(false);
+  };
+
   const handleSharedTab = () => {
-    setActiveTab("shared");
+    selectTab("shared");
     const updated = new Set([...seenIds, ...sharedBases.map(b => b.id)]);
     setSeenIds(updated);
     localStorage.setItem("lp_seen_shared", JSON.stringify([...updated]));
@@ -1292,9 +1462,9 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
     setEditingId(null);
   };
 
-  const renderBaseTree = (base, depth = 0) => {
+  const renderBaseTree = (base, depth = 0, defaultOpen = false) => {
     const children = childrenOf(base.id);
-    const isExpanded = expanded[base.id];
+    const isExpanded = expanded[base.id] ?? defaultOpen;
     const isEditing = editingId === base.id;
     return (
       <div key={base.id}>
@@ -1310,7 +1480,7 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
           onMouseLeave={e => { e.currentTarget.style.background = C.surface2; const a = e.currentTarget.querySelector(".base-actions"); if (a) a.style.opacity = "0"; }}
         >
           <span
-            onClick={e => { e.stopPropagation(); if (children.length) setExpanded(ex => ({ ...ex, [base.id]: !ex[base.id] })); }}
+            onClick={e => { e.stopPropagation(); if (children.length) setExpanded(ex => ({ ...ex, [base.id]: !isExpanded })); }}
             style={{ color: C.faint, fontSize: 11, width: 14, flexShrink: 0 }}
           >
             {children.length ? (isExpanded ? "▼" : "▶") : " "}
@@ -1351,11 +1521,11 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
   };
 
   const tabBtn = (label, tab, badge = 0, onClick) => {
-    const active = activeTab === tab;
+    const active = currentTab === tab;
     return (
-      <button onClick={onClick || (() => setActiveTab(tab))}
-        style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 10, fontSize: 13, fontWeight: active ? 600 : 400, border: "none", cursor: "pointer", fontFamily: "inherit", background: active ? C.accentBg : "transparent", color: active ? C.accent : C.muted, transition: TR }}>
-        {label}
+      <button key={tab} onClick={onClick || (() => selectTab(tab))}
+        style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, minHeight: 44, padding: "7px 14px", borderRadius: 10, fontSize: 13, fontWeight: active ? 600 : 400, border: "none", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap", background: active ? C.accentBg : "transparent", color: active ? C.accent : C.muted, transition: TR }}>
+        <span style={{ maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
         {badge > 0 && (
           <span style={{ background: C.red, color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: "50%", width: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>{badge}</span>
         )}
@@ -1376,14 +1546,28 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
             <button onClick={onOpenGraph} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 2 }}>
-          {tabBtn("Mes bases", "mine")}
-          {tabBtn("Bases partagées", "shared", newSharedCount, handleSharedTab)}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ flex: 1, minWidth: 0, display: "flex", gap: 2, overflowX: "auto", flexWrap: "nowrap", scrollbarWidth: "none", WebkitOverflowScrolling: "touch" }}>
+            {tabBases.map(b => tabBtn(b.name.toUpperCase(), b.id))}
+            {tabBtn("Toutes", "mine")}
+            {tabBtn("Partagées", "shared", newSharedCount, handleSharedTab)}
+          </div>
+          <button onClick={() => setShowTabs(true)} title="Choisir les onglets"
+            style={{ flexShrink: 0, minHeight: 44, padding: "0 10px", background: "none", border: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}>
+            ⚙ Onglets
+          </button>
         </div>
       </div>
 
       <div style={{ padding: "16px 16px 100px" }}>
-        {activeTab === "mine" && (
+        {currentTabBase && (
+          <>
+            <ExternalLinkCard base={currentTabBase} />
+            {renderBaseTree(currentTabBase, 0, true)}
+          </>
+        )}
+
+        {currentTab === "mine" && (
           <>
             {loading
               ? <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>Chargement…</div>
@@ -1417,7 +1601,7 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
           </>
         )}
 
-        {activeTab === "shared" && (
+        {currentTab === "shared" && (
           <>
             {loading
               ? <div style={{ color: C.muted, textAlign: "center", padding: 32 }}>Chargement…</div>
@@ -1430,6 +1614,7 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
       </div>
 
       {showCreate && <CreateBaseModal onClose={() => setShowCreate(false)} onCreate={handleCreate} />}
+      {showTabs && <TabsModal candidates={myRootBases} onClose={() => setShowTabs(false)} onSave={saveTabs} />}
     </div>
   );
 }
