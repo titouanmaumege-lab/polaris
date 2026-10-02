@@ -802,27 +802,20 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState("");
-  const [embedSlug, setEmbedSlug] = useState("");
   const canWrite = memberRole !== "viewer";
   const isOwner = memberRole === "owner" && (!base.owner_id || base.owner_id === userId);
 
   const openLinkEditor = () => {
     setLinkLabel(base.link_label || "");
     setLinkUrl(base.link_url || "");
-    setEmbedSlug(base.embed_slug || "");
     setLinkError("");
     setLinkOpen(o => !o);
   };
 
   const saveLink = async () => {
     const url = linkUrl.trim();
-    const slug = embedSlug.trim().toLowerCase();
     if (url && !safeHttpsUrl(url)) { setLinkError("L'adresse doit commencer par https://"); return; }
-    if (slug && !EMBED_SLUG_RE.test(slug)) { setLinkError("Identifiant : lettres minuscules, chiffres et tirets"); return; }
-    const patch = { link_label: (url || slug) ? (linkLabel.trim() || null) : null, link_url: url || null };
-    // embed_slug n'existe qu'après la migration 023 : ne l'envoyer que s'il change
-    if (slug !== (base.embed_slug || "")) patch.embed_slug = slug || null;
-    await onBaseUpdate(base.id, patch);
+    await onBaseUpdate(base.id, { link_label: url ? (linkLabel.trim() || null) : null, link_url: url || null });
     setLinkOpen(false);
   };
   const { members } = useShareBase(base.id, userId);
@@ -905,9 +898,6 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
             <input value={linkUrl} onChange={e => { setLinkUrl(e.target.value); setLinkError(""); }} placeholder="https://…" inputMode="url"
               onKeyDown={e => e.key === "Enter" && saveLink()}
               style={{ width: "100%", minHeight: 44, background: C.surface2, border: `1px solid ${linkError ? C.red : C.border}`, color: C.text, padding: "9px 14px", borderRadius: 12, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
-            <input value={embedSlug} onChange={e => { setEmbedSlug(e.target.value); setLinkError(""); }} placeholder="Page intégrée (identifiant, ex. prepa-boost)"
-              autoCapitalize="none" autoCorrect="off" spellCheck={false}
-              style={{ width: "100%", minHeight: 44, background: C.surface2, border: `1px solid ${C.border}`, color: C.text, padding: "9px 14px", borderRadius: 12, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
             {linkError && <div style={{ fontSize: 12, color: C.red }}>{linkError}</div>}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={saveLink}
@@ -947,7 +937,6 @@ function BaseView({ base, userId, onBack, onPageOpen, onBaseOpen, onBaseUpdate, 
       </div>
 
       <div style={{ padding: "16px 16px 100px" }}>
-        <EmbedPanel base={base} />
         <ExternalLinkCard base={base} />
 
         {/* Sous-bases */}
@@ -1239,71 +1228,6 @@ function ExternalLinkCard({ base }) {
       </div>
       <ExternalLinkIcon color={C.accent} />
     </a>
-  );
-}
-
-// ─── PAGE INTÉGRÉE (knowledge_embeds via /api/embed) ─────────────────────────
-// POST du JWT vers /api/embed dans une iframe sandboxée (origine opaque :
-// la page ne peut pas lire la session POLARIS). Mise à jour = script local.
-const EMBED_SLUG_RE = /^[a-z0-9-]{1,64}$/;
-
-function EmbedFrame({ slug, height }) {
-  const formRef = useRef(null);
-  const tokenRef = useRef(null);
-  const [name] = useState(() => `embed-${uid()}`);
-
-  useEffect(() => {
-    let alive = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!alive || !formRef.current) return;
-      tokenRef.current.value = data?.session?.access_token || "";
-      formRef.current.submit();
-    });
-    return () => { alive = false; };
-  }, [slug]);
-
-  return (
-    <>
-      <form ref={formRef} method="POST" action="/api/embed" target={name} style={{ display: "none" }}>
-        <input ref={tokenRef} type="hidden" name="token" />
-        <input type="hidden" name="slug" value={slug} />
-      </form>
-      <iframe name={name} title={slug}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
-        referrerPolicy="no-referrer"
-        style={{ display: "block", width: "100%", height, border: "none", background: "#0a0a0a" }} />
-    </>
-  );
-}
-
-function EmbedPanel({ base }) {
-  const [full, setFull] = useState(false);
-  const slug = base?.embed_slug;
-  if (!slug || !EMBED_SLUG_RE.test(slug)) return null;
-  return (
-    <div style={{ marginBottom: 16, borderRadius: 16, overflow: "hidden", border: `1px solid ${C.borderMid}`, background: C.surface }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 4px 0 14px", borderBottom: `1px solid ${C.border}` }}>
-        <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: C.muted, textTransform: "uppercase", letterSpacing: "0.08em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {base.link_label || slug}
-        </span>
-        <button onClick={() => setFull(true)} title="Plein écran" aria-label="Plein écran"
-          style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: C.muted, cursor: "pointer" }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="M21 3l-7 7" /><path d="M3 21l7-7" />
-          </svg>
-        </button>
-      </div>
-      {!full && <EmbedFrame slug={slug} height="min(70dvh, 640px)" />}
-      {full && (
-        <div style={{ position: "fixed", inset: 0, zIndex: 800, background: "#0a0a0a", display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", justifyContent: "flex-end", padding: "env(safe-area-inset-top, 0px) 4px 0" }}>
-            <button onClick={() => setFull(false)} aria-label="Fermer"
-              style={{ width: 44, height: 44, background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>✕</button>
-          </div>
-          <div style={{ flex: 1, minHeight: 0 }}><EmbedFrame slug={slug} height="100%" /></div>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -1638,7 +1562,6 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
       <div style={{ padding: "16px 16px 100px" }}>
         {currentTabBase && (
           <>
-            <EmbedPanel base={currentTabBase} />
             <ExternalLinkCard base={currentTabBase} />
             {renderBaseTree(currentTabBase, 0, true)}
           </>
