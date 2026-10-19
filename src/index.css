@@ -519,3 +519,45 @@ button:active {
     scroll-behavior: auto !important;
   }
 }
+
+/* ── Calendrier Home, téléphone (≤ 760 px) : une journée à la fois ───────── */
+.cal-day { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.dash-cal .cal-day { flex: 1; }
+.cal-day-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-day-pill {
+  min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: 1px solid transparent; border-radius: 12px; cursor: pointer; font-family: inherit;
+  color: var(--c-muted); transition: background .15s, border-color .15s;
+}
+.cal-day-pill-dn { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--c-faint); }
+.cal-day-pill-n  { font-family: var(--font-display); font-size: 15px; font-weight: 600; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.cal-day-pill-dot { width: 4px; height: 4px; border-radius: 50%; background: #a855f7; }
+.cal-day-pill.is-today .cal-day-pill-n { color: #c084fc; font-weight: 800; }
+.cal-day-pill.is-on { background: rgba(168, 85, 247, 0.16); border-color: rgba(168, 85, 247, 0.45); }
+.cal-day-pill:focus-visible, .cal-day-arrow:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+.cal-day-head { display: flex; align-items: center; gap: 8px; margin: 8px 0 6px; }
+.cal-day-title { flex: 1; text-align: center; font-size: 14px; font-weight: 700; color: var(--c-text); text-transform: capitalize; }
+.cal-day-arrow {
+  width: 44px; height: 44px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--c-border); border-radius: 12px; color: var(--c-muted); cursor: pointer;
+}
+.cal-day-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 12px; padding-bottom: 8px; }
+.cal-day-sec { display: flex; flex-direction: column; gap: 6px; }
+.cal-day-sec .cal-chip-wrap { min-height: 44px !important; }
+.cal-day-proj { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.cal-day-label { font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--c-faint); }
+.cal-day-empty { font-size: 13px; color: var(--c-faint); text-align: center; padding: 18px 0 4px; }
+.cal-day-add-btn {
+  min-height: 44px; border-radius: 12px; border: 1px dashed var(--c-border); background: transparent;
+  color: var(--c-muted); font-family: inherit; font-size: 13px; cursor: pointer;
+}
+.check-panel-toggle {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin: -12px 0 -12px -4px; padding: 0 4px;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  font-size: 10px; color: #34D399; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em;
+}
+@media (max-width: 760px) {
+  .dash-cal .check-panel { padding: 10px 12px; }
+  .dash-cal .check-panel > div:first-child { margin-bottom: 0 !important; }
+  .dash-cal .check-panel-list { margin-top: 10px; max-height: 200px; }
+}

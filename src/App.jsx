@@ -437,6 +437,17 @@ function WeeklyCalendar() {
   const { todos, addTodo, updateTodo, deleteTodo, toggleDone, toggleSousTache } = useTodos();
   const today = todayStr();
   const [offset, setOffset] = useState(0);
+  // Téléphone (≤ 760 px) : une journée à la fois au lieu du plateau 7 colonnes.
+  const [isPhone, setIsPhone] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 760px)");
+    const on = () => setIsPhone(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, []);
+  const [selIdx, setSelIdx] = useState(() => (new Date().getDay() + 6) % 7);
+  const [checkOpen, setCheckOpen] = useState(false);
+  const swipeRef = useRef(null);
   const [editId, setEditId] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [addDate, setAddDate] = useState(null);
@@ -681,7 +692,7 @@ function WeeklyCalendar() {
     // Largeur réelle de la barre : le nom doit rester lisible même sur un
     // projet d'une seule journée, donc c'est le reste qui disparaît.
     const span = s.endCol - s.startCol + 1;
-    const barPx = boardW ? (boardW / 7) * span - 6 : 200;
+    const barPx = s.px ?? (boardW ? (boardW / 7) * span - 6 : 200);
     const mid   = barPx >= 190;
 
     const deadline = !it.dateFin || cr ? null
@@ -887,6 +898,122 @@ function WeeklyCalendar() {
     onDragLeave: () => setDragOverDay(d => d === ds ? null : d),
     onDrop: e => { e.preventDefault(); dropOnDay(ds); },
   });
+  // Carte de clôture OKR d'une colonne (plateau semaine et vue jour).
+  const closureCard = ci => {
+    const cell = closuresByCol[ci];
+    const da = CLOTURE_DA[closureKind(cell.levels)];
+    // Dernier jour du mois : la carte ouvre la review mensuelle.
+    const ds = days7Local[ci];
+    const [cy, cm] = ds.split("-").map(Number);
+    const reviewMk = cell.levels.has("mensuel") && ds === lastDayOfMonth(cy, cm - 1) ? ds.slice(0, 7) : null;
+    const open = () => setMonthReview(reviewMk);
+    return (
+      <div {...(reviewMk ? {
+          role: "button", tabIndex: 0, onClick: open, title: "Ouvrir la review du mois",
+          "aria-label": `Review du mois — ${da.label}`,
+          onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } },
+        } : {})} style={{ cursor: reviewMk ? "pointer" : "default",
+        position:"relative", overflow:"hidden", borderRadius:14, padding:"12px 12px 11px", minHeight:92,
+        display:"flex", flexDirection:"column", justifyContent:"center",
+        background:`${da.c}22`, border:`1px solid ${da.c}77`, boxShadow:`0 0 22px ${da.c}44`,
+      }}>
+        <div style={{ position:"absolute", top:0, left:0, right:0, height:5, background:da.grad }} />
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
+          <span style={{ fontSize:24, lineHeight:1, filter:`drop-shadow(0 0 7px ${da.c}cc)` }}>{da.ic}</span>
+          <span style={{ fontSize:12, fontWeight:900, letterSpacing:"0.03em", color:da.c, lineHeight:1.1 }}>{da.label}</span>
+        </div>
+        <div style={{ fontSize:10, color:"var(--c-muted)", lineHeight:1.2 }}>{da.sub}</div>
+        <div style={{ fontSize:10, fontWeight:700, color:da.c, marginTop:3 }}>{cell.items.length} OKR{cell.items.length>1?"s":""}{reviewMk ? " · review du mois" : ""}</div>
+      </div>
+    );
+  };
+
+  // ── Téléphone : une journée à la fois ────────────────────────────────────
+  const selDs = days7[selIdx];
+  const stepDay = dir => {
+    const n = selIdx + dir;
+    if (n < 0) { setOffset(o => o - 1); setSelIdx(6); }
+    else if (n > 6) { setOffset(o => o + 1); setSelIdx(0); }
+    else setSelIdx(n);
+  };
+  const spansOn = ci => spanItems.filter(s => s.startCol <= ci && s.endCol >= ci);
+  const dayLoaded = ci => (dayTasks[days7[ci]] || []).length > 0 || spansOn(ci).length > 0 || !!closuresByCol[ci];
+  const onSwipeStart = e => { const t = e.touches[0]; swipeRef.current = { x: t.clientX, y: t.clientY }; };
+  const onSwipeEnd = e => {
+    const s = swipeRef.current; swipeRef.current = null; if (!s) return;
+    const t = e.changedTouches[0], dx = t.clientX - s.x, dy = t.clientY - s.y;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepDay(dx < 0 ? 1 : -1);
+  };
+  const DayArrow = ({ dir }) => (
+    <button onClick={() => stepDay(dir)} aria-label={dir < 0 ? "Jour précédent" : "Jour suivant"}
+      className="cal-day-arrow">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d={dir < 0 ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} />
+      </svg>
+    </button>
+  );
+  const phoneDay = () => {
+    const { top, wait } = bucketsOf(selDs);
+    const spans = spansOn(selIdx);
+    const isToday = selDs === today;
+    return (
+      <div className="cal-day">
+        {/* Bandeau des 7 jours, point sur les jours chargés */}
+        <div className="cal-day-strip" role="tablist" aria-label="Jours de la semaine">
+          {days7.map((ds, i) => {
+            const on = i === selIdx, td = ds === today;
+            return (
+              <button key={ds} role="tab" aria-selected={on} onClick={() => setSelIdx(i)}
+                className={`cal-day-pill${on ? " is-on" : ""}${td ? " is-today" : ""}`}>
+                <span className="cal-day-pill-dn">{DAY_SHORT[i]}</span>
+                <span className="cal-day-pill-n">{new Date(ds + "T12:00:00").getDate()}</span>
+                <span className="cal-day-pill-dot" style={{ opacity: dayLoaded(i) ? 1 : 0 }} />
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="cal-day-head">
+          <DayArrow dir={-1} />
+          <span className="cal-day-title">{isToday ? "Aujourd'hui" : fmtDate(selDs)}</span>
+          <DayArrow dir={1} />
+        </div>
+
+        <div className="cal-day-body" onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd}>
+          {closuresByCol[selIdx] && <div className="cal-day-sec">{closureCard(selIdx)}</div>}
+
+          {top.length > 0 && (
+            <div className="cal-day-sec">
+              {top.map((it, k) => <ItemLine key={it.id + "_" + k} it={it} day={selDs} />)}
+            </div>
+          )}
+
+          {spans.length > 0 && (
+            <div className="cal-day-sec cal-day-proj">
+              {spans.map((s, i) => (
+                <ProjectBar key={s.it.id} s={{ ...s, startCol: 0, endCol: 0, lane: i, px: 320,
+                  continuesLeft: s.it.dateDebut < selDs, continuesRight: s.it.dateFin > selDs }} />
+              ))}
+            </div>
+          )}
+
+          {wait.length > 0 && (
+            <div className="cal-day-sec">
+              <div className="cal-day-label">En attente</div>
+              {wait.map((it, k) => <WaitingCard key={it.id + "_" + k} it={it} day={selDs} />)}
+            </div>
+          )}
+
+          {top.length + spans.length + wait.length === 0 && !closuresByCol[selIdx] && (
+            <div className="cal-day-empty">Rien de prévu ce jour-là.</div>
+          )}
+
+          <button className="cal-day-add-btn" onClick={() => setAddDate(selDs)}>+ Ajouter une tâche ce jour</button>
+        </div>
+      </div>
+    );
+  };
+
   // Mesure après rendu : setState seulement si une hauteur change (pas de boucle).
   useLayoutEffect(() => {
     const b = boardRef.current;
@@ -927,7 +1054,15 @@ function WeeklyCalendar() {
             onDrop={e => { e.preventDefault(); dropOnCheck(); }}
           >
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-              <span style={{ fontSize:10, color:"#34D399", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.14em" }}>✓ Check Tasks</span>
+              {isPhone ? (
+                <button onClick={() => setCheckOpen(o => !o)} aria-expanded={checkOpen} className="check-panel-toggle">
+                  ✓ Check Tasks
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                    style={{ transform: checkOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }}><path d="M6 9l6 6 6-6" /></svg>
+                </button>
+              ) : (
+                <span style={{ fontSize:10, color:"#34D399", fontWeight:800, textTransform:"uppercase", letterSpacing:"0.14em" }}>✓ Check Tasks</span>
+              )}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontSize:11, color:"var(--c-muted)", fontVariantNumeric:"tabular-nums" }}>{checkTasks.length}</span>
                 <button onClick={() => { setAddType("check"); setAddDate(today); }} title="Nouvelle check task"
@@ -936,7 +1071,7 @@ function WeeklyCalendar() {
                     background:"rgba(52,211,153,0.14)", border:"1px solid rgba(52,211,153,0.4)", color:"#34D399" }}>+</button>
               </div>
             </div>
-            <div className="check-panel-list">
+            {(!isPhone || checkOpen) && <div className="check-panel-list">
               {checkTasks.map(it => {
                 const col = colorOf(it);
                 return (
@@ -960,9 +1095,10 @@ function WeeklyCalendar() {
                   Aucune check task.<br />Glisse une tâche du calendrier ici, ou crée-en une avec +.
                 </div>
               )}
-            </div>
+            </div>}
           </div>
 
+          {isPhone ? phoneDay() : (
           <div className="cal-board-wrap" ref={boardMeasureRef}>
           <div className="cal-board" ref={boardRef}>
             {/* Grille des jours en fond : traits continus sur toute la hauteur,
@@ -998,36 +1134,9 @@ function WeeklyCalendar() {
             {/* Lane clôtures OKR */}
             {closureCols.length > 0 && (
               <div className="cal-clotures">
-                {closureCols.map(ci => {
-                  const cell = closuresByCol[ci];
-                  const da = CLOTURE_DA[closureKind(cell.levels)];
-                  // Dernier jour du mois : la carte ouvre la review mensuelle.
-                  const ds = days7Local[ci];
-                  const [cy, cm] = ds.split("-").map(Number);
-                  const reviewMk = cell.levels.has("mensuel") && ds === lastDayOfMonth(cy, cm - 1) ? ds.slice(0, 7) : null;
-                  const open = () => setMonthReview(reviewMk);
-                  return (
-                    <div key={ci} style={{ gridColumn: `${ci + 1} / ${ci + 2}`, margin: "0 3px" }}>
-                      <div {...(reviewMk ? {
-                          role: "button", tabIndex: 0, onClick: open, title: "Ouvrir la review du mois",
-                          "aria-label": `Review du mois — ${da.label}`,
-                          onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } },
-                        } : {})} style={{ cursor: reviewMk ? "pointer" : "default",
-                        position:"relative", overflow:"hidden", borderRadius:14, padding:"12px 12px 11px", minHeight:92,
-                        display:"flex", flexDirection:"column", justifyContent:"center",
-                        background:`${da.c}22`, border:`1px solid ${da.c}77`, boxShadow:`0 0 22px ${da.c}44`,
-                      }}>
-                        <div style={{ position:"absolute", top:0, left:0, right:0, height:5, background:da.grad }} />
-                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
-                          <span style={{ fontSize:24, lineHeight:1, filter:`drop-shadow(0 0 7px ${da.c}cc)` }}>{da.ic}</span>
-                          <span style={{ fontSize:12, fontWeight:900, letterSpacing:"0.03em", color:da.c, lineHeight:1.1 }}>{da.label}</span>
-                        </div>
-                        <div style={{ fontSize:10, color:"var(--c-muted)", lineHeight:1.2 }}>{da.sub}</div>
-                        <div style={{ fontSize:10, fontWeight:700, color:da.c, marginTop:3 }}>{cell.items.length} OKR{cell.items.length>1?"s":""}{reviewMk ? " · review du mois" : ""}</div>
-                      </div>
-                    </div>
-                  );
-                })}
+                {closureCols.map(ci => (
+                  <div key={ci} style={{ gridColumn: `${ci + 1} / ${ci + 2}`, margin: "0 3px" }}>{closureCard(ci)}</div>
+                ))}
               </div>
             )}
 
@@ -1087,6 +1196,7 @@ function WeeklyCalendar() {
             </div>
           </div>
           </div>
+          )}
         </div>
       </div>
 
