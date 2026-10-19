@@ -5,7 +5,7 @@ Cette API permet à un assistant (par ex. Claude sur ton ordinateur) de **lire**
 ## Base URL
 
 ```
-https://VOTRE-DOMAINE-POLARIS/api/v1
+https://polaris-mmg.vercel.app/api/v1
 ```
 
 ## Authentification
@@ -25,7 +25,7 @@ Limite : **60 requêtes par minute et par clé** (au-delà : `429`, avec un head
 Dans les exemples, on suppose :
 
 ```bash
-export POLARIS_URL="https://VOTRE-DOMAINE-POLARIS/api/v1"
+export POLARIS_URL="https://polaris-mmg.vercel.app/api/v1"
 export POLARIS_KEY="pol_xxxxxxxxxxxxxxxx"
 ```
 
