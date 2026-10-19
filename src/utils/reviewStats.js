@@ -52,3 +52,16 @@ export const monthDaysLocal = mk => {
   const n = new Date(y, m, 0).getDate();
   return Array.from({ length: n }, (_, i) => `${y}-${pad(m)}-${pad(i + 1)}`);
 };
+
+// ─── Review mensuelle ─────────────────────────────────────────────────────────
+// Mois 'YYYY-MM' d'un OKR mensuel : sa période, sinon sa date de clôture.
+export const okrMonthKey = o => {
+  if (o?.periode?.type === "month") return `${o.periode.year}-${pad(o.periode.month + 1)}`;
+  return (o?.dateCloture || "").slice(0, 7) || null;
+};
+
+// OKR mensuels d'un mois, archivés compris.
+export const monthOkrs = (goals, mk) => (goals?.mensuel || []).filter(o => okrMonthKey(o) === mk);
+
+// Lundis tombant dans le mois : les semaines dont la weekly est rangée sous ce mois.
+export const mondaysOfMonth = mk => monthDaysLocal(mk).filter(d => new Date(d + "T12:00:00").getDay() === 1);

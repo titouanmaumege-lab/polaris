@@ -12,7 +12,7 @@ let _hydrating = Promise.resolve();
 export const whenHydrated = () => _hydrating;
 export const trackHydration = p => { _hydrating = Promise.resolve(p).catch(() => {}); return p; };
 
-const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews", "lp_weekly_objectives"];
+const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews", "lp_weekly_objectives", "lp_monthly_reviews"];
 
 export async function loadUserData(userId) {
   const { data, error } = await supabase
@@ -35,14 +35,18 @@ export async function syncToSupabase(userId) {
     highlight:       JSON.parse(localStorage.getItem("lp_highlight")        || "{}"),
     weekly_reviews:  JSON.parse(localStorage.getItem("lp_weekly_reviews")   || "[]"),
     weekly_objectives: JSON.parse(localStorage.getItem("lp_weekly_objectives") || "[]"),
-    view_mode:       localStorage.getItem("lp_view_mode") || "pc",
+    monthly_reviews: JSON.parse(localStorage.getItem("lp_monthly_reviews")  || "[]"),
+    view_mode:      localStorage.getItem("lp_view_mode") || "pc",
     updated_at:      new Date().toISOString(),
   };
   let { error } = await supabase.from("user_data").upsert(payload);
-  // Migration 012 pas encore appliquée : on synchronise le reste plutôt que
-  // de bloquer toute la sauvegarde sur une colonne manquante.
-  if (error && /weekly_objectives/.test(error.message || "")) {
-    const { weekly_objectives, ...rest } = payload;
+  // Migration 012 ou 024 pas encore appliquée : on retire la colonne manquante
+  // et on synchronise le reste plutôt que de bloquer toute la sauvegarde.
+  // Les données restent en local et partiront une fois la colonne créée.
+  const rest = { ...payload };
+  for (const col of ["monthly_reviews", "weekly_objectives"]) {
+    if (!error || !new RegExp(col).test(error.message || "")) continue;
+    delete rest[col];
     ({ error } = await supabase.from("user_data").upsert(rest));
   }
   if (error) {
@@ -70,6 +74,7 @@ export function hydrateLocalStorage(data) {
   if (hasContent(data.workperf))        localStorage.setItem("lp_workperf",        JSON.stringify(data.workperf));
   if (hasContent(data.highlight))       localStorage.setItem("lp_highlight",       JSON.stringify(data.highlight));
   if (hasContent(data.weekly_reviews))  localStorage.setItem("lp_weekly_reviews",  JSON.stringify(data.weekly_reviews));
+  if (hasContent(data.monthly_reviews)) localStorage.setItem("lp_monthly_reviews", JSON.stringify(data.monthly_reviews));
   if (data.view_mode)                   localStorage.setItem("lp_view_mode",       data.view_mode);
   // Fusion par id plutôt qu'écrasement : avant la synchro, chaque appareil a pu
   // accumuler ses propres objectifs en local. Le serveur gagne en cas de conflit.

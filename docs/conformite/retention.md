@@ -11,6 +11,13 @@ Complément du registre des traitements. Dernière mise à jour : 5 juillet 2026
 | Consentements | Suivent le compte (cascade) ; l'historique donné/retiré reste horodaté tant que le compte existe | Table `user_consents` |
 | Données bien-être après retrait du consentement | Traitement stoppé immédiatement (jauges désactivées) ; suppression des évaluations proposée à l'utilisateur au moment du retrait | UI « Le Poste » → Confidentialité & compte |
 
+## Contenus utilisateur (table `user_data`)
+
+| Donnée | Règle | Mécanisme |
+|---|---|---|
+| `weekly_reviews` (texte libre : win, loss, à améliorer, note) | Durée du compte + 30 jours ; modifiable à tout moment par l'utilisateur | Effacée avec la ligne `user_data` par `delete_account()` ; copie locale `lp_weekly_reviews` purgée à la déconnexion/suppression |
+| `monthly_reviews` (texte libre pouvant contenir des données personnelles + instantané stats et OKR du mois) | Même durée que `weekly_reviews` : durée du compte + 30 jours | Idem : effacée avec la ligne `user_data` ; copie locale `lp_monthly_reviews` purgée comme toutes les clés `lp_*` ; incluse dans l'export JSON |
+
 ## Rétention déléguée aux sous-traitants (à surveiller, pas de code)
 
 | Donnée | Rétention | Où vérifier |

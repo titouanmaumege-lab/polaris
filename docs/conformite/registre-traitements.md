@@ -25,9 +25,9 @@ Document établi le 5 juillet 2026. À tenir à jour à chaque évolution de l'a
 
 | Champ | Contenu |
 |---|---|
-| Finalité | Fourniture du service : suivi d'habitudes, todos, objectifs/OKR, revues hebdomadaires, highlight, sessions de travail |
+| Finalité | Fourniture du service : suivi d'habitudes, todos, objectifs/OKR, revues hebdomadaires et mensuelles, highlight, sessions de travail |
 | Base légale | Exécution du contrat (art. 6(1)(b)) |
-| Données | `habits`, `todos`, `goals`, `workperf`, `highlight`, `weekly_reviews`, `view_mode` (JSONB table `user_data`) + copie localStorage sur l'appareil |
+| Données | `habits`, `todos`, `goals`, `workperf`, `highlight`, `weekly_reviews`, `monthly_reviews`, `view_mode` (JSONB table `user_data`) + copie localStorage sur l'appareil. `weekly_reviews` et `monthly_reviews` contiennent du texte libre (win, loss, à améliorer, note) pouvant révéler des données personnelles ; `monthly_reviews` y ajoute un instantané des stats du mois (habitudes, temps de travail) et des OKR mensuels |
 | Personnes concernées | Utilisateurs inscrits |
 | Destinataires | L'utilisateur uniquement |
 | Sous-traitants | Supabase Inc. |

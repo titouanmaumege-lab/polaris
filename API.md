@@ -109,7 +109,7 @@ Réponse `200` : `{ "todo": { … } }` (aperçu de la tâche après modification
 
 ## GET /reviews
 
-Lecture seule : weekly reviews, objectifs de la semaine et objectifs mensuels.
+Lecture seule : weekly reviews, reviews mensuelles, objectifs de la semaine et objectifs mensuels.
 
 ```bash
 curl -s "$POLARIS_URL/reviews" \
@@ -119,7 +119,7 @@ curl -s "$POLARIS_URL/reviews" \
 Réponse `200` :
 
 ```json
-{ "weekly_reviews": [ … ], "weekly_objectives": [ … ], "monthly_goals": [ … ] }
+{ "weekly_reviews": [ … ], "monthly_reviews": [ … ], "weekly_objectives": [ … ], "monthly_goals": [ … ] }
 ```
 
 ---

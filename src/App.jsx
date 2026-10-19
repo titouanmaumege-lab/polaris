@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
 import { LegalFooter } from "./components/legal/LegalPages";
@@ -19,8 +20,8 @@ import { calculateNextOccurrence, toggleDoneIn, applyOps } from "./utils/todoOps
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
 import {
-  habitValidated, habitsPctOn, habitsAllDoneDays,
-  sessionsOn, workMinutes, minutesBy,
+  habitValidated, habitsPctOn, habitsAllDoneDays, habitsPctByHabit,
+  sessionsOn, workMinutes, minutesBy, monthDaysLocal, monthOkrs, mondaysOfMonth, okrMonthKey,
 } from "./utils/reviewStats";
 import { resolveHighlight, makeHighlightRef } from "./utils/highlight";
 import {
@@ -442,6 +443,7 @@ function WeeklyCalendar() {
   const [addType, setAddType] = useState(null);
   const [toast, setToast] = useState(null); // { id, name }
   const [listSheet, setListSheet] = useState(null); // { title, items }
+  const [monthReview, setMonthReview] = useState(null); // 'YYYY-MM'
   const [boardMeasureRef, boardW] = useBoxWidth();
   const toastTimer = useRef(null);
   // DnD : payload dans un ref (dataTransfer illisible pendant dragover)
@@ -999,9 +1001,18 @@ function WeeklyCalendar() {
                 {closureCols.map(ci => {
                   const cell = closuresByCol[ci];
                   const da = CLOTURE_DA[closureKind(cell.levels)];
+                  // Dernier jour du mois : la carte ouvre la review mensuelle.
+                  const ds = days7Local[ci];
+                  const [cy, cm] = ds.split("-").map(Number);
+                  const reviewMk = cell.levels.has("mensuel") && ds === lastDayOfMonth(cy, cm - 1) ? ds.slice(0, 7) : null;
+                  const open = () => setMonthReview(reviewMk);
                   return (
                     <div key={ci} style={{ gridColumn: `${ci + 1} / ${ci + 2}`, margin: "0 3px" }}>
-                      <div style={{
+                      <div {...(reviewMk ? {
+                          role: "button", tabIndex: 0, onClick: open, title: "Ouvrir la review du mois",
+                          "aria-label": `Review du mois — ${da.label}`,
+                          onKeyDown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } },
+                        } : {})} style={{ cursor: reviewMk ? "pointer" : "default",
                         position:"relative", overflow:"hidden", borderRadius:14, padding:"12px 12px 11px", minHeight:92,
                         display:"flex", flexDirection:"column", justifyContent:"center",
                         background:`${da.c}22`, border:`1px solid ${da.c}77`, boxShadow:`0 0 22px ${da.c}44`,
@@ -1012,7 +1023,7 @@ function WeeklyCalendar() {
                           <span style={{ fontSize:12, fontWeight:900, letterSpacing:"0.03em", color:da.c, lineHeight:1.1 }}>{da.label}</span>
                         </div>
                         <div style={{ fontSize:10, color:"var(--c-muted)", lineHeight:1.2 }}>{da.sub}</div>
-                        <div style={{ fontSize:10, fontWeight:700, color:da.c, marginTop:3 }}>{cell.items.length} OKR{cell.items.length>1?"s":""}</div>
+                        <div style={{ fontSize:10, fontWeight:700, color:da.c, marginTop:3 }}>{cell.items.length} OKR{cell.items.length>1?"s":""}{reviewMk ? " · review du mois" : ""}</div>
                       </div>
                     </div>
                   );
@@ -1078,6 +1089,8 @@ function WeeklyCalendar() {
           </div>
         </div>
       </div>
+
+      {monthReview && <MonthlyReviewModal monthKey={monthReview} onClose={() => setMonthReview(null)} />}
 
       {/* Liste d'un jour / des projets masqués */}
       {listSheet && (
@@ -2373,12 +2386,16 @@ function ObjectifsModule({ initialTab = "lt" }) {
   const activeCount = items.filter(o=>!isObjClosed(o.statut)).length;
   const doneCount   = items.filter(o=>isObjAchieved(o.statut)).length;
   useEffect(()=>()=>{ if(toastTimer.current) clearTimeout(toastTimer.current); },[]);
+  const [monthReview, setMonthReview] = useState(null); // 'YYYY-MM'
   const archiveObj = (id, lvl, patch) => {
     const cur = (goals[lvl]||[]).find(o=>o.id===id);
-    save({...goals,[lvl]:(goals[lvl]||[]).map(o=>o.id===id?{...o,...patch,archived:true}:o)});
+    const next = {...goals,[lvl]:(goals[lvl]||[]).map(o=>o.id===id?{...o,...patch,archived:true}:o)};
+    save(next);
     setCloture(null); setEditObj(null);
     if(toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ id, lvl, prev: cur });
+    // Dernier OKR mensuel du mois clôturé → on propose la review du mois.
+    const mk = lvl==="mensuel" ? okrMonthKey(cur) : null;
+    setToast({ id, lvl, prev: cur, reviewMonth: mk && monthOkrsAllClosed(next, mk) ? mk : null });
     toastTimer.current = setTimeout(()=>setToast(null), 10000);
   };
   const undoArchive = () => {
@@ -2477,15 +2494,19 @@ function ObjectifsModule({ initialTab = "lt" }) {
         />
       )}
 
+      {monthReview&&<MonthlyReviewModal monthKey={monthReview} onClose={()=>setMonthReview(null)} />}
       {cloture&&(()=>{ const o=(goals[cloture.lvl]||[]).find(x=>x.id===cloture.id); if(!o) return null; return (
         <ClotureModal obj={o} levelId={cloture.lvl} onArchive={archiveObj} onClose={()=>setCloture(null)} />
       );})()}
 
       {toast&&(
         <div key={toast.id} className="cal-toast" style={{position:"fixed",left:"50%",bottom:24,transform:"translateX(-50%)",zIndex:3000,minWidth:300,maxWidth:"92vw",borderRadius:14,overflow:"hidden",background:C.surface2,border:`1px solid ${C.amber}55`,boxShadow:`0 16px 40px rgba(0,0,0,0.5), 0 0 24px ${C.amber}33`}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px"}}>
+          <div style={{display:"flex",flexWrap:"wrap",alignItems:"center",gap:"10px 12px",padding:"13px 16px"}}>
             <span style={{width:22,height:22,borderRadius:"50%",flexShrink:0,display:"inline-flex",alignItems:"center",justifyContent:"center",background:C.amber,color:"#1a1200",fontSize:12,fontWeight:900}}>🔒</span>
             <span style={{flex:1,minWidth:0,fontSize:13.5,fontWeight:600,color:C.text}}>OKR archivé · <span style={{color:C.muted,fontWeight:500}}>{toast.prev?.titre}</span></span>
+            {toast.reviewMonth&&(
+              <button onClick={()=>{ const mk=toast.reviewMonth; if(toastTimer.current) clearTimeout(toastTimer.current); setToast(null); setMonthReview(mk); }} style={{flexShrink:0,minHeight:36,padding:"6px 14px",borderRadius:999,cursor:"pointer",fontFamily:"inherit",background:GRAD,border:"none",color:"#fff",fontSize:12,fontWeight:700}}>Faire la review du mois</button>
+            )}
             <button onClick={undoArchive} style={{flexShrink:0,padding:"6px 14px",borderRadius:999,cursor:"pointer",fontFamily:"inherit",background:"transparent",border:`1px solid ${C.borderMid}`,color:C.amber,fontSize:12,fontWeight:700}}>Annuler</button>
           </div>
           <div style={{height:3,background:`${C.amber}22`}}><div className="cal-toast-bar" style={{height:"100%",background:C.amber,boxShadow:`0 0 8px ${C.amber}`}}/></div>
@@ -5915,6 +5936,263 @@ function AISummaryCard({ tone, title, text, loading, error }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW MENSUELLE — proposée à la clôture des OKR du mois.
+// Stats calculées automatiquement ; seuls Win / Loss / À améliorer / note se
+// remplissent. Rendue dans un portail : elle s'ouvre depuis Goals, le
+// calendrier ou Le Poste sans dépendre de leur mise en page.
+// ─────────────────────────────────────────────────────────────────────────────
+const MR_TYPES = ["DEEP", "SHALLOW", "COURS", "GROUPE"];
+const monthLabel = mk => { const [y, m] = mk.split("-").map(Number); return `${MONTH_FR[m - 1]} ${y}`; };
+const okrProgressOf = o => (o.archived && o.clotureProgress != null) ? o.clotureProgress : krsProgress(o.krs || []);
+const IcoClose = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+);
+
+// Tous les OKR mensuels du mois sont-ils clôturés ? Aucun OKR → false : la
+// review se fait alors seulement via le bouton manuel.
+function monthOkrsAllClosed(goals, mk) {
+  const list = monthOkrs(goals, mk);
+  return list.length > 0 && list.every(o => o.archived);
+}
+
+function MonthlyReviewModal({ monthKey: mk, onClose, onSaved }) {
+  const C = CF, FONT_D = CF_FONT;
+  const [reviews, setReviews] = useState(() => getLS("lp_monthly_reviews", []));
+  const existing = reviews.find(r => r.monthKey === mk);
+  const [win, setWin]             = useState(existing?.win || "");
+  const [loss, setLoss]           = useState(existing?.loss || "");
+  const [ameliorer, setAmeliorer] = useState(existing?.ameliorer || "");
+  const [note, setNote]           = useState(existing?.note || "");
+  const [saved, setSaved]         = useState(false);
+  const [weekOpen, setWeekOpen]   = useState(null);
+  const [weeklyReviews, setWeeklyReviews] = useState(() => getLS("lp_weekly_reviews", []));
+
+  const habits   = getLS("lp_habits", []);
+  const sessions = getLS("lp_workperf", []);
+  const goals    = getLS("lp_goals", {});
+
+  // Mois en cours : on s'arrête à aujourd'hui (les jours futurs ne comptent pas).
+  const today = todayStr();
+  const days = monthDaysLocal(mk).filter(d => d <= today);
+  const habitsPct     = habitsPctOn(habits, days);
+  const byHabit       = habitsPctByHabit(habits, days);
+  const monthSessions = sessionsOn(sessions, days);
+  const workMins      = workMinutes(monthSessions);
+  const typeMap       = minutesBy(monthSessions, "type");
+  const workByType    = Object.fromEntries(MR_TYPES.map(t => [t, typeMap[t] || 0]));
+  const okrs = monthOkrs(goals, mk).map(o => ({
+    id: o.id, titre: o.titre, statut: o.statut, progress: okrProgressOf(o),
+    krs: (o.krs || []).map(k => ({ nom: k.nom || "", actuelle: k.actuelle ?? k.depart ?? null, cible: k.cible ?? null })),
+  }));
+  // Instantané figé : si les OKR ont disparu depuis, on relit celui de la review.
+  const okrsShown = !okrs.length && existing?.okrs?.length ? existing.okrs : okrs;
+  const okrsReached = okrsShown.filter(o => isObjAchieved(o.statut)).length;
+  const mondays = mondaysOfMonth(mk);
+  const weeksDone = mondays.filter(w => weeklyReviews.some(r => r.weekStart === w)).length;
+
+  const isDirty = !!(existing || win || loss || ameliorer || note);
+  const persist = () => {
+    if (!isDirty) return null;
+    const all = getLS("lp_monthly_reviews", []);
+    const prev = all.find(r => r.monthKey === mk);
+    const review = {
+      id: prev?.id || uid(), monthKey: mk,
+      win, loss, ameliorer, note,
+      summary: { habitsPct, habitsByHabit: byHabit, workMins, workByType, sessionsCount: monthSessions.length },
+      okrs: okrs.length ? okrs : (prev?.okrs || []),
+      createdAt: prev?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const updated = prev ? all.map(r => r.monthKey === mk ? review : r) : [...all, review];
+    setLS("lp_monthly_reviews", updated);
+    return updated;
+  };
+  const save = () => {
+    const updated = persist();
+    if (!updated) return;
+    setReviews(updated); setSaved(true); onSaved?.();
+    setTimeout(() => setSaved(false), 2500);
+  };
+  // Auto-sauvegarde comme la weekly : fermeture, onglet caché, fermeture page.
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+  useEffect(() => {
+    const flush = () => { persistRef.current?.(); };
+    const onHide = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("beforeunload", flush);
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+      if (persistRef.current?.()) onSavedRef.current?.();
+    };
+  }, []);
+
+  const fmtShort = d => new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  const section = (title, right, children) => (
+    <section style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 10, color: C.muted, textTransform: "uppercase", letterSpacing: "0.14em", fontWeight: 700 }}>{title}</h3>
+        {right && <span style={{ marginLeft: "auto", fontSize: 11, color: C.faint }}>{right}</span>}
+      </div>
+      {children}
+    </section>
+  );
+  const stat = (label, value, sub) => (
+    <div style={{ padding: "14px 16px", background: C.surface3, borderRadius: 14, border: `1px solid ${C.border}`, minWidth: 0 }}>
+      <div style={{ fontSize: 10.5, color: C.muted, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontFamily: FONT_D, fontSize: 24, fontWeight: 800, color: C.text, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: C.faint, marginTop: 6 }}>{sub}</div>}
+    </div>
+  );
+  const habitRow = h => (
+    <div key={h.id} style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 28 }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{h.name}</span>
+      <span style={{ width: 70, height: 4, borderRadius: 2, background: C.surface3, overflow: "hidden", flexShrink: 0 }}>
+        <span style={{ display: "block", height: "100%", width: `${h.pct}%`, background: C.accent }} />
+      </span>
+      <span style={{ width: 38, textAlign: "right", fontSize: 12, fontWeight: 700, color: C.text, fontVariantNumeric: "tabular-nums" }}>{h.pct}%</span>
+    </div>
+  );
+  const field = (label, value, setter, ph) => (
+    <label style={{ display: "block", marginBottom: 12 }}>
+      <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>{label}</span>
+      <textarea value={value} onChange={e => setter(e.target.value)} placeholder={ph} rows={3}
+        style={{ width: "100%", boxSizing: "border-box", background: C.surface3, border: `1px solid ${C.border}`, borderRadius: 12, padding: "10px 12px", color: C.text, fontFamily: "inherit", fontSize: 14, lineHeight: 1.55, resize: "vertical", outline: "none" }} />
+    </label>
+  );
+  const top3 = byHabit.slice(0, 3);
+  // Jamais la même habitude dans les deux colonnes (moins de 6 habitudes).
+  const bottom3 = byHabit.slice(top3.length).slice(-3).reverse();
+
+  return createPortal(
+    <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(6px)" }} />
+      <div role="dialog" aria-modal="true" aria-label={`Review de ${monthLabel(mk)}`} className="theme-light pop-in"
+        style={{ position: "relative", width: "min(760px, 100%)", maxHeight: "92dvh", display: "flex", flexDirection: "column", background: C.surface, borderRadius: 22, border: `1px solid ${C.borderMid}`, boxShadow: "0 24px 80px rgba(0,0,0,0.8)", fontFamily: "var(--font-body)", color: C.text }}>
+        <header style={{ padding: "18px 20px 12px", display: "flex", alignItems: "flex-start", gap: 12, flexShrink: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 10, color: C.accent, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 700, marginBottom: 4 }}>Review mensuelle</div>
+            <div style={{ fontFamily: FONT_D, fontSize: 22, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.1 }}>{monthLabel(mk)}</div>
+          </div>
+          <button onClick={onClose} aria-label="Fermer" style={{ width: 44, height: 44, flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: C.muted, cursor: "pointer", borderRadius: 12 }}><IcoClose /></button>
+        </header>
+
+        <div style={{ overflowY: "auto", padding: "8px 20px 20px", flex: 1, minHeight: 0 }}>
+          {section("Le mois en chiffres", null, (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+              {stat("Habitudes", habitsPct == null ? "—" : `${habitsPct}%`, habits.length ? `${habits.length} habitude${habits.length > 1 ? "s" : ""} · ${days.length} j` : "Aucune habitude")}
+              {stat("Temps de travail", workMins > 0 ? fmtHM(workMins) : "—", `${monthSessions.length} session${monthSessions.length > 1 ? "s" : ""}`)}
+              {stat("OKR atteints", okrsShown.length ? `${okrsReached}/${okrsShown.length}` : "—", okrsShown.length ? "objectifs du mois" : "Aucun OKR ce mois")}
+            </div>
+          ))}
+
+          {section("Habitudes", null, byHabit.length === 0
+            ? <div style={{ fontSize: 12.5, color: C.faint }}>Aucune habitude suivie ce mois.</div>
+            : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "6px 24px" }}>
+                <div>
+                  <div style={{ fontSize: 11, color: C.green, fontWeight: 600, marginBottom: 4 }}>Les plus tenues</div>
+                  {top3.map(habitRow)}
+                </div>
+                {bottom3.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, color: C.red, fontWeight: 600, marginBottom: 4 }}>Les moins tenues</div>
+                    {bottom3.map(habitRow)}
+                  </div>
+                )}
+              </div>
+            ))}
+
+          {section("Travail", workMins > 0 ? fmtMin(workMins) : null, workMins === 0
+            ? <div style={{ fontSize: 12.5, color: C.faint }}>Aucune session enregistrée ce mois.</div>
+            : (
+              <div>
+                <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", background: C.surface3, marginBottom: 10 }}>
+                  {MR_TYPES.filter(t => workByType[t] > 0).map(t => (
+                    <span key={t} title={`${t} · ${fmtMin(workByType[t])}`} style={{ width: `${workByType[t] / workMins * 100}%`, background: WP_TYPE_C[t] }} />
+                  ))}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8 }}>
+                  {MR_TYPES.map(t => (
+                    <div key={t} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: WP_TYPE_C[t], flexShrink: 0 }} />
+                      <span style={{ color: C.muted }}>{t}</span>
+                      <span style={{ marginLeft: "auto", color: C.text, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>{fmtMin(workByType[t])}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+
+          {section("OKR du mois", null, okrsShown.length === 0
+            ? <div style={{ fontSize: 12.5, color: C.faint }}>Aucun OKR mensuel sur ce mois.</div>
+            : okrsShown.map(o => {
+                const st = OBJ_STATUSES.find(s => s.k === o.statut);
+                return (
+                  <div key={o.id} style={{ padding: "12px 14px", background: C.surface3, border: `1px solid ${C.border}`, borderRadius: 14, marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: o.krs.length ? 8 : 0 }}>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 700 }}>{o.titre}</span>
+                      {o.statut && <span style={{ flexShrink: 0, fontSize: 10.5, fontWeight: 700, color: st?.c || C.muted, border: `1px solid ${(st?.c || C.muted)}55`, borderRadius: 999, padding: "2px 8px" }}>{o.statut}</span>}
+                      <span style={{ flexShrink: 0, fontFamily: FONT_D, fontSize: 15, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{o.progress == null ? "—" : `${o.progress}%`}</span>
+                    </div>
+                    {o.krs.map((k, i) => (
+                      <div key={i} style={{ display: "flex", gap: 10, fontSize: 12, color: C.muted, minHeight: 22, alignItems: "center" }}>
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{k.nom || "KR"}</span>
+                        <span style={{ flexShrink: 0, color: C.text, fontVariantNumeric: "tabular-nums" }}>{k.actuelle ?? "—"} / {k.cible ?? "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }))}
+
+          {section("Weekly reviews", `${weeksDone}/${mondays.length} faites`, (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {mondays.map(w => {
+                const done = weeklyReviews.some(r => r.weekStart === w);
+                return (
+                  <button key={w} onClick={() => setWeekOpen(w)} title={done ? "Ouvrir la weekly" : "Pas de weekly — la faire"}
+                    style={{ minHeight: 44, padding: "0 14px", borderRadius: 999, border: `1px solid ${done ? "rgba(52,211,153,0.35)" : C.border}`, background: done ? C.greenBg : C.surface3, color: done ? C.green : C.text, fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+                    {done ? "✓ " : ""}Sem. {fmtShort(w)}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+
+          {section("Rétrospective", null, (
+            <div>
+              {field("Win", win, setWin, "Ce qui a marché ce mois-ci…")}
+              {field("Loss", loss, setLoss, "Ce qui n'a pas marché…")}
+              {field("À améliorer", ameliorer, setAmeliorer, "Ce que tu changes le mois prochain…")}
+              {field("Note libre", note, setNote, "Autre chose à garder en tête…")}
+            </div>
+          ))}
+        </div>
+
+        <footer style={{ padding: "12px 20px calc(14px + env(safe-area-inset-bottom))", borderTop: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <span style={{ flex: 1, fontSize: 11.5, color: saved ? C.green : C.faint }}>{saved ? "Enregistrée" : "Enregistrée automatiquement à la fermeture"}</span>
+          <button onClick={save} disabled={!isDirty}
+            style={{ minHeight: 44, padding: "0 22px", borderRadius: 12, border: "none", background: isDirty ? CF_GRAD : C.surface3, color: isDirty ? "#fff" : C.faint, fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: isDirty ? "pointer" : "default" }}>
+            Enregistrer
+          </button>
+        </footer>
+      </div>
+      {weekOpen && (
+        <div style={{ position: "relative", zIndex: 1 }}>
+          <WeeklyReviewModal wkStart={weekOpen} onClose={() => setWeekOpen(null)} onSaved={() => setWeeklyReviews(getLS("lp_weekly_reviews", []))} />
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
+
 function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const wkEnd = weekEnd(wkStart);
@@ -6693,6 +6971,21 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
   const activeKRObjs = (goalsLS.mensuel || []).filter(o => !o.archived && (o.krs || []).length > 0);
   const krAvg = activeKRObjs.length ? Math.round(activeKRObjs.reduce((s, o) => s + krsProgress(o.krs), 0) / activeKRObjs.length) : null;
   const wrDoneThisWeek = weeklyReviews.some(r => r.weekStart === todayWk);
+  // Review mensuelle : mois courant, 6 mois passés, banque par trimestre.
+  const [monthlyReviews, setMonthlyReviews] = useState(() => getLS("lp_monthly_reviews", []));
+  const [mrOpen, setMrOpen] = useState(null); // 'YYYY-MM'
+  const [histKind, setHistKind] = useState("hebdo");
+  const [openMRQ, setOpenMRQ] = useState(()=>new Set());
+  const toggleMRQ = qk => setOpenMRQ(s=>{const n=new Set(s);n.has(qk)?n.delete(qk):n.add(qk);return n;});
+  const mrDoneThisMonth = monthlyReviews.some(r => r.monthKey === todayMk);
+  const pastMonths = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1 - i);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+  });
+  const fmtMonthShort = mk => new Date(mk + "-15T12:00:00").toLocaleDateString("fr-FR", { month:"short", year:"numeric" });
+  const mrByQ = {};
+  monthlyReviews.forEach(r => { (mrByQ[getQK(r.monthKey + "-01")] ??= []).push(r); });
+  const sortedMRQ = Object.keys(mrByQ).sort((a,b)=>b.localeCompare(a));
   // 8 dernières semaines passées (lundi), la plus récente d'abord
   const pastWeeks = Array.from({ length: 8 }, (_, i) => {
     const d = new Date(todayWk + "T12:00:00"); d.setDate(d.getDate() - 7 * (i + 1));
@@ -6790,10 +7083,72 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
           </label>
         </div>
 
+        {/* Review du mois — même logique que la weekly */}
+        <button onClick={()=>setMrOpen(todayMk)}
+          style={{width:"100%",minHeight:48,marginTop:18,padding:"12px 20px",borderRadius:16,background:C.surface2,color:C.text,fontSize:14,fontWeight:700,fontFamily:"inherit",border:`1px solid ${C.borderMid}`,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10}}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+          Review du mois
+          <span style={{fontSize:11,fontWeight:600,background:mrDoneThisMonth?C.greenBg:C.accentBg,color:mrDoneThisMonth?C.green:C.accent,padding:"2px 8px",borderRadius:999}}>{mrDoneThisMonth?"✓ Faite":"À faire"}</span>
+        </button>
+        <div style={{marginTop:14}}>
+          <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Mois passés</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+            {pastMonths.map(mk=>{
+              const done=monthlyReviews.some(r=>r.monthKey===mk);
+              return (
+                <button key={mk} onClick={()=>setMrOpen(mk)} title={done?"Review faite — ouvrir":"Pas de review — la faire"}
+                  style={{padding:"7px 11px",borderRadius:999,border:`1px solid ${done?"rgba(52,211,153,0.35)":C.border}`,background:done?C.greenBg:C.surface2,color:done?C.green:C.text,fontSize:11,fontWeight:600,fontFamily:"inherit",cursor:"pointer",whiteSpace:"nowrap"}}>
+                  {done?"✓ ":""}{fmtMonthShort(mk)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {mrOpen&&<MonthlyReviewModal monthKey={mrOpen} onClose={()=>setMrOpen(null)} onSaved={()=>setMonthlyReviews(getLS("lp_monthly_reviews",[]))} />}
+
         {/* Historique des reviews */}
         <div style={{marginTop:20}}>
-          <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:12}}>🗂 Historique reviews</div>
-          {sortedWRQ.length===0
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
+            <div style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em"}}>🗂 Historique reviews</div>
+            <div role="tablist" aria-label="Type de reviews" style={{marginLeft:"auto",display:"flex",padding:3,borderRadius:999,background:C.surface2,border:`1px solid ${C.border}`}}>
+              {[["hebdo","Hebdo"],["mensuel","Mensuel"]].map(([k,l])=>(
+                <button key={k} role="tab" aria-selected={histKind===k} onClick={()=>setHistKind(k)}
+                  style={{minHeight:32,padding:"0 14px",borderRadius:999,border:"none",cursor:"pointer",fontFamily:"inherit",fontSize:11.5,fontWeight:600,background:histKind===k?C.accentBg:"transparent",color:histKind===k?C.accent:C.muted}}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {histKind==="mensuel" ? (
+            sortedMRQ.length===0
+              ? <div style={{fontSize:12,color:C.faint,textAlign:"center",padding:"24px 0"}}>Aucune review mensuelle enregistrée.</div>
+              : sortedMRQ.map(qk=>{
+                  const [yr,tq]=qk.split("-"); const qOpen=openMRQ.has(qk);
+                  const list=[...mrByQ[qk]].sort((a,b)=>b.monthKey.localeCompare(a.monthKey));
+                  return (
+                    <div key={qk} style={{marginBottom:8}}>
+                      <div onClick={()=>toggleMRQ(qk)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 16px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:14,cursor:"pointer",userSelect:"none",marginBottom:qOpen?8:0}}>
+                        <span style={{fontSize:10,color:C.muted,width:10}}>{qOpen?"▼":"▶"}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:C.text}}>{tq} {yr}</span>
+                        <span style={{fontSize:11,color:C.faint,marginLeft:"auto"}}>{list.length} review{list.length>1?"s":""}</span>
+                      </div>
+                      {qOpen&&list.map(r=>{
+                        const [my,mm]=r.monthKey.split("-").map(Number);
+                        const okrs=r.okrs||[]; const reached=okrs.filter(o=>isObjAchieved(o.statut)).length;
+                        return (
+                          <div key={r.id} onClick={()=>setMrOpen(r.monthKey)} style={{marginLeft:12,marginBottom:6,padding:"12px 14px",background:C.surface2,border:`1px solid ${C.border}`,borderRadius:12,cursor:"pointer",transition:TR}}>
+                            <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:4}}>{MONTH_FR[mm-1]} {my}</div>
+                            <div style={{display:"flex",flexWrap:"wrap",gap:"4px 12px",fontSize:11,color:C.faint}}>
+                              <span>Habitudes {r.summary?.habitsPct!=null?`${r.summary.habitsPct}%`:"—"}</span>
+                              <span>Travail {fmtMin(r.summary?.workMins??0)}</span>
+                              <span>OKR {okrs.length?`${reached}/${okrs.length}`:"—"}</span>
+                            </div>
+                            {r.win&&<div style={{marginTop:6,fontSize:11,color:C.muted,lineHeight:1.5,borderTop:`1px solid ${C.border}`,paddingTop:6,whiteSpace:"pre-wrap"}}>{r.win.length>100?r.win.slice(0,100)+"…":r.win}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+          ) : sortedWRQ.length===0
             ? <div style={{fontSize:12,color:C.faint,textAlign:"center",padding:"24px 0"}}>Aucune weekly review enregistrée.</div>
             : sortedWRQ.map(qk=>{
                 const [yr,tq]=qk.split("-"); const qOpen=openWRQ.has(qk);
