@@ -627,3 +627,11 @@ button:active {
   .wr-stats { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
   .wr-g1 { grid-template-columns: 1fr !important; }
 }
+
+/* Home sur téléphone : la page défile (journée + habitudes en entier) au lieu
+   d'être figée à la hauteur de l'écran avec des blocs à défilement interne. */
+@media (max-width: 760px) {
+  .dash-page { height: auto; min-height: 100dvh; overflow: visible; }
+  .dash-wrap, .dash-cal, .dash-cal .cal-root, .dash-cal .cal-layout, .dash-cal .cal-day, .dash-habits-block { flex: none !important; }
+  .cal-day-body { overflow: visible; }
+}

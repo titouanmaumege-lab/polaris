@@ -1425,8 +1425,8 @@ function pickHabitLayout(n, width) {
   // Pair : deux rubans égaux. Impair : le premier prend l'élément en plus.
   const half = Math.ceil(n / 2);
   if (half <= colsMax) return { rows: 2, cols: half, scroll: false };
-  // Écran trop étroit pour tenir en 2 rubans (mobile) : on garde la hauteur
-  // figée et c'est ce bloc seul qui défile, jamais la page.
+  // Écran trop étroit pour tenir en 2 rubans (téléphone) : Home défile, le
+  // bloc prend sa hauteur naturelle (cf. .dash-page dans index.css).
   return { rows: Math.ceil(n / colsMax), cols: colsMax, scroll: true };
 }
 
@@ -1447,7 +1447,7 @@ function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
   const baseRow = vh >= 1000 ? 44 : vh >= 860 ? 40 : 36;
   const blockH = baseRow * 2 + HABIT_GAP;
   // 1 ruban = la hauteur des 2, pour que le bloc garde le même encombrement.
-  const rowH = L.rows === 1 ? blockH : baseRow;
+  const rowH = L.scroll ? 48 : L.rows === 1 ? blockH : baseRow;
   const tall = L.rows === 1;
 
   return (
@@ -1472,9 +1472,9 @@ function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
           gridTemplateColumns:`repeat(${L.cols}, minmax(0, 1fr))`,
           gridAutoRows:`${rowH}px`,
           gap:HABIT_GAP,
-          height:blockH,
+          height: L.scroll ? "auto" : blockH,
           minHeight:0,
-          overflowY: L.scroll ? "auto" : "hidden",
+          overflowY: L.scroll ? "visible" : "hidden",
         }}>
           {habits.map(h => {
             const status = (h.dailyStatus || {})[today] ?? null;
