@@ -654,45 +654,45 @@ export default function FinancesModule({ userId }) {
   ];
 
   return (
-    <div className="theme-light" style={{ display: "flex", minHeight: "100vh", color: C.text, fontFamily: "var(--font-body)" }}>
-      {/* ── SIDEBAR ── */}
-      <nav style={{ width: 220, flexShrink: 0, background: "linear-gradient(to right, rgba(139,92,246,0.035), rgba(139,92,246,0))", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", paddingBottom: 90 }}>
-        <div style={{ padding: "22px 18px 10px", display: "flex", alignItems: "center", gap: 10 }}>
+    <div className="theme-light fin-root" style={{ display: "flex", minHeight: "100vh", color: C.text, fontFamily: "var(--font-body)" }}>
+      {/* ── SIDEBAR (téléphone : en-tête + rangées défilantes, cf. index.css) ── */}
+      <nav className="fin-nav" style={{ width: 220, flexShrink: 0, background: "linear-gradient(to right, rgba(139,92,246,0.035), rgba(139,92,246,0))", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", paddingBottom: 90 }}>
+        <div className="fin-brand" style={{ padding: "22px 18px 10px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 34, height: 34, background: C.accentBg, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>💼</div>
           <div style={{ fontSize: 16, fontWeight: 800 }}>Budget</div>
         </div>
-        <div style={{ padding: "4px 10px", flex: 1 }}>
+        <div className="fin-sections" style={{ padding: "4px 10px", flex: 1 }}>
           {NAV.map((n, i) => {
-            if (n.grp) return <div key={i} style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".1em", padding: "10px 10px 5px" }}>{n.grp}</div>;
-            if (n.sep) return <div key={i} style={{ height: 1, background: C.border, margin: "6px 10px" }} />;
+            if (n.grp) return <div key={i} className="fin-grp" style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".1em", padding: "10px 10px 5px" }}>{n.grp}</div>;
+            if (n.sep) return <div key={i} className="fin-grp" style={{ height: 1, background: C.border, margin: "6px 10px" }} />;
             const on = section === n.id;
             return (
-              <button key={i} onClick={() => setSection(n.id)} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "9px 10px", borderRadius: 9, border: "none", background: on ? C.accentBg : "none", color: on ? C.accent : C.muted, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", fontFamily: "inherit", marginBottom: 1, position: "relative" }}>
+              <button key={i} onClick={() => setSection(n.id)} className="fin-tab" aria-current={on ? "page" : undefined} style={{ display: "flex", alignItems: "center", gap: 9, width: "100%", padding: "9px 10px", borderRadius: 9, border: "none", background: on ? C.accentBg : "none", color: on ? C.accent : C.muted, fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left", fontFamily: "inherit", marginBottom: 1, position: "relative" }}>
                 <span style={{ width: 16, textAlign: "center", flexShrink: 0 }}>{n.icon}</span>{n.label}
                 {n.badge > 0 && <span style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: C.red, color: "#fff", fontSize: 10, fontWeight: 700, minWidth: 17, height: 17, borderRadius: 99, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 4px" }}>{n.badge}</span>}
               </button>
             );
           })}
         </div>
-        <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".1em", padding: "10px 10px 5px" }}>Comptes</div>
-        <div>
+        <div className="fin-grp" style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".1em", padding: "10px 10px 5px" }}>Comptes</div>
+        <div className="fin-accounts">
           {acc.accounts.map(a => (
-            <div key={a.id} onClick={() => openAccount(a)} title="Modifier le compte" style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px", cursor: "pointer", borderRadius: 8 }}>
+            <div key={a.id} onClick={() => openAccount(a)} title="Modifier le compte" className="fin-account" style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px", cursor: "pointer", borderRadius: 8 }}>
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: a.color || C.accent, flexShrink: 0 }} />
               <span style={{ fontSize: 12, flex: 1, color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</span>
               <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: a.balance >= 0 ? C.green : C.red }}>{fmtEUR(a.balance)}</span>
             </div>
           ))}
         </div>
-        <button onClick={() => openAccount()} style={{ display: "flex", alignItems: "center", gap: 6, width: "calc(100% - 20px)", margin: "6px 10px", padding: "7px 10px", borderRadius: 8, border: `1px dashed ${C.border}`, background: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>+ Nouveau compte</button>
-        <div style={{ borderTop: `1px solid ${C.border}`, padding: "14px 18px" }}>
+        <button onClick={() => openAccount()} className="fin-newacc" style={{ display: "flex", alignItems: "center", gap: 6, width: "calc(100% - 20px)", margin: "6px 10px", padding: "7px 10px", borderRadius: 8, border: `1px dashed ${C.border}`, background: "none", color: C.faint, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>+ Nouveau compte</button>
+        <div className="fin-networth" style={{ borderTop: `1px solid ${C.border}`, padding: "14px 18px" }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: C.faint, textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 3 }}>Patrimoine net</div>
           <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 700, color: netWorth >= 0 ? C.green : C.red }}>{fmtEUR(netWorth)}</div>
         </div>
       </nav>
 
       {/* ── MAIN ── */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 32, paddingBottom: 100 }}>
+      <div className="fin-main" style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: 32, paddingBottom: 100 }}>
         {dbError && isSchemaError(dbError) && (
           <div style={{ marginBottom: 18, padding: "14px 18px", borderRadius: 12,
             background: `${C.red}14`, border: `1px solid ${C.red}55`, lineHeight: 1.65 }}>
@@ -778,13 +778,13 @@ export default function FinancesModule({ userId }) {
             {debtsPending.length > 0 && <AlertBox c={C.accent}>💬 <b>{debtsPending.length} remboursement(s)</b> en attente</AlertBox>}
           </div>
         )}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
+        <div className="fin-g4" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
           <Stat label="Solde total" value={fmtEUR(acc.totalBalance)} c={acc.totalBalance >= 0 ? C.green : C.red} />
           <Stat label="Revenus du mois" value={fmtEUR(income)} c={C.green} />
           <Stat label="Dépenses du mois" value={fmtEUR(expense)} c={C.red} />
           <Stat label="Solde du mois" value={fmtEUR(income - expense)} c={income - expense >= 0 ? C.green : C.red} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 18, marginBottom: 22 }}>
+        <div className="fin-g1" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 18, marginBottom: 22 }}>
           <div style={cardSt}>
             <div style={titleSt}>Répartition des dépenses</div>
             <div style={{ position: "relative", display: "flex", justifyContent: "center", marginBottom: 14 }}>
@@ -1077,7 +1077,7 @@ export default function FinancesModule({ userId }) {
     return (
       <>
         <PageHead title="PEA / Bourse" sub="Cours saisis manuellement" action={<Btn small onClick={() => openPea()}>+ Position</Btn>} />
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
+        <div className="fin-g4" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 20 }}>
           <Stat label="Investi" value={fmtEUR(inv.totalInvested)} />
           <Stat label="Valeur actuelle" value={fmtEUR(inv.totalMarketValue)} c={inv.totalMarketValue >= inv.totalInvested ? C.green : C.red} />
           <Stat label="P&L" value={`${inv.totalPnl >= 0 ? "+" : ""}${fmtEUR(inv.totalPnl)}`} c={inv.totalPnl >= 0 ? C.green : C.red} />
@@ -1115,9 +1115,9 @@ export default function FinancesModule({ userId }) {
         <PageHead title="Bilan patrimonial" />
         <div style={{ background: "linear-gradient(135deg,rgba(139,92,246,.16),rgba(99,102,241,.08))", border: `1px solid ${C.borderMid}`, borderRadius: 20, padding: 36, textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".12em", marginBottom: 10 }}>Patrimoine net total</div>
-          <div style={{ fontFamily: MONO, fontSize: 52, fontWeight: 800, letterSpacing: "-.02em", color: netWorth >= 0 ? C.green : C.red }}>{fmtEUR(netWorth)}</div>
+          <div className="fin-big" style={{ fontFamily: MONO, fontSize: 52, fontWeight: 800, letterSpacing: "-.02em", color: netWorth >= 0 ? C.green : C.red }}>{fmtEUR(netWorth)}</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: `repeat(${proAcc.length ? 4 : 3},1fr)`, gap: 18, alignItems: "stretch" }}>
+        <div className="fin-g1" style={{ display: "grid", gridTemplateColumns: `repeat(${proAcc.length ? 4 : 3},1fr)`, gap: 18, alignItems: "stretch" }}>
           <div style={{ ...cardSt, display: "flex", flexDirection: "column" }}>
             <div style={titleSt}>Comptes liquidité</div>
             <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 800, color: liquidTotal >= 0 ? C.green : C.red, marginBottom: 12 }}>{fmtEUR(liquidTotal)}</div>
@@ -1218,7 +1218,7 @@ export default function FinancesModule({ userId }) {
                 <div style={{ fontSize: 12, color: C.faint, textTransform: "capitalize" }}>{monthName}</div>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18 }}>
+              <div className="fin-g1" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 18 }}>
                 {/* Revenus professionnels = somme des salaires */}
                 <div style={cardSt}>
                   <div style={titleSt}>Revenus professionnels</div>
