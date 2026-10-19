@@ -18,6 +18,10 @@ import { uid } from "./utils/id";
 import { calculateNextOccurrence, toggleDoneIn, applyOps } from "./utils/todoOps";
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
+import {
+  habitValidated, habitsPctOn, habitsAllDoneDays,
+  sessionsOn, workMinutes, minutesBy,
+} from "./utils/reviewStats";
 import { resolveHighlight, makeHighlightRef } from "./utils/highlight";
 import {
   cumulTotal, startDay, habitUnit,
@@ -110,10 +114,7 @@ function getNextWeekId(weekId) {
   const ms=startOfW1.getTime()+(w-1)*7*86400000+7*86400000;
   return getISOWeekId(new Date(ms));
 }
-const habitValidated = (h, date) => {
-  if (h.dailyStatus) return h.dailyStatus[date] === 'validated';
-  return (h.logs || []).includes(date);
-};
+// habitValidated → src/utils/reviewStats.js
 // cycleHabitStatus, HabitToggle → src/ui/primitives.jsx
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5968,12 +5969,10 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   });
 
   // Stats
-  const habitsDaysAll = weekDays.filter(d => habits.length > 0 && habits.every(h => habitValidated(h, d))).length;
-  const habitsTotalDone = habits.length > 0 ? weekDays.reduce((s,d) => s + habits.filter(h=>habitValidated(h,d)).length, 0) : 0;
-  const habitsTotal = habits.length * 7;
-  const habitsPct = habitsTotal > 0 ? Math.round(habitsTotalDone / habitsTotal * 100) : 0;
-  const sessionsWeek  = sessions.filter(s => weekDays.includes(s.date));
-  const sessionsMins  = sessionsWeek.reduce((s, x) => s + (x.temps||0), 0);
+  const habitsDaysAll = habitsAllDoneDays(habits, weekDays);
+  const habitsPct = habitsPctOn(habits, weekDays) ?? 0;
+  const sessionsWeek  = sessionsOn(sessions, weekDays);
+  const sessionsMins  = workMinutes(sessionsWeek);
   const todosWeek     = todos.filter(t => t.gtd==="projet" && t.done && t.doneAt && weekDays.includes(t.doneAt.slice(0,10)));
   const dailyEntries  = weekDays.map(d => ({ date: d, entry: djEntry(daily[d]) }));
   const dailyCount    = dailyEntries.filter(({entry:e}) => e.morning||e.win||e.loss||e.remark).length;
@@ -6139,7 +6138,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                         );
                       })}
                       <td style={{padding:"8px",textAlign:"center",fontWeight:700,color:C.accent,fontSize:12}}>
-                        {habits.length*7>0?Math.round(weekDays.reduce((s,d)=>s+habits.filter(h=>habitValidated(h,d)).length,0)/(habits.length*7)*100)+'%':'—'}
+                        {habits.length>0?habitsPctOn(habits,weekDays)+'%':'—'}
                       </td>
                     </tr>
                   </tbody>
@@ -6243,16 +6242,14 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
           {/* ── CAMEMBERTS SESSIONS (Type + Domaine) ── */}
           {sessionsWeek.length > 0 && (() => {
             // Anneau 1 : répartition par type (Deep, Shallow, ...)
-            const typeMap = {};
-            sessionsWeek.forEach(s => { const t=s.type||'AUTRE'; typeMap[t]=(typeMap[t]||0)+(s.temps||0); });
+            const typeMap = minutesBy(sessionsWeek, 'type');
             const typeTotal = Object.values(typeMap).reduce((a,b)=>a+b,0);
             const typeData = Object.entries(typeMap)
               .sort(([,a],[,b])=>b-a)
               .map(([name,mins],i) => ({name,mins,pct:typeTotal?Math.round(mins/typeTotal*100):0,color:WP_TYPE_C[name]||PIE_COLORS[i%PIE_COLORS.length],fmtMins:fmtMin(mins)}));
 
             // Anneau 2 : répartition par domaine
-            const domMap = {};
-            sessionsWeek.forEach(s => { const d=s.domaine||'AUTRE'; domMap[d]=(domMap[d]||0)+(s.temps||0); });
+            const domMap = minutesBy(sessionsWeek, 'domaine');
             const domTotal = Object.values(domMap).reduce((a,b)=>a+b,0);
             const domData = Object.entries(domMap)
               .sort(([,a],[,b])=>b-a)
