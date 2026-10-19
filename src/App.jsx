@@ -4,7 +4,8 @@ import FinancesModule from "./components/finances/FinancesModule";
 import { LegalFooter } from "./components/legal/LegalPages";
 import { hasHealthConsent, onConsentChange, setHealthConsent } from "./state/consent";
 import { exportAllData, deleteAccount } from "./state/account";
-import { supabase } from "./supabase";
+import { supabase, syncToSupabase } from "./supabase";
+import { pullApiOps, listApiKeys, createApiKey, revokeApiKey } from "./state/apiAccess";
 import LazyEmbed from "./ui/LazyEmbed";
 import PolarisLogo from "./PolarisLogo";
 import {
@@ -14,6 +15,7 @@ import {
   fmtMin, fmtHM, formatElapsed,
 } from "./utils/date";
 import { uid } from "./utils/id";
+import { calculateNextOccurrence, toggleDoneIn, applyOps } from "./utils/todoOps";
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
 import { resolveHighlight, makeHighlightRef } from "./utils/highlight";
@@ -795,7 +797,7 @@ function WeeklyCalendar() {
         }}>
         <span aria-hidden="true" style={{ fontSize:12, flexShrink:0 }}>👤</span>
         <span style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column" }}>
-          <span style={{ fontSize:11, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</span>
+          <span style={{ fontSize:11, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}{it.source==="claude"&&<ClaudeBadge/>}</span>
           {it.waitingFor && (
             <span style={{ fontSize:9.5, color:CYAN, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.waitingFor}</span>
           )}
@@ -892,7 +894,7 @@ function WeeklyCalendar() {
                       style={{ flexShrink:0, width:17, height:17, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
                         border:`1.5px solid #34D399`, color:"#34D399", fontSize:9, lineHeight:1, cursor:"pointer" }} />
                     <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:600, color:"var(--c-text)", lineHeight:1.3,
-                      overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}</span>
+                      overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}{it.source==="claude"&&<ClaudeBadge/>}</span>
                     {it.recurrence?.enabled && <span style={{ fontSize:10, flexShrink:0 }}>🔄</span>}
                     <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 5px ${col}`, flexShrink:0 }} />
                   </div>
@@ -1046,7 +1048,7 @@ function WeeklyCalendar() {
                 borderLeft:`3px solid ${it.gtd === "waiting" ? CYAN : it.gtd === "memo" ? AMBER : colorOf(it)}`,
                 cursor:"pointer",
               }}>
-                <span style={{ flex:1, minWidth:0, fontSize:13, color:"var(--c-text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it.name}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:13, color:"var(--c-text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it.name}{it.source==="claude"&&<ClaudeBadge/>}</span>
                 {it.gtd === "waiting" && it.waitingFor && <span style={{ flexShrink:0, fontSize:10.5, color:CYAN }}>{it.waitingFor}</span>}
                 <CheckDot onDone={() => markDone(it)} color={it.gtd === "waiting" ? CYAN : it.gtd === "memo" ? AMBER : colorOf(it)} size={17} />
               </div>
@@ -2471,6 +2473,10 @@ const getProjectStatus = (item) => {
   if (debut <= today && today <= item.dateFin) return "en_cours";
   return "planifie";
 };
+// Tâche créée par l'assistant IA via l'API (/api/v1, champ source: "claude").
+const ClaudeBadge = () => (
+  <span title="Ajoutée par Claude via l'API" style={{display:"inline-block",marginLeft:6,padding:"1px 6px",borderRadius:999,fontSize:9,fontWeight:700,letterSpacing:"0.04em",verticalAlign:"middle",lineHeight:1.5,background:"rgba(217,119,87,0.14)",color:"#d97757",border:"1px solid rgba(217,119,87,0.35)",whiteSpace:"nowrap",textDecoration:"none"}}>Claude</span>
+);
 const migrateOneTodo = raw => {
   if (!raw) return null;
   // already new format
@@ -2505,23 +2511,7 @@ function useTodos() {
   const addTodo      = o => { const t={id:uid(),name:"",gtd:"inbox",done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); return t; };
   const updateTodo   = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
   const deleteTodo   = id => save(todos.filter(t=>t.id!==id));
-  const toggleDone = id => {
-    const t = todos.find(x=>x.id===id);
-    if (!t) return;
-    const becomingDone = !t.done;
-    const updated = todos.map(x=>x.id===id?{...x,done:becomingDone,doneAt:becomingDone?new Date().toISOString():undefined}:x);
-    if (becomingDone && t.recurrence?.enabled) {
-      const nextDate = calculateNextOccurrence(t.dateFin||t.dateAssignee||new Date(), t.recurrence);
-      const nextIso = nextDate.toISOString().split('T')[0];
-      const next = {
-        ...t, id:uid(), done:false, doneAt:undefined, createdAt:new Date().toISOString(),
-        ...(t.dateFin ? {dateFin:nextIso} : {}),
-        ...(t.dateAssignee ? {dateAssignee:nextIso} : {}),
-      };
-      updated.push(next);
-    }
-    save(updated);
-  };
+  const toggleDone = id => save(toggleDoneIn(todos, id, uid));
   const restoreTodo  = id => save(todos.map(t=>t.id===id?{...t,done:false,doneAt:undefined}:t));
   const classifyInbox= (id,p) => updateTodo(id,p);
   const addSousTache = (todoId,name) => { const todo=todos.find(t=>t.id===todoId); if(!todo) return; updateTodo(todoId,{sousTaches:[...(todo.sousTaches||[]),{id:uid(),name,done:false}]}); };
@@ -2553,6 +2543,17 @@ function useTodos() {
   });
   const getMemosForDate = date => todos.filter(t=>t.gtd==="memo"&&t.dateAssignee===date&&!t.done&&!t.recurrence?.enabled);
   return {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,addSousTache,toggleSousTache,getByGTD,getByMatrice,getBySphere,getDoneItems,getProjectsForCalendar,getMemosForDate};
+}
+
+// Opérations de l'API externe (src/state/apiAccess.js) : appliquées sur l'état
+// stocké le plus récent, puis diffusées à toutes les instances de useTodos.
+async function applyApiOpsToStore(ops, userId) {
+  const next = applyOps(loadTodos(), ops, uid);
+  setLS("leplan_todos", next);
+  _todoSubs.forEach(fn => fn(next));
+  // Envoi immédiat plutôt que le debounce de 1,5 s : les ops sont déjà
+  // marquées appliquées côté serveur, un onglet fermé entre-temps les perdrait.
+  if (userId) await syncToSupabase(userId).catch(() => {});
 }
 
 // ── TaskSummaryModal ──
@@ -2775,7 +2776,7 @@ function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
                 {item.sphere && <Pill c={sc}>{SPHERES[item.sphere]?.label}</Pill>}
                 {statut && <Pill c={statut.c}>{statut.label}</Pill>}
               </div>
-              <div style={{ fontSize:18, fontWeight:700, color:C.text, lineHeight:1.3, letterSpacing:"-0.01em" }}>{item.name}</div>
+              <div style={{ fontSize:18, fontWeight:700, color:C.text, lineHeight:1.3, letterSpacing:"-0.01em" }}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <IconBtn onClick={onEdit} title="Modifier">✏️</IconBtn>
@@ -2892,7 +2893,7 @@ function ProjectCard({item, todos, onUpdate, onDelete, onToggleDone, onEdit}) {
       <div style={{padding:"14px 16px"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
           <div style={{flex:1}}>
-            <div onClick={()=>onEdit&&onEdit()} style={{fontSize:15,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none",marginBottom:6,lineHeight:1.35,cursor:onEdit?"pointer":"default"}}>{item.name}</div>
+            <div onClick={()=>onEdit&&onEdit()} style={{fontSize:15,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none",marginBottom:6,lineHeight:1.35,cursor:onEdit?"pointer":"default"}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
               {mat&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:C.surface3,color:C.muted,border:`1px solid ${C.border}`}}>{mat.label}</span>}
               {item.sphere&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:sc+"22",color:sc}}>{SPHERES[item.sphere]?.label}</span>}
@@ -3186,17 +3187,6 @@ function describeRecurrence(r) {
   }
   return s;
 }
-function calculateNextOccurrence(from, r) {
-  const d = new Date(from || new Date());
-  switch(r.unit) {
-    case 'day':   d.setDate(d.getDate() + r.interval); break;
-    case 'week':  d.setDate(d.getDate() + r.interval * 7); break;
-    case 'month': d.setMonth(d.getMonth() + r.interval); break;
-    case 'year':  d.setFullYear(d.getFullYear() + r.interval); break;
-  }
-  if (r.dayOfMonth && (r.unit === 'month' || r.unit === 'year')) d.setDate(r.dayOfMonth);
-  return d;
-}
 function getRecurOccurrences(todo, fromStr, toStr) {
   if (!todo.recurrence?.enabled || !todo.dateAssignee) return [];
   const from = new Date(fromStr + 'T00:00:00');
@@ -3483,7 +3473,7 @@ function TodoModule() {
                   return (
                     <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:"pointer"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
                         <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center"}}>
                           <span style={{background:bc,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,textTransform:"uppercase"}}>{gtdLabel}</span>
                           {item.sphere&&<span style={{fontSize:11,color:SPHERES[item.sphere]?.c||C.muted}}>{SPHERES[item.sphere]?.label}</span>}
@@ -3512,7 +3502,7 @@ function TodoModule() {
               : inboxItems.map(item=>(
                 <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`}}>
                   <div style={{flex:1,cursor:"pointer"}} onClick={()=>setEditId(item.id)}>
-                    <div style={{fontSize:14,color:C.text}}>{item.name}</div>
+                    <div style={{fontSize:14,color:C.text}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
                     <span style={{fontSize:11,fontWeight:600,color:C.amber}}>À clarifier</span>
                   </div>
                   <Btn onClick={()=>setClarifyId(item.id)} variant="ghost" style={{fontSize:12,padding:"6px 12px",whiteSpace:"nowrap"}}>Clarifier →</Btn>
@@ -3570,7 +3560,7 @@ function TodoModule() {
                     <div key={item.id} onClick={()=>setEditId(item.id)} style={{padding:"14px 16px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #f59e0b",cursor:"pointer"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
                         <div style={{flex:1}}>
-                          <div style={{fontSize:14,color:C.text,marginBottom:4}}>⏳ {item.name}</div>
+                          <div style={{fontSize:14,color:C.text,marginBottom:4}}>⏳ {item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
                           {item.waitingFor&&<div style={{fontSize:12,color:C.amber}}>Attend : {item.waitingFor}</div>}
                           {item.waitingNote&&<div style={{fontSize:11,color:C.faint,marginTop:2}}>{item.waitingNote}</div>}
                           {item.sphere&&<span style={{fontSize:10,color:sc,marginTop:4,display:"block"}}>{SPHERES[item.sphere]?.label}</span>}
@@ -3598,7 +3588,7 @@ function TodoModule() {
                       return (
                         <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #6366f1"}}>
                           <div style={{flex:1,cursor:"pointer"}} onClick={()=>setEditId(item.id)}>
-                            <div style={{fontSize:14,color:C.text}}>📝 {item.name}</div>
+                            <div style={{fontSize:14,color:C.text}}>📝 {item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
                             {item.sphere&&<span style={{fontSize:11,color:sc}}>{SPHERES[item.sphere]?.label}</span>}
                           </div>
                           <div onClick={()=>{toggleDone(item.id);showToast("Mémo fait.");}} style={{width:26,height:26,borderRadius:"50%",border:`2px solid ${C.borderMid}`,cursor:"pointer",flexShrink:0}}/>
@@ -3621,7 +3611,7 @@ function TodoModule() {
               : somedayItems.filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).map(item=>(
                 <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.8,cursor:"pointer"}}>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:14,color:C.muted}}>{item.name}</div>
+                    <div style={{fontSize:14,color:C.muted}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
                     <div style={{display:"flex",gap:8,marginTop:4}}>
                       {item.sphere&&<span style={{fontSize:11,color:SPHERES[item.sphere]?.c}}>{SPHERES[item.sphere]?.label}</span>}
                       <span style={{fontSize:11,color:C.faint}}>{item.createdAt?.slice(0,10)}</span>
@@ -3647,7 +3637,7 @@ function TodoModule() {
                   return (
                     <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:"pointer"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
                         <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center",flexWrap:"wrap"}}>
                           <span style={{background:bc,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,textTransform:"uppercase"}}>{gtdLabel}</span>
                           <span style={{fontSize:10,padding:"2px 8px",borderRadius:999,background:C.accentBg,color:C.accent,fontWeight:600}}>🔄 {describeRecurrence(item.recurrence)}</span>
@@ -6409,6 +6399,95 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ACCÈS API — clés personnelles pour un assistant IA (routes /api/v1, cf. API.md)
+// ─────────────────────────────────────────────────────────────────────────────
+function ApiKeysSection({ userId }) {
+  const [keys, setKeys] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fresh, setFresh] = useState(null);   // clé en clair, affichée une seule fois
+  const [copied, setCopied] = useState(false);
+
+  const refresh = () => listApiKeys().then(setKeys).catch(e => { setKeys([]); setErr(e.message || "Erreur de chargement"); });
+  useEffect(() => { if (userId) refresh(); }, [userId]);
+
+  const generate = async () => {
+    if (!userId || busy) return;
+    const name = window.prompt("Nom de la clé (ex. Claude sur mon PC)", "Claude");
+    if (name === null) return;
+    setBusy(true); setErr("");
+    try {
+      const { key } = await createApiKey(userId, name.trim() || "Claude");
+      setFresh(key); setCopied(false);
+      await refresh();
+    } catch (e) { setErr(e.message || "Impossible de créer la clé"); }
+    setBusy(false);
+  };
+
+  const revoke = async (k) => {
+    if (!window.confirm(`Révoquer « ${k.name} » ? Toute application qui l'utilise perdra l'accès.`)) return;
+    setErr("");
+    try { await revokeApiKey(k.id); await refresh(); } catch (e) { setErr(e.message || "Impossible de révoquer"); }
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(fresh); setCopied(true); } catch { /* sélection manuelle */ }
+  };
+
+  const fmt = d => d ? new Date(d).toLocaleDateString("fr-FR", { day:"numeric", month:"short", year:"numeric" }) : "jamais";
+  const active = (keys || []).filter(k => !k.revoked_at);
+  const revoked = (keys || []).filter(k => k.revoked_at);
+
+  return (
+    <>
+      <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",margin:"26px 0 10px"}}>Accès API (assistant IA)</div>
+      <div style={{padding:"13px 16px",borderRadius:14,background:C.surface2,border:`1px solid ${C.border}`,marginBottom:8}}>
+        <div style={{fontSize:11,color:C.faint,lineHeight:1.5,marginBottom:10}}>
+          Une clé permet à un assistant (Claude) de lire tes tâches et reviews et d'ajouter ou modifier des tâches. Il ne peut rien supprimer.
+        </div>
+
+        {fresh && (
+          <div style={{marginBottom:12,padding:"12px 14px",background:C.surface3,borderRadius:10,border:`1px solid ${C.accent}55`}}>
+            <div style={{fontSize:12,color:C.text,fontWeight:600,marginBottom:6}}>Copie ta clé maintenant : elle ne sera plus jamais affichée.</div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <code onClick={e=>{ const r=document.createRange(); r.selectNodeContents(e.currentTarget); const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r); }}
+                style={{flex:1,minWidth:0,fontSize:11,padding:"8px 10px",borderRadius:8,background:C.bg,color:C.text,border:`1px solid ${C.border}`,overflowWrap:"anywhere",userSelect:"all"}}>{fresh}</code>
+              <button onClick={copy} style={{padding:"8px 12px",borderRadius:8,border:"none",background:C.accent,color:"#fff",fontSize:12,fontWeight:700,fontFamily:"inherit",cursor:"pointer",flexShrink:0}}>{copied?"Copié ✓":"Copier"}</button>
+            </div>
+            <button onClick={()=>setFresh(null)} style={{marginTop:8,background:"none",border:"none",color:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",padding:0}}>J'ai copié la clé, masquer</button>
+          </div>
+        )}
+
+        {keys === null ? (
+          <div style={{fontSize:12,color:C.muted}}>Chargement…</div>
+        ) : active.length === 0 ? (
+          <div style={{fontSize:12,color:C.muted,marginBottom:4}}>Aucune clé active.</div>
+        ) : active.map(k => (
+          <div key={k.id} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
+            <span style={{fontSize:15}}>🔑</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:13,fontWeight:600,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{k.name}</div>
+              <div style={{fontSize:10.5,color:C.faint}}>Créée le {fmt(k.created_at)} · dernière utilisation : {fmt(k.last_used_at)}</div>
+            </div>
+            <button onClick={()=>revoke(k)} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${C.red}55`,background:"transparent",color:C.red,fontSize:11.5,fontWeight:600,fontFamily:"inherit",cursor:"pointer",flexShrink:0}}>Révoquer</button>
+          </div>
+        ))}
+        {revoked.length > 0 && (
+          <div style={{fontSize:10.5,color:C.faint,marginTop:8}}>{revoked.length} clé{revoked.length>1?"s":""} révoquée{revoked.length>1?"s":""}.</div>
+        )}
+
+        {err && <div style={{fontSize:12,color:C.red,marginTop:8}}>{err}</div>}
+
+        <button disabled={busy || !userId} onClick={generate} style={{
+          marginTop:12,width:"100%",padding:"10px 14px",borderRadius:10,border:`1px solid ${C.accent}`,background:C.accentBg,color:C.accent,
+          fontSize:13,fontWeight:700,fontFamily:"inherit",cursor:busy?"wait":"pointer",opacity:(busy||!userId)?0.6:1,
+        }}>{busy ? "Génération…" : "Générer une clé API"}</button>
+      </div>
+    </>
+  );
+}
+
 function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeeklyReview, onPerso }) {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const healthConsent = useHealthConsent();
@@ -6728,6 +6807,9 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
           <span style={{marginLeft:"auto",color:C.faint}}>↓</span>
         </button>
 
+        {/* ACCÈS API — assistant IA (Claude) */}
+        <ApiKeysSection userId={userId} />
+
         {/* CONFIDENTIALITÉ & COMPTE — droits RGPD exerçables in-app */}
         <div style={{fontSize:10,color:C.accent,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.16em",margin:"26px 0 10px"}}>Confidentialité &amp; compte</div>
 
@@ -7012,6 +7094,26 @@ export default function App({ session, signOut }) {
   useEffect(() => {
     setSyncContext(session?.user?.id ?? null, setSyncStatus);
   }, [session]);
+
+  // Relève des tâches ajoutées via l'API (assistant IA) : au chargement, au
+  // retour sur l'onglet et toutes les 60 s tant que l'app est ouverte.
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId) return;
+    const pull = () => { pullApiOps(ops => applyApiOpsToStore(ops, userId)).catch(() => {}); };
+    // Laisse le temps à la re-synchro du retour d'onglet (AuthGate) de démarrer :
+    // pullApiOps attend ensuite qu'elle soit terminée.
+    const onBack = () => { if (document.visibilityState === "visible") setTimeout(pull, 300); };
+    pull();
+    const timer = setInterval(() => { if (document.visibilityState === "visible") pull(); }, 60_000);
+    document.addEventListener("visibilitychange", onBack);
+    window.addEventListener("focus", onBack);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onBack);
+      window.removeEventListener("focus", onBack);
+    };
+  }, [session?.user?.id]);
 
   const handleSessionStart = (s) => {
     localStorage.setItem(LS_SESSION_KEY, JSON.stringify(s));

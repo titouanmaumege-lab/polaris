@@ -23,6 +23,8 @@ const EXPORT_TABLES = {
   knowledge_tags: "owner_id",
   knowledge_links: "owner_id",
   knowledge_base_members: "user_id",
+  api_keys: "user_id",
+  api_ops: "user_id",
 };
 
 /** Export JSON complet : base (toutes tables) + copie locale. Portabilité art. 20. */

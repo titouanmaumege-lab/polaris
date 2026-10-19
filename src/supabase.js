@@ -5,6 +5,13 @@ export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_ANON_KEY
 );
 
+// Re-synchro en cours (retour d'onglet) : la relève des opérations de l'API
+// attend qu'elle soit finie, sinon hydrateLocalStorage() écraserait les tâches
+// fraîchement appliquées avant leur envoi.
+let _hydrating = Promise.resolve();
+export const whenHydrated = () => _hydrating;
+export const trackHydration = p => { _hydrating = Promise.resolve(p).catch(() => {}); return p; };
+
 const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews", "lp_weekly_objectives"];
 
 export async function loadUserData(userId) {
