@@ -6440,7 +6440,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
       <div className="theme-light" style={{position:"relative",width:"min(1280px,98vw)",maxHeight:"94vh",display:"flex",flexDirection:"column",background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,boxShadow:"0 0 60px rgba(168,85,247,0.35), 0 24px 80px rgba(0,0,0,0.8)",animation:"slide-up 0.22s ease",fontFamily:"var(--font-body)"}}>
 
         {/* Header */}
-        <div style={{padding:"22px 28px 16px",display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
+        <div className="wr-head" style={{padding:"22px 28px 16px",display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
           <div style={{flex:1}}>
             <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.18em",fontWeight:700,marginBottom:4}}>Rétrospective</div>
             <div style={{fontFamily:FONT_D,fontSize:24,fontWeight:800,color:C.text,letterSpacing:"-0.02em",lineHeight:1}}>Weekly Review</div>
@@ -6450,14 +6450,14 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             ? <span style={{fontSize:12,color:C.amber,background:C.amberBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.amber}`,fontWeight:600}}>🔒 Verrouillée</span>
             : <span style={{fontSize:11,color:C.green,background:C.greenBg,padding:"4px 12px",borderRadius:999,border:`1px solid ${C.green}`}}>{late?"Rattrapage · modifiable jusqu'à dimanche":"Modifiable jusqu'au dimanche"}</span>
           }
-          <button onClick={onClose} style={{background:"none",border:"none",color:C.muted,fontSize:26,cursor:"pointer",padding:"0 0 0 8px",lineHeight:1,flexShrink:0}}>×</button>
+          <button onClick={onClose} aria-label="Fermer" className="wr-close" style={{background:"none",border:"none",color:C.muted,fontSize:26,cursor:"pointer",padding:"0 0 0 8px",lineHeight:1,flexShrink:0}}>×</button>
         </div>
 
         {/* Scrollable content */}
-        <div style={{overflowY:"auto",padding:"24px 28px 28px",flex:1}}>
+        <div className="wr-body" style={{overflowY:"auto",padding:"24px 28px 28px",flex:1}}>
 
           {/* ── STATS ── */}
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
+          <div className="wr-stats" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
             {[
               {icon:"🔥",label:"Remplissage habitudes",value:`${habitsPct}%`,sub:`des habitudes cochées`,color:C.orange},
               {icon:"✅",label:"Projets terminés",value:String(todosWeek.length),sub:`cette semaine`,color:C.green},
@@ -6570,7 +6570,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
             <WRSection title="Daily Tracker">
               {/* Moyennes */}
               {(avgEnergy||avgFocus||avgStress||avgHappy) && (
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1.6fr",gap:12,marginBottom:16}}>
+                <div className="wr-g1" style={{display:"grid",gridTemplateColumns:"1fr 1.6fr",gap:12,marginBottom:16}}>
                   {/* Énergie — une seule mesure par jour */}
                   <div style={{padding:"16px 12px",background:C.surface2,borderRadius:14,border:`1px solid ${C.border}`,
                     backgroundImage:`linear-gradient(135deg, ${C.amber}10, transparent 60%)`,
@@ -6650,7 +6650,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 
             return (
               <WRSection title="Répartition des sessions">
-                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
+                <div className="wr-g1" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,alignItems:"start"}}>
                   <div>
                     <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Par type</div>
                     <PieChart data={typeData} centerLabel="TYPE" onSliceClick={d=>pick('type',d)} activeName={sessFilter?.kind==='type'?sessFilter.value:null} />

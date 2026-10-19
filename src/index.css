@@ -615,3 +615,15 @@ button:active {
 @media (min-width: 761px) {
   .poste-fab { width: 34px !important; height: 34px !important; right: 12px !important; top: calc(env(safe-area-inset-top) + 10px) !important; font-size: 13px !important; }
 }
+
+/* Weekly Review sur téléphone : stats 2×2, colonnes empilées, en-tête qui
+   passe à la ligne, fermeture 44 px. */
+@media (max-width: 760px) {
+  .wr-head { flex-wrap: wrap; padding: 16px 16px 10px !important; gap: 8px 12px !important; position: relative; }
+  .wr-head > div:first-child { flex-basis: calc(100% - 52px) !important; }
+  .wr-head > span { order: 3; }
+  .wr-close { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; padding: 0 !important; }
+  .wr-body { padding: 12px 16px 20px !important; }
+  .wr-stats { grid-template-columns: 1fr 1fr !important; gap: 10px !important; }
+  .wr-g1 { grid-template-columns: 1fr !important; }
+}
