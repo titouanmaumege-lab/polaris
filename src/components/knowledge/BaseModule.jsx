@@ -1536,14 +1536,14 @@ function BaseHome({ userId, onBaseOpen, onPageNav, onOpenGraph, onOpenSwitcher }
   return (
     <div>
       <div style={{ padding: "22px 16px 8px" }}>
-        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <div className="page-head page-head--bare" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
           <div>
             <div style={{ fontSize: 10, color: C.accent, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 700, marginBottom: 4 }}>Second cerveau</div>
             <div style={{ fontFamily: "var(--font-display)", fontSize: 26, fontWeight: 800, color: C.text, letterSpacing: "-0.02em", lineHeight: 1 }}>Base</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onOpenSwitcher} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>🔍</button>
-            <button onClick={onOpenGraph} style={{ background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
+            <button onClick={onOpenSwitcher} aria-label="Rechercher une page" title="Rechercher" style={{ width: 44, height: 44, background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>🔍</button>
+            <button onClick={onOpenGraph} aria-label="Graphe des liens" title="Graphe" style={{ width: 44, height: 44, background: "none", border: "none", color: C.muted, fontSize: 20, cursor: "pointer" }}>⬡</button>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>

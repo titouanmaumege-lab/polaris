@@ -5025,7 +5025,7 @@ const CF_FONT = "var(--font-display)";
 // En-tête réutilisable nouvelle DA — transparent, fondu dans le fond commun (aucun ruban)
 function CFHeader({ eyebrow, title, action }) {
   return (
-    <div style={{ padding:"22px 16px 12px", display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12 }}>
+    <div className="page-head" style={{ padding:"22px 16px 12px", display:"flex", alignItems:"flex-end", justifyContent:"space-between", gap:12 }}>
       <div>
         {eyebrow && <div style={{ fontSize:10, color:CF.accent, textTransform:"uppercase", letterSpacing:"0.18em", fontWeight:700, marginBottom:4 }}>{eyebrow}</div>}
         <div style={{ fontFamily:CF_FONT, fontSize:26, fontWeight:800, color:CF.text, letterSpacing:"-0.02em", lineHeight:1 }}>{title}</div>
@@ -7730,14 +7730,14 @@ export default function App({ session, signOut }) {
       </div>
       {/* Bouton « Le Poste » — accessible depuis toutes les pages */}
       {!logsOpen && (
-        <div onClick={()=>setLogsOpen(true)} title="Le Poste" style={{
-          position:"fixed", top:"calc(env(safe-area-inset-top) + 10px)", right:12, zIndex:45,
-          width:34, height:34, borderRadius:"50%",
+        <button onClick={()=>setLogsOpen(true)} title="Le Poste" aria-label="Ouvrir Le Poste" className="poste-fab" style={{
+          position:"fixed", top:"calc(env(safe-area-inset-top) + 6px)", right:8, zIndex:45,
+          width:44, height:44, borderRadius:"50%", padding:0, fontFamily:"inherit",
           background:"rgba(13,13,26,0.72)", backdropFilter:"blur(12px)",
           border:`1px solid ${C.borderMid}`, boxShadow:"0 4px 16px rgba(0,0,0,0.35)",
           display:"flex", alignItems:"center", justifyContent:"center",
-          cursor:"pointer", fontSize:13, color:C.accent, userSelect:"none",
-        }}>◉</div>
+          cursor:"pointer", fontSize:15, color:C.accent, userSelect:"none",
+        }}>◉</button>
       )}
       <ActiveSessionWidget session={activeSession} onStop={handleSessionStop} onPause={handleSessionPause} onResume={handleSessionResume} />
       {stopModal && <LiveStopModal session={activeSession} elapsed={stopModal.elapsed} onConfirm={handleConfirmStop} onCancel={()=>setStopModal(null)} />}

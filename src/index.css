@@ -602,3 +602,16 @@ button:active {
   .fin-main div:has(> table) { overflow-x: auto !important; }
   .fin-main table { min-width: 560px; }
 }
+
+/* Bouton flottant « Le Poste » (44 px, haut droite) : sur téléphone, les
+   en-têtes de page lui laissent sa place au lieu de passer dessous. */
+.poste-fab:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .page-head { padding-right: 60px !important; }
+  .page-head--bare { padding-right: 44px !important; }
+  .dash-header { padding-right: 60px !important; }
+  .fin-networth { padding-right: 60px !important; }
+}
+@media (min-width: 761px) {
+  .poste-fab { width: 34px !important; height: 34px !important; right: 12px !important; top: calc(env(safe-area-inset-top) + 10px) !important; font-size: 13px !important; }
+}
