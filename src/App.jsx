@@ -3490,13 +3490,13 @@ function TaskCaptureModal({ initialGTD = "inbox", initialName = "", onCreate, on
         <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Nouvelle tâche</div>
         <Input autoFocus value={form.name} onChange={v=>set({name:v})} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Nom de la tâche..."/>
         <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type</div>
-        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+        <div className="chip-row" style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
           {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
             <button key={k} onClick={()=>set({gtd:k})} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${form.gtd===k?C.accent:C.border}`,background:form.gtd===k?C.accentBg:"transparent",color:form.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",minHeight:34}}>{l}</button>
           ))}
         </div>
         <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
-        <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
+        <div className="chip-row" style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
           {Object.entries(SPHERES).map(([k,v])=>(
             <button key={k} onClick={()=>set({sphere:form.sphere===k?null:k})} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${form.sphere===k?v.c:C.border}`,background:form.sphere===k?v.c+"22":"transparent",color:form.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",minHeight:34}}>{v.label}</button>
           ))}

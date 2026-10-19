@@ -635,3 +635,10 @@ button:active {
   .dash-wrap, .dash-cal, .dash-cal .cal-root, .dash-cal .cal-layout, .dash-cal .cal-day, .dash-habits-block { flex: none !important; }
   .cal-day-body { overflow: visible; }
 }
+
+/* Rangées de pastilles (création de tâche) : sur téléphone elles passent à
+   la ligne au lieu de défiler hors champ sans indice. */
+@media (max-width: 760px) {
+  .chip-row { flex-wrap: wrap; overflow: visible !important; }
+  .chip-row > button { min-height: 44px !important; }
+}
