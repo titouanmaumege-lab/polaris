@@ -63,10 +63,14 @@ export async function authenticate(req, res) {
   return { db, userId: key.user_id, keyId: key.id };
 }
 
+// undefined = JSON invalide. Le getter req.body de Vercel parse à la volée et
+// lève « Invalid JSON » si le corps est mal formé : l'accès doit être protégé.
 export function readBody(req) {
-  if (req.body == null || req.body === "") return null;
-  if (typeof req.body === "string") { try { return JSON.parse(req.body); } catch { return undefined; } }
-  return req.body;
+  let body;
+  try { body = req.body; } catch { return undefined; }
+  if (body == null || body === "") return null;
+  if (typeof body === "string") { try { return JSON.parse(body); } catch { return undefined; } }
+  return body;
 }
 
 // ── Lecture : user_data + ops encore en attente ────────────────────────────

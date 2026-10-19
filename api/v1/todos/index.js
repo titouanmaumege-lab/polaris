@@ -52,7 +52,7 @@ export default async function handler(req, res) {
 
     return res.status(201).json(batch ? { todos: created, count: created.length } : { todo: created[0] });
   } catch (e) {
-    console.error("[api/v1/todos]", e);
+    console.error("[api/v1/todos]", e?.code ?? "", e?.message, e);
     return sendError(res, 500, "server_error", "Erreur serveur.");
   }
 }
