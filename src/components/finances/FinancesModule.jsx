@@ -97,7 +97,7 @@ function Btn({ children, onClick, kind = "p", small, style }) {
     p: { background: GRAD, color: "#fff" },
     g: { background: C.surface2, color: C.muted, border: `1px solid ${C.border}` },
   };
-  return <button onClick={onClick} style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
+  return <button onClick={onClick} className="fin-btn" style={{ ...base, ...kinds[kind], ...style }}>{children}</button>;
 }
 
 function Field({ label, children }) {

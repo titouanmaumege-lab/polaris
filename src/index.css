@@ -642,3 +642,21 @@ button:active {
   .chip-row { flex-wrap: wrap; overflow: visible !important; }
   .chip-row > button { min-height: 44px !important; }
 }
+
+/* Cibles tactiles sur téléphone (≥ 44 px) :
+   - pastilles (boutons arrondis 999 px) : hauteur min 44 ;
+   - petites icônes (.tap44) : zone de tap élargie par pseudo-élément, sans
+     toucher à la mise en page (même principe que .cal-hit) ;
+   - liens légaux : marge verticale cliquable. */
+@media (max-width: 760px) {
+  button[style*="border-radius: 999px"] { min-height: 44px !important; }
+  .tap44 { position: relative; }
+  .tap44::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%);
+  }
+  .legal-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
+  .fin-btn { min-height: 44px; }
+  .dash-actions { margin-left: 0; justify-content: space-between; }
+  .dash-actions button { white-space: nowrap; padding: 0 8px; font-size: 12.5px; }
+}

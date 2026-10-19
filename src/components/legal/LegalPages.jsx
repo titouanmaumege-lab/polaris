@@ -64,7 +64,7 @@ export function LegalFooter({ compact }) {
       fontSize: 11.5, color: C.faint,
     }}>
       {links.map(([href, label]) => (
-        <a key={href} href={href} style={{ color: C.faint, textDecoration: "none" }}
+        <a key={href} href={href} className="legal-link" style={{ color: C.faint, textDecoration: "none" }}
           onMouseEnter={e => e.currentTarget.style.color = C.muted}
           onMouseLeave={e => e.currentTarget.style.color = C.faint}>
           {label}

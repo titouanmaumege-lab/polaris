@@ -651,7 +651,7 @@ function WeeklyCalendar() {
       })();
 
   const NavBtn = ({ dir }) => (
-    <button onClick={() => setOffset(o => o + dir)} style={{
+    <button onClick={() => setOffset(o => o + dir)} className="tap44" aria-label={dir < 0 ? "Semaine précédente" : "Semaine suivante"} style={{
       background:"transparent", border:`1px solid var(--c-border)`, borderRadius:9,
       color:"var(--c-muted)", fontSize:16, cursor:"pointer", width:34, height:34, fontFamily:"inherit", lineHeight:1,
     }}>{dir < 0 ? "‹" : "›"}</button>
@@ -748,7 +748,7 @@ function WeeklyCalendar() {
             overflow:"hidden", textOverflow:"ellipsis", textShadow:"0 1px 2px rgba(0,0,0,0.3)" }}>{it.name}</span>
           {subs.length > 0 && (
             <span role="button" tabIndex={0}
-              aria-expanded={open} aria-label={open ? "Replier les sous-tâches" : "Déplier les sous-tâches"}
+              aria-expanded={open} aria-label={open ? "Replier les sous-tâches" : "Déplier les sous-tâches"} className="tap44"
               title={open ? "Replier les sous-tâches" : "Voir les sous-tâches"}
               onClick={e => { e.stopPropagation(); toggleOpenSubs(it.id); }}
               onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggleOpenSubs(it.id); } }}
@@ -1065,7 +1065,7 @@ function WeeklyCalendar() {
               )}
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                 <span style={{ fontSize:11, color:"var(--c-muted)", fontVariantNumeric:"tabular-nums" }}>{checkTasks.length}</span>
-                <button onClick={() => { setAddType("check"); setAddDate(today); }} title="Nouvelle check task"
+                <button onClick={() => { setAddType("check"); setAddDate(today); }} title="Nouvelle check task" aria-label="Nouvelle check task" className="tap44"
                   style={{ width:22, height:22, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:13, lineHeight:1,
                     display:"inline-flex", alignItems:"center", justifyContent:"center",
                     background:"rgba(52,211,153,0.14)", border:"1px solid rgba(52,211,153,0.4)", color:"#34D399" }}>+</button>
@@ -1503,7 +1503,7 @@ function HomeHabits({ habits, today, animating, onToggle, onOpen }) {
                 <button
                   onClick={e => { e.stopPropagation(); onToggle(h.id); }}
                   aria-label={`${isDone ? "Annuler" : "Valider"} : ${h.name}`}
-                  className={animating.has(h.id) ? "habit-pop" : ""}
+                  className={`tap44${animating.has(h.id) ? " habit-pop" : ""}`}
                   style={{
                     flexShrink:0, width: tall ? 34 : 30, height: tall ? 34 : 30, borderRadius:"50%", cursor:"pointer", fontFamily:"inherit",
                     display:"flex", alignItems:"center", justifyContent:"center", transition:TR,
@@ -2552,7 +2552,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
             <span style={{fontSize:17,filter:`drop-shadow(0 0 5px ${level.c}aa)`}}>{level.icon}</span>{level.label}
             <span style={{fontSize:10,fontWeight:700,color:atMax?C.amber:C.faint,fontVariantNumeric:"tabular-nums"}}>{items.length}/{OBJ_MAX_PER_LEVEL}</span>
           </span>
-          <button onClick={()=>{ if(!atMax) setShowAdd(s=>!s); }} title={atMax?`Maximum ${OBJ_MAX_PER_LEVEL} atteint`:"Ajouter un objectif"} style={{width:38,height:38,borderRadius:12,cursor:atMax?"not-allowed":"pointer",fontFamily:"inherit",fontSize:15,display:"inline-flex",alignItems:"center",justifyContent:"center",border:`1px solid ${showAdd?C.accent:C.borderMid}`,background:showAdd?GRAD:C.surface2,color:atMax?C.faint:showAdd?"#fff":C.accent,opacity:atMax?0.5:1,boxShadow:showAdd?GLOW_SM:"none"}}>{showAdd?"✕":"✏️"}</button>
+          <button className="tap44" aria-label="Ajouter un objectif" onClick={()=>{ if(!atMax) setShowAdd(s=>!s); }} title={atMax?`Maximum ${OBJ_MAX_PER_LEVEL} atteint`:"Ajouter un objectif"} style={{width:38,height:38,borderRadius:12,cursor:atMax?"not-allowed":"pointer",fontFamily:"inherit",fontSize:15,display:"inline-flex",alignItems:"center",justifyContent:"center",border:`1px solid ${showAdd?C.accent:C.borderMid}`,background:showAdd?GRAD:C.surface2,color:atMax?C.faint:showAdd?"#fff":C.accent,opacity:atMax?0.5:1,boxShadow:showAdd?GLOW_SM:"none"}}>{showAdd?"✕":"✏️"}</button>
         </div>
         {atMax&&<div style={{fontSize:12,color:C.amber,marginBottom:14}}>⚠️ Maximum {OBJ_MAX_PER_LEVEL} objectifs {level.label.toLowerCase()} par période. Clôture ou supprime-en un pour en ajouter.</div>}
         {showAdd&&!atMax&&(
@@ -3855,9 +3855,9 @@ function TodoModule() {
                 ))}
               </div>
               <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:8}}>
-                <button onClick={()=>shift(-1)} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:16}}>‹</button>
+                <button onClick={()=>shift(-1)} className="tap44" style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:16}}>‹</button>
                 <span style={{fontFamily:FONT_D,fontSize:15,fontWeight:700,color:C.text,minWidth:130,textAlign:"center"}}>{MONTH_FR[cm-1]} {cy}</span>
-                <button onClick={()=>shift(1)} style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:16}}>›</button>
+                <button onClick={()=>shift(1)} className="tap44" style={{background:C.surface2,border:`1px solid ${C.border}`,color:C.text,width:36,height:36,borderRadius:10,cursor:"pointer",fontSize:16}}>›</button>
               </div>
               <div style={{fontSize:12,color:C.muted,textAlign:"center",marginBottom:14}}><span style={{color:C.green,fontWeight:600}}>{monthTotal}</span> accomplie{monthTotal>1?"s":""} ce mois</div>
               <div style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:16,boxShadow:"0 2px 12px rgba(0,0,0,0.35)",padding:10,marginBottom:16}}>
@@ -7130,7 +7130,7 @@ function LogsModule({ onBack, email, userId, onNavModule, onSignOut, onOpenWeekl
           <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.18em",fontWeight:700,marginBottom:2}}>Le Poste</div>
           <div style={{fontSize:12,fontWeight:600,color:C.muted,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{email||"Hors ligne"}</div>
         </div>
-        {onSignOut && <button onClick={onSignOut} title="Déconnexion" style={{width:34,height:34,borderRadius:"50%",border:`1px solid ${C.red}55`,background:"transparent",color:C.red,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>⏻</button>}
+        {onSignOut && <button onClick={onSignOut} title="Déconnexion" aria-label="Déconnexion" className="tap44" style={{width:34,height:34,borderRadius:"50%",border:`1px solid ${C.red}55`,background:"transparent",color:C.red,cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>⏻</button>}
       </div>
 
       <div style={{padding:"16px 16px 100px"}}>
