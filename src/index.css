@@ -172,6 +172,12 @@ button:active {
 
 .fade-in   { animation: fadeInUp 0.22s ease; }
 .slide-up  { animation: slideUp 0.22s ease; }
+/* Modale centrée : fondu + léger zoom (transform/opacity seulement). */
+.pop-in    { animation: popIn 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
 .habit-pop { animation: habitPop 0.28s ease; }
 
 @keyframes habitPulse {

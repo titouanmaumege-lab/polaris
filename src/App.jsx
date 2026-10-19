@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
 import { LegalFooter } from "./components/legal/LegalPages";
@@ -446,6 +446,9 @@ function WeeklyCalendar() {
   // DnD : payload dans un ref (dataTransfer illisible pendant dragover)
   const dragRef = useRef(null); // { kind:'move'|'resize-start'|'resize-end', id, originDay }
   const boardRef = useRef(null);
+  const [, boardSize] = useBoxSize(boardRef);
+  // Hauteurs mesurées dans le DOM (0 = pas encore rendu → constante de repli)
+  const [calMetrics, setCalMetrics] = useState({ head: 0, clot: 0, line: 0, card: 0, hint: 0, lane: 0 });
   const [dragOverDay, setDragOverDay] = useState(null);
   const [overCheck, setOverCheck] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -645,8 +648,6 @@ function WeeklyCalendar() {
   const CYAN      = "#22D3EE";
   const AMBER     = "#F59E0B";
   const RED       = "#ef4444";
-  const MEMO_MAX  = 4;   // au-delà : chip « +N »
-  const WAIT_MAX  = 2;
 
   const daysTo    = d => diffDaysISO(d, today);
   const daysSince = iso => { const d = (iso || "").slice(0, 10); return d ? Math.max(0, diffDaysISO(today, d)) : 0; };
@@ -841,6 +842,35 @@ function WeeklyCalendar() {
       wait: items.filter(x => x.gtd === "waiting"),
     };
   };
+  // ── Nombre de lignes affichables, calculé sur la place réelle du plateau ──
+  // Même valeur pour les 7 jours (alignement de la grille). Au-delà : chip « +N ».
+  const BAND_GAP = 6;
+  const needTop  = Math.max(0, ...days7.map(ds => bucketsOf(ds).top.length));
+  const needWait = Math.max(0, ...days7.map(ds => bucketsOf(ds).wait.length));
+  let maxTop = 4, maxWait = 2;   // repli tant que le plateau n'est pas mesuré
+  if (boardSize.h > 0) {
+    const m = calMetrics;
+    const lineH = (m.line || 28) + BAND_GAP;
+    const cardH = (m.card || 40) + BAND_GAP;
+    const topOver  = 10 + (m.hint || 17);   // padding de cellule + repère « + »
+    const waitOver = 13;                    // padding haut 5 + bas 8
+    // Projets : garder ~2 lanes visibles (ou le min-height de .cal-projects)
+    const laneH = (m.lane || 40) + BAND_GAP;
+    const projMin = Math.max(56, Math.min(visibleLanes, 2) * laneH + 8) + (hiddenSpans.length ? 26 : 0);
+    const avail = boardSize.h - (m.head || 48) - m.clot - projMin;
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    // Waiting ne doit pas affamer la bande du haut : on lui garde jusqu'à 4 lignes.
+    const topKeep = Math.max(2, Math.min(needTop, 4));
+    maxWait = clamp(Math.floor((avail - topOver - topKeep * lineH - waitOver) / cardH), 1, 6);
+    const waitRows = Math.min(needWait, maxWait);
+    const waitH = waitOver + waitRows * cardH;
+    maxTop = clamp(Math.floor((avail - waitH - topOver) / lineH), 2, 12);
+  }
+  // Tout tient → tout afficher ; sinon max − 1 lignes + le chip.
+  const fitList = (list, max) => list.length <= max
+    ? { shown: list, rest: 0 }
+    : { shown: list.slice(0, max - 1), rest: list.length - (max - 1) };
+
   const MoreChip = ({ n, onClick }) => (
     <button onClick={e => { e.stopPropagation(); onClick(); }}
       style={{ alignSelf:"flex-start", padding:"1px 7px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
@@ -854,6 +884,28 @@ function WeeklyCalendar() {
     onDragLeave: () => setDragOverDay(d => d === ds ? null : d),
     onDrop: e => { e.preventDefault(); dropOnDay(ds); },
   });
+  // Mesure après rendu : setState seulement si une hauteur change (pas de boucle).
+  useLayoutEffect(() => {
+    const b = boardRef.current;
+    if (!b) return;
+    const hOf = sel => { const el = b.querySelector(sel); return el ? el.offsetHeight : 0; };
+    const next = {
+      head: hOf(".cal-head"),
+      clot: hOf(".cal-clotures"),
+      line: hOf(".cal-band-top .cal-chip-wrap"),
+      card: hOf(".cal-band-wait .cal-chip-wrap"),
+      hint: hOf(".cal-band-top .cal-add-hint"),
+      lane: Math.max(0, ...Array.from(b.querySelectorAll(".cal-ribbon"), el => el.offsetHeight)),
+    };
+    // Lignes/cartes/rubans : on garde la dernière mesure tant qu'aucun n'est rendu.
+    const STICKY = ["line", "card", "hint", "lane"];
+    setCalMetrics(prev => {
+      const merged = { ...prev };
+      Object.keys(next).forEach(k => { if (!STICKY.includes(k) || next[k]) merged[k] = next[k]; });
+      return Object.keys(merged).every(k => merged[k] === prev[k]) ? prev : merged;
+    });
+  });
+
   return (
     <>
       <div className="cal-root">
@@ -971,8 +1023,7 @@ function WeeklyCalendar() {
             <div className="cal-band cal-band-top">
               {days7.map(ds => {
                 const { top } = bucketsOf(ds);
-                const shown = top.slice(0, MEMO_MAX);
-                const rest  = top.length - shown.length;
+                const { shown, rest } = fitList(top, maxTop);
                 return (
                   <div key={ds} className={`cal-band-cell cal-day-add${dragOverDay === ds && dragging ? " drag-over" : ""}`}
                     title="Ajouter une tâche ce jour" {...dayDrop(ds)}>
@@ -1012,8 +1063,7 @@ function WeeklyCalendar() {
             <div className="cal-band cal-band-wait">
               {days7.map(ds => {
                 const { wait } = bucketsOf(ds);
-                const shown = wait.slice(0, WAIT_MAX);
-                const rest  = wait.length - shown.length;
+                const { shown, rest } = fitList(wait, maxWait);
                 return (
                   <div key={ds} className={`cal-band-cell cal-day-add${dragOverDay === ds && dragging ? " drag-over" : ""}`}
                     {...dayDrop(ds)}>
@@ -1030,13 +1080,12 @@ function WeeklyCalendar() {
 
       {/* Liste d'un jour / des projets masqués */}
       {listSheet && (
-        <div onClick={() => setListSheet(null)} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
-            width:"100%", maxWidth:560, maxHeight:"80vh", overflowY:"auto",
-            background:"var(--c-surface-2)", borderRadius:"22px 22px 0 0", border:"1px solid var(--c-border-mid)", borderBottom:"none",
-            padding:"14px 16px calc(20px + env(safe-area-inset-bottom))",
+        <div onClick={() => setListSheet(null)} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
+          <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={listSheet.title} className="pop-in theme-light" style={{
+            width:"100%", maxWidth:420, maxHeight:"80vh", overflowY:"auto", boxSizing:"border-box",
+            background:"var(--c-surface-2)", borderRadius:22, border:"1px solid var(--c-border-mid)",
+            padding:"14px 16px 16px",
           }}>
-            <div style={{ width:36, height:4, borderRadius:999, background:"var(--c-surface-3)", margin:"0 auto 14px" }} />
             <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
               <span style={{ flex:1, fontSize:15, fontWeight:700, color:"var(--c-text)", textTransform:"capitalize" }}>{listSheet.title}</span>
               <button onClick={() => setListSheet(null)} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:"var(--c-muted)", fontSize:17, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
@@ -3760,6 +3809,30 @@ const fmtFrMonth = iso => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR"
 const fmtNum1    = n => n.toFixed(1).replace(".", ",");
 const WEEKDAY_FR = ["Lun.","Mar.","Mer.","Jeu.","Ven.","Sam.","Dim."];
 const SHEET_GAP  = 26;   // rythme vertical unique entre les sections de la fiche
+
+// Taille réelle (largeur + hauteur) d'un conteneur. Mise à jour limitée à
+// une par frame et seulement si la valeur change : pas de rendu en boucle.
+function useBoxSize(extRef) {
+  const ownRef = useRef(null);
+  const ref = extRef || ownRef;
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const r = el.getBoundingClientRect();
+      const w = Math.floor(r.width), h = Math.floor(r.height);
+      setSize(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
+    };
+    measure();
+    const ro = new ResizeObserver(() => { if (!raf) raf = requestAnimationFrame(measure); });
+    ro.observe(el);
+    return () => { ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [ref]);
+  return [ref, size];
+}
 
 // Largeur réelle du conteneur : les carrés et la courbe s'y adaptent au lieu
 // de déborder ou d'imposer un défilement horizontal.
