@@ -122,6 +122,34 @@ Réponse `200` :
 { "weekly_reviews": [ … ], "monthly_reviews": [ … ], "weekly_objectives": [ … ], "monthly_goals": [ … ] }
 ```
 
+## Objectifs (OKR) : /goals
+
+Niveaux : `lt`, `annuel`, `trimestriel`, `mensuel`. Un objectif a des résultats clés (`krs`) et peut avoir un parent du niveau supérieur. Comme les tâches, l'écriture passe par la file `api_ops` (migration 025) : l'app applique les ops à l'ouverture, au retour sur l'onglet et toutes les 60 s.
+
+### GET /goals
+
+`?archived=true` pour inclure les objectifs archivés. Réponse `200` : `{ "goals": { "lt": [ … ], "annuel": [ … ], "trimestriel": [ … ], "mensuel": [ … ] } }` (ops en attente incluses).
+
+### POST /goals
+
+Un objectif par requête.
+
+| Champ | Règle |
+|---|---|
+| `level` | obligatoire : `lt` \| `annuel` \| `trimestriel` \| `mensuel` |
+| `titre` | obligatoire, 200 caractères max |
+| `statut` | `Ça arrive` \| `En cours` (défaut) \| `C'est chaud` \| `Atteint` \| `Échoué` \| `Abandonné` |
+| `spaces` | tableau de 4 textes max (ex. `["Business"]`) |
+| `periode` | niveaux annuel/trimestriel/mensuel : `{ "type": "year", "year": 2027 }`, `{ "type": "quarter", "year": 2026, "quarter": 3 }` (0 = T1), `{ "type": "month", "year": 2026, "month": 9 }` (0 = janvier). Défaut : période courante. Interdit au niveau `lt`. `dateCloture` est calculée |
+| `parentId` | id d'un objectif existant du niveau supérieur |
+| `krs` | 8 max : `{ "nom", "depart", "cible", "actuelle"? }` (nombres) |
+
+6 objectifs actifs maximum par niveau (comme dans l'app). Réponse `201` : `{ "level", "goal" }`.
+
+### PATCH /goals/:id
+
+Champs : `titre`, `statut`, `spaces`, `periode`, `parentId` (`null` pour retirer), `krs` (**remplace la liste** : renvoyer les résultats clés existants avec leur `id`), `archived`. Pas de DELETE : `archived: true` pour retirer un objectif. Réponse `200` : `{ "level", "goal" }`.
+
 ---
 
 ## Erreurs

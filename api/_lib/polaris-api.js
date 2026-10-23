@@ -12,6 +12,8 @@
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { applyOps } from "../../src/utils/todoOps.js";
+import { GOAL_LEVELS, applyGoalOps } from "../../src/utils/goalOps.js";
+import { periodeTypeForLevel, computeCloture, defaultPeriode } from "../../src/utils/date.js";
 
 export const RATE_LIMIT_PER_MIN = 60;
 
@@ -176,4 +178,115 @@ export function validatePatch(input) {
   const { errors, value } = validateFields(input, UPDATE_FIELDS, { partial: true });
   if (!errors.length && !Object.keys(value).length) errors.push("aucun champ à modifier");
   return errors.length ? { errors } : { patch: value };
+}
+
+// ── Objectifs (OKR) ────────────────────────────────────────────────────────
+const GOAL_STATUTS = ["Ça arrive", "En cours", "C'est chaud", "Atteint", "Échoué", "Abandonné"];
+const GOAL_PARENT = { annuel: "lt", trimestriel: "annuel", mensuel: "trimestriel" };
+const GOAL_MAX_PER_LEVEL = 6; // même plafond que l'app (OBJ_MAX_PER_LEVEL)
+const GOAL_MAX_KRS = 8;
+const isNum = v => typeof v === "number" && Number.isFinite(v);
+
+/** Objectifs tels que l'app les verra une fois les ops en attente appliquées. */
+export async function currentGoals(db, userId) {
+  const [row, ops] = await Promise.all([loadUserRow(db, userId, "goals"), pendingOps(db, userId)]);
+  return applyGoalOps(row.goals && typeof row.goals === "object" ? row.goals : {}, ops);
+}
+
+function checkPeriode(level, p) {
+  const type = periodeTypeForLevel(level);
+  if (!type) return { error: "periode n'existe pas au niveau lt" };
+  if (!p || typeof p !== "object" || Array.isArray(p)) return { error: "periode doit être un objet { type, year, … }" };
+  if (p.type !== type) return { error: `periode.type doit valoir ${type} au niveau ${level}` };
+  if (!Number.isInteger(p.year) || p.year < 2000 || p.year > 2100) return { error: "periode.year doit être une année (2000-2100)" };
+  if (type === "quarter" && !(Number.isInteger(p.quarter) && p.quarter >= 0 && p.quarter <= 3)) return { error: "periode.quarter doit valoir 0 à 3 (0 = T1)" };
+  if (type === "month" && !(Number.isInteger(p.month) && p.month >= 0 && p.month <= 11)) return { error: "periode.month doit valoir 0 à 11 (0 = janvier)" };
+  const periode = { type, year: p.year, month: type === "month" ? p.month : 0, quarter: type === "quarter" ? p.quarter : 0 };
+  return { periode, dateCloture: computeCloture(periode) };
+}
+
+function checkKrs(list) {
+  if (!Array.isArray(list)) return { error: "krs doit être un tableau" };
+  if (list.length > GOAL_MAX_KRS) return { error: `krs : ${GOAL_MAX_KRS} résultats clés maximum` };
+  const errors = [];
+  const krs = list.map((k, i) => {
+    if (!k || typeof k !== "object" || Array.isArray(k)) { errors.push(`krs[${i}] : objet attendu`); return null; }
+    const nomErr = str(200)(k.nom, `krs[${i}].nom`);
+    if (nomErr) errors.push(nomErr);
+    for (const f of ["depart", "cible"]) if (!isNum(k[f])) errors.push(`krs[${i}].${f} doit être un nombre`);
+    if (k.actuelle !== undefined && !isNum(k.actuelle)) errors.push(`krs[${i}].actuelle doit être un nombre`);
+    if (k.id !== undefined && (typeof k.id !== "string" || !k.id || k.id.length > 64)) errors.push(`krs[${i}].id invalide`);
+    return { id: k.id || makeId(), nom: String(k.nom ?? "").trim(), depart: k.depart, actuelle: k.actuelle ?? k.depart, cible: k.cible };
+  });
+  return errors.length ? { error: errors } : { krs };
+}
+
+function checkParent(goals, level, parentId) {
+  const parentLevel = GOAL_PARENT[level];
+  if (!parentLevel) return `le niveau ${level} n'a pas de parent`;
+  const parent = (goals[parentLevel] || []).find(o => o.id === parentId);
+  return parent ? null : `parentId : aucun objectif ${parentLevel} avec l'id ${parentId}`;
+}
+
+function checkSpaces(v) {
+  if (!Array.isArray(v) || v.length > 4 || v.some(s => typeof s !== "string" || !s.trim() || s.length > 60)) return "spaces doit être un tableau de 4 textes maximum";
+  return null;
+}
+
+/** Valide un objectif à créer. `goals` = état courant (parent, plafond par niveau). */
+export function buildNewGoal(input, goals) {
+  const ALLOWED = ["level", "titre", "statut", "spaces", "periode", "parentId", "krs"];
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { errors: ["objet JSON attendu"] };
+  const errors = Object.keys(input).filter(k => !ALLOWED.includes(k)).map(k => `champ inconnu : ${k}`);
+  const { level } = input;
+  if (!GOAL_LEVELS.includes(level)) errors.push(`level doit valoir ${GOAL_LEVELS.join(" | ")}`);
+  const titreErr = str(200)(input.titre, "titre");
+  if (titreErr) errors.push(titreErr);
+  if (input.statut !== undefined && !GOAL_STATUTS.includes(input.statut)) errors.push(`statut doit valoir ${GOAL_STATUTS.join(" | ")}`);
+  if (input.spaces !== undefined) { const e = checkSpaces(input.spaces); if (e) errors.push(e); }
+  if (errors.length) return { errors };
+
+  const goal = { titre: input.titre.trim(), statut: input.statut || "En cours", spaces: input.spaces || [], krs: [] };
+  if ((goals[level] || []).filter(o => !o.archived).length >= GOAL_MAX_PER_LEVEL) errors.push(`${GOAL_MAX_PER_LEVEL} objectifs actifs maximum au niveau ${level}`);
+  if (input.parentId !== undefined) {
+    const e = checkParent(goals, level, input.parentId);
+    if (e) errors.push(e); else goal.parentId = input.parentId;
+  }
+  if (periodeTypeForLevel(level)) {
+    const per = checkPeriode(level, input.periode ?? defaultPeriode(level));
+    if (per.error) errors.push(per.error); else { goal.periode = per.periode; goal.dateCloture = per.dateCloture; }
+  } else if (input.periode !== undefined) {
+    errors.push("periode n'existe pas au niveau lt");
+  }
+  if (input.krs !== undefined) {
+    const k = checkKrs(input.krs);
+    if (k.error) errors.push(...[].concat(k.error)); else goal.krs = k.krs;
+  }
+  return errors.length ? { errors } : { level, goal: { id: makeId(), ...goal } };
+}
+
+/** Valide la modification d'un objectif existant (`found` = { level, goal }). */
+export function validateGoalPatch(input, goals, found) {
+  const ALLOWED = ["titre", "statut", "spaces", "periode", "parentId", "krs", "archived"];
+  if (!input || typeof input !== "object" || Array.isArray(input)) return { errors: ["objet JSON attendu"] };
+  const errors = Object.keys(input).filter(k => !ALLOWED.includes(k)).map(k => `champ inconnu : ${k}`);
+  const patch = {};
+  if (input.titre !== undefined) { const e = str(200)(input.titre, "titre"); if (e) errors.push(e); else patch.titre = input.titre.trim(); }
+  if (input.statut !== undefined) { if (!GOAL_STATUTS.includes(input.statut)) errors.push(`statut doit valoir ${GOAL_STATUTS.join(" | ")}`); else patch.statut = input.statut; }
+  if (input.spaces !== undefined) { const e = checkSpaces(input.spaces); if (e) errors.push(e); else patch.spaces = input.spaces; }
+  if (input.archived !== undefined) { if (typeof input.archived !== "boolean") errors.push("archived doit être true ou false"); else patch.archived = input.archived; }
+  if (input.parentId !== undefined) {
+    if (input.parentId === null) patch.parentId = null;
+    else { const e = checkParent(goals, found.level, input.parentId); if (e) errors.push(e); else patch.parentId = input.parentId; }
+  }
+  if (input.periode !== undefined) {
+    const per = checkPeriode(found.level, input.periode);
+    if (per.error) errors.push(per.error); else { patch.periode = per.periode; patch.dateCloture = per.dateCloture; }
+  }
+  if (input.krs !== undefined) {
+    const k = checkKrs(input.krs);
+    if (k.error) errors.push(...[].concat(k.error)); else patch.krs = k.krs;
+  }
+  if (!errors.length && !Object.keys(patch).length) errors.push("aucun champ à modifier");
+  return errors.length ? { errors } : { patch };
 }

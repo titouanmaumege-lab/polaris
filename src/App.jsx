@@ -17,6 +17,7 @@ import {
 } from "./utils/date";
 import { uid } from "./utils/id";
 import { calculateNextOccurrence, toggleDoneIn, applyOps } from "./utils/todoOps";
+import { applyGoalOps } from "./utils/goalOps";
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
 import {
@@ -2464,8 +2465,13 @@ function MiroRoadmap({ name = "Roadmap", emoji = "🗺", onMeta }) {
   );
 }
 
+// Instances montées qui tiennent une copie de lp_goals : les opérations de l'API
+// (applyApiOpsToStore) les rafraîchissent pour qu'elles n'écrasent pas le nouvel état.
+const _goalSubs = new Set();
+
 function ObjectifsModule({ initialTab = "lt" }) {
   const [goals, setGoals]   = useState(()=>getLS("lp_goals",NOTION_GOALS));
+  useEffect(() => { _goalSubs.add(setGoals); return () => { _goalSubs.delete(setGoals); }; }, []);
   const [tab, setTab]       = useState(initialTab);
   useEffect(()=>{ if(initialTab) setTab(initialTab); }, [initialTab]);
   const [rmName, setRmName]   = useState(()=>getLS("lp_roadmap_name","Roadmap"));
@@ -2732,6 +2738,13 @@ async function applyApiOpsToStore(ops, userId) {
   const next = applyOps(loadTodos(), ops, uid);
   setLS("leplan_todos", next);
   _todoSubs.forEach(fn => fn(next));
+  // Objectifs (OKR) : mêmes ops, autres types (add_goal, update_goal).
+  const goalOps = ops.filter(o => o.type === "add_goal" || o.type === "update_goal");
+  if (goalOps.length) {
+    const goals = applyGoalOps(getLS("lp_goals", NOTION_GOALS), goalOps);
+    setLS("lp_goals", goals);
+    _goalSubs.forEach(fn => fn(goals));
+  }
   // Envoi immédiat plutôt que le debounce de 1,5 s : les ops sont déjà
   // marquées appliquées côté serveur, un onglet fermé entre-temps les perdrait.
   if (userId) await syncToSupabase(userId).catch(() => {});
@@ -5484,6 +5497,7 @@ function AscentPanorama({ p, idKey }) {
 function MonthlyKRTracker({ onNav }) {
   const C = CF, FONT_D = CF_FONT;
   const [goals, setGoals] = useState(() => getLS("lp_goals", NOTION_GOALS));
+  useEffect(() => { _goalSubs.add(setGoals); return () => { _goalSubs.delete(setGoals); }; }, []);
   const [drafts, setDrafts] = useState({});
   const [openId, setOpenId] = useState(null); // accordéon : un seul panorama déplié
   const saveGoals = g => { setGoals(g); setLS("lp_goals", g); };
