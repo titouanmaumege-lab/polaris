@@ -448,6 +448,7 @@ function WeeklyCalendar() {
   }, []);
   const [selIdx, setSelIdx] = useState(() => (new Date().getDay() + 6) % 7);
   const [checkOpen, setCheckOpen] = useState(false);
+  const [rz, setRz] = useState(null); // étirement en cours : { id, kind: "start"|"end", ds }
   const swipeRef = useRef(null);
   const [editId, setEditId] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -539,6 +540,7 @@ function WeeklyCalendar() {
   // (projets + tâches étendues par drag ; ISO YYYY-MM-DD → comparaison lexicographique sûre)
   const spanItems = todos
     .filter(it => it.gtd !== "check" && !it.recurrence?.enabled && it.dateDebut && it.dateFin && !it.done)
+    .map(it => rz && rz.id === it.id ? (rz.kind === "end" ? { ...it, dateFin:rz.ds } : { ...it, dateDebut:rz.ds }) : it)
     .filter(it => it.dateFin >= weekStart && it.dateDebut <= weekEnd)
     .map(it => {
       let startCol = days7.findIndex(ds => ds >= it.dateDebut);   // 0-based, premier jour visible couvert
@@ -618,6 +620,39 @@ function WeeklyCalendar() {
     const el = boardRef.current; if (!el) return 0;
     const r = el.getBoundingClientRect();
     return Math.max(0, Math.min(6, Math.floor((e.clientX - r.left) / (r.width / 7))));
+  };
+
+  // Étirer / raccourcir un projet en tirant sa poignée : la date s'accroche au jour sous le pointeur,
+  // la barre suit en direct, la date n'est écrite qu'au relâchement. Souris et tactile (pas de HTML5 drag).
+  const startResize = (e, it, kind) => {
+    if (e.button !== undefined && e.button !== 0) return;
+    e.preventDefault(); e.stopPropagation();
+    const bar = e.currentTarget.closest(".cal-ribbon");
+    if (bar) bar.draggable = false;               // sinon le navigateur lance le déplacement de la barre
+    const startDs = it.dateDebut, endDs = it.dateFin;
+    const orig = kind === "end" ? endDs : startDs;
+    let cur = orig;
+    const move = ev => {
+      let ds = days7[colFromEvent(ev)];
+      if (kind === "end" && ds < startDs) ds = startDs;     // au moins 1 jour
+      if (kind === "start" && ds > endDs) ds = endDs;
+      if (ds !== cur) { cur = ds; setRz({ id: it.id, kind, ds }); }
+    };
+    const finish = commit => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", cancel);
+      document.body.style.userSelect = "";
+      if (bar) bar.draggable = true;
+      setRz(null);
+      if (commit && cur !== orig) updateTodo(it.id, kind === "end" ? { dateFin:cur } : { dateDebut:cur });
+    };
+    const up = () => finish(true), cancel = () => finish(false);
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", cancel);
+    setRz({ id: it.id, kind, ds: cur });
   };
 
   const dropOnDay = ds => {
@@ -728,14 +763,13 @@ function WeeklyCalendar() {
       : null;
 
     const Grip = ({ kind, edgeSide }) => (
-      <span draggable
-        onDragStart={e => { e.stopPropagation(); startDrag(e, { kind, id: it.id, originDay: kind === "resize-end" ? it.dateFin : it.dateDebut }); }}
-        onDragEnd={endDrag} onClick={e => e.stopPropagation()}
-        title={kind === "resize-end" ? "Étirer la fin" : "Étirer le début"}
+      <span onPointerDown={e => startResize(e, it, kind)} onClick={e => e.stopPropagation()}
+        title={kind === "end" ? "Tirer pour étirer ou raccourcir la fin" : "Tirer pour étirer ou raccourcir le début"}
         className="cal-drag-handle"
-        style={{ position:"absolute", top:0, bottom:0, [edgeSide]:0, width:8, cursor:"ew-resize",
-          display:"inline-flex", alignItems:"center", justifyContent:"center",
-          color:"rgba(255,255,255,0.7)", fontSize:9, fontWeight:900 }}>⋮</span>
+        style={{ position:"absolute", top:0, bottom:0, [edgeSide]:0, width:18, zIndex:2, opacity:0.85, cursor:"ew-resize", touchAction:"none",
+          display:"flex", alignItems:"center", justifyContent:"center" }}>
+        <span style={{ width:4, height:18, borderRadius:2, background:"rgba(255,255,255,0.9)", boxShadow:"0 0 0 1px rgba(0,0,0,0.2)" }} />
+      </span>
     );
 
     return (
@@ -762,11 +796,11 @@ function WeeklyCalendar() {
           <span style={{ position:"absolute", left:`${pct}%`, right:0, top:0, bottom:0,
             background:"rgba(0,0,0,0.26)", pointerEvents:"none" }} />
         )}
-        {!cl && <Grip kind="resize-start" edgeSide="left" />}
-        {!cr && <Grip kind="resize-end" edgeSide="right" />}
+        {!cl && !isPhone && <Grip kind="start" edgeSide="left" />}
+        {!cr && !isPhone && <Grip kind="end" edgeSide="right" />}
 
         {/* Ligne 1 — le nom, et lui seul, plus la coche */}
-        <span style={{ position:"relative", display:"flex", alignItems:"center", gap:8, minWidth:0, paddingLeft: cl ? 6 : 4, paddingRight: cr ? 6 : 4 }}>
+        <span style={{ position:"relative", display:"flex", alignItems:"center", gap:8, minWidth:0, paddingLeft: cl || isPhone ? 6 : 16, paddingRight: cr || isPhone ? 6 : 16 }}>
           {cl && <span style={{ fontSize:10, opacity:0.75 }}>‹</span>}
           <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:700, whiteSpace:"nowrap",
             overflow:"hidden", textOverflow:"ellipsis", textShadow:"0 1px 2px rgba(0,0,0,0.3)" }}>{it.name}</span>
@@ -789,7 +823,7 @@ function WeeklyCalendar() {
         {/* Ligne 2 — la prochaine action à gauche, l'échéance à droite */}
         {(lead || deadline) && (
           <span style={{ position:"relative", display:"flex", alignItems:"baseline", gap:10, minWidth:0,
-            paddingLeft: cl ? 6 : 4, paddingRight: cr ? 6 : 4, fontSize:10,
+            paddingLeft: cl || isPhone ? 6 : 16, paddingRight: cr || isPhone ? 6 : 16, fontSize:10,
             color: late ? "#FFD4D4" : "rgba(255,255,255,0.86)" }}>
             <span style={{ flex:1, minWidth:0, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{lead}</span>
             {deadline && (
