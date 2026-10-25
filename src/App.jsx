@@ -2747,51 +2747,143 @@ function ObjectifLinkPicker({ value, onChange, required = false, colors = C }) {
 }
 
 // ── TaskSummaryModal ──
-// ── DayCreateModal — clic sur un jour → choix du type → formulaire complet (date pré-remplie)
-// initialType : ouvre directement le formulaire d'un type donné (ex. le « + »
-// du panneau Check Tasks), sans passer par le choix du type.
+// ── Création de tâche, logique GTD : capture = un nom (→ inbox) ; tri = le strict minimum par type.
+// Tout le reste (sphère, matrice, récurrence…) est replié sous « Plus ».
+const taskReady = (f, needGoal) => !!f.gtd && f.name.trim() &&
+  (f.gtd !== "projet"  || (f.dateFin && (!needGoal || f.objectifId))) &&
+  (f.gtd !== "memo"    || f.dateAssignee) &&
+  (f.gtd !== "waiting" || f.waitingFor.trim());
+
+const taskFromForm = (f, sousTaches = []) => {
+  const u = { name:f.name.trim(), gtd:f.gtd, sphere:f.sphere || undefined };
+  if (f.gtd === "projet") Object.assign(u, { matrice:f.matrice || undefined, dateDebut:f.dateDebut || undefined, dateFin:f.dateFin, dateFinType:f.dateFinType || "duedate", statut:f.statut || "a_planifier", sousTaches, objectifId:f.objectifId || undefined, objectifMensuelId:undefined });
+  else if (f.gtd === "memo")    u.dateAssignee = f.dateAssignee;
+  else if (f.gtd === "check")   u.dateAssignee = f.dateAssignee || undefined;
+  else if (f.gtd === "waiting") Object.assign(u, { waitingFor:f.waitingFor.trim(), waitingNote:f.waitingNote || undefined, dateAssignee:f.dateAssignee || undefined });
+  if (f.recurrence?.enabled && f.gtd !== "someday") u.recurrence = f.recurrence;
+  return u;
+};
+
+const TRIAGE_TYPES = [
+  ["memo",    "📝 Mémo",     "#6366f1"],
+  ["projet",  "🔴 Projet",   null],
+  ["waiting", "⏳ Waiting",  null],
+  ["check",   "✅ Check",    null],
+  ["someday", "💭 Someday",  null],
+];
+
+// Champs d'une tâche à trier : essentiels visibles selon le type, le reste sous « Plus ».
+function TaskTriageFields({ form, set }) {
+  const [more, setMore] = useState(false);
+  const g = form.gtd;
+  // Un seul objectif mensuel en cours : pas besoin de le choisir.
+  useEffect(() => {
+    if (g !== "projet" || form.objectifId) return;
+    const r = runningGoals(getLS("lp_goals", {}), todayStr());
+    if (r.length === 1) set({ objectifId:r[0].id });
+  }, [g]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!g) return null;
+
+  const lbl = { fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 };
+  const inp = { width:"100%", background:C.surface2, border:`1px solid ${C.border}`, color:C.text, padding:9, borderRadius:10, fontSize:13, fontFamily:"inherit", outline:"none", boxSizing:"border-box" };
+  const addDays = n => { const d = new Date(todayStr() + "T12:00:00"); d.setDate(d.getDate() + n); return d.toISOString().split("T")[0]; };
+  const dateField = (k, label) => (
+    <div style={{ marginBottom:14 }}>
+      <div style={lbl}>{label}</div>
+      <div style={{ display:"flex", gap:6, marginBottom:6, flexWrap:"wrap" }}>
+        {[["Aujourd'hui", 0], ["Demain", 1], ["+1 sem.", 7]].map(([l, n]) => (
+          <button key={l} onClick={() => set({ [k]:addDays(n) })} style={{ padding:"5px 11px", borderRadius:999, border:`1px solid ${form[k] === addDays(n) ? C.accent : C.border}`, background:form[k] === addDays(n) ? C.accentBg : "transparent", color:form[k] === addDays(n) ? C.accent : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{l}</button>
+        ))}
+      </div>
+      <input type="date" value={form[k]} onChange={e => set({ [k]:e.target.value })} style={inp} />
+    </div>
+  );
+
+  return (<>
+    {g === "memo" && dateField("dateAssignee", "Quel jour ? *")}
+    {g === "projet" && dateField("dateFin", "Date de fin *")}
+    {g === "projet" && <ObjectifLinkPicker value={form.objectifId} onChange={v => set({ objectifId:v })} required />}
+    {g === "waiting" && (
+      <div style={{ marginBottom:14 }}>
+        <div style={lbl}>Qui ? *</div>
+        <Input value={form.waitingFor} onChange={v => set({ waitingFor:v })} placeholder="Nom de la personne ou entité..." />
+      </div>
+    )}
+
+    <button onClick={() => setMore(m => !m)} style={{ display:"inline-flex", alignItems:"center", gap:6, marginBottom:more ? 12 : 4, background:"transparent", border:"none", color:C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer", padding:0 }}>
+      {more ? "▾" : "▸"} Plus <span style={{ color:C.faint }}>(sphère{g === "projet" ? ", matrice, dates" : ""}{g !== "someday" ? ", récurrence" : ""})</span>
+    </button>
+
+    {more && (<>
+      <div style={{ marginBottom:14 }}>
+        <div style={lbl}>Sphère</div>
+        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+          {Object.entries(SPHERES).map(([k, v]) => (
+            <button key={k} onClick={() => set({ sphere:form.sphere === k ? null : k })} style={{ padding:"6px 12px", borderRadius:999, border:`1px solid ${form.sphere === k ? v.c : C.border}`, background:form.sphere === k ? v.c + "22" : "transparent", color:form.sphere === k ? v.c : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{v.label}</button>
+          ))}
+        </div>
+      </div>
+      {g === "projet" && (<>
+        <div style={{ marginBottom:14 }}>
+          <div style={lbl}>Matrice</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {Object.entries(MATRICES).map(([k, v]) => (
+              <button key={k} onClick={() => set({ matrice:form.matrice === k ? null : k })} style={{ padding:"10px", borderRadius:12, border:`1px solid ${form.matrice === k ? C.accent : C.border}`, background:form.matrice === k ? C.accentBg : C.surface2, color:form.matrice === k ? C.accent : C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer", textAlign:"center" }}>{v.label}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Date début</div>
+          <input type="date" value={form.dateDebut} onChange={e => set({ dateDebut:e.target.value })} style={inp} />
+        </div>
+        <div style={{ display:"flex", gap:8, marginBottom:14 }}>
+          {[["deadline", "🔴 Deadline"], ["duedate", "🔵 Due Date"]].map(([k, l]) => (
+            <button key={k} onClick={() => set({ dateFinType:k })} style={{ flex:1, padding:9, borderRadius:10, border:`1px solid ${form.dateFinType === k ? C.accent : C.border}`, background:form.dateFinType === k ? C.accentBg : "transparent", color:form.dateFinType === k ? C.accent : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{l}</button>
+          ))}
+        </div>
+      </>)}
+      {(g === "check" || g === "waiting") && (
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>{g === "waiting" ? "Date de relance" : "Date"}</div>
+          <input type="date" value={form.dateAssignee} onChange={e => set({ dateAssignee:e.target.value })} style={inp} />
+        </div>
+      )}
+      {g === "waiting" && (
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Note</div>
+          <Input value={form.waitingNote} onChange={v => set({ waitingNote:v })} placeholder="Contexte..." />
+        </div>
+      )}
+      {g !== "someday" && <RecurrenceToggle value={form.recurrence} onChange={r => set({ recurrence:r })} />}
+    </>)}
+  </>);
+}
+
+// Choix du type en une rangée de puces
+function TaskTypeChips({ value, onChange }) {
+  return (
+    <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:4, marginBottom:14 }}>
+      {TRIAGE_TYPES.map(([k, l]) => (
+        <button key={k} onClick={() => onChange(k)} style={{ flexShrink:0, padding:"8px 14px", borderRadius:999, border:`1px solid ${value === k ? C.accent : C.border}`, background:value === k ? C.accentBg : "transparent", color:value === k ? C.accent : C.muted, fontSize:13, fontFamily:"inherit", cursor:"pointer", minHeight:36 }}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
+// ── DayCreateModal — clic sur un jour → nom + type (Mémo par défaut) ; la date du jour est pré-remplie
+// initialType : ouvre directement avec un type donné (ex. le « + » du panneau Check Tasks).
 function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
-  const [gtd, setGtd] = useState(initialType);
   const [form, setForm] = useState({
-    name:"", sphere:null, matrice:null,
+    name:"", gtd:initialType || "memo", sphere:null, matrice:null,
     dateDebut:date, dateFin:date, dateFinType:"duedate",
     dateAssignee:date, waitingFor:"", waitingNote:"",
     recurrence:null, objectifId:"",
   });
   const set = p => setForm(f => ({ ...f, ...p }));
   const needGoal = runningGoals(getLS("lp_goals", {}), todayStr()).length > 0;
+  const ready = taskReady(form, needGoal);
+  const submit = () => { if (ready) onCreate(taskFromForm(form)); };
   const dateLong = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" });
-
-  const TYPES = [
-    ["projet",  "🔴", "Projet",      C.red   ],
-    ["memo",    "📝", "Mémo",        C.blue  ],
-    ["waiting", "⏳", "Waiting For", C.amber ],
-    ["check",   "✅", "Check Task",  C.green ],
-  ];
-  const tc = (TYPES.find(t => t[0] === gtd) || [,,,C.accent])[3];
-
-  const canCreate = !!gtd && form.name.trim() &&
-    (gtd !== "projet"  || (form.sphere && form.matrice && form.dateFin && (!needGoal || form.objectifId))) &&
-    (gtd !== "waiting" || form.waitingFor.trim());
-
-  const handleCreate = () => {
-    if (!canCreate) return;
-    const u = { name:form.name.trim(), gtd, sphere:form.sphere || undefined };
-    if (gtd === "projet")  Object.assign(u, { matrice:form.matrice, dateDebut:form.dateDebut || undefined, dateFin:form.dateFin, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[], objectifId:form.objectifId || undefined });
-    else if (gtd === "memo")    u.dateAssignee = form.dateAssignee || undefined;
-    else if (gtd === "check")   u.dateAssignee = form.dateAssignee || undefined;
-    else if (gtd === "waiting") Object.assign(u, { waitingFor:form.waitingFor.trim(), waitingNote:form.waitingNote || undefined, dateAssignee:form.dateAssignee || undefined });
-    if (form.recurrence?.enabled) u.recurrence = form.recurrence;
-    onCreate(u);
-  };
-
-  const DateField = ({ label, k }) => (
-    <div style={{ flex:1 }}>
-      <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>{label}</div>
-      <input type="date" value={form[k]} onChange={e => set({ [k]:e.target.value })}
-        style={{ width:"100%", background:C.surface2, border:`1px solid ${C.border}`, color:C.text, padding:9, borderRadius:10, fontSize:12, fontFamily:"inherit", outline:"none", boxSizing:"border-box" }} />
-    </div>
-  );
 
   return (
     <div onClick={onClose} style={{
@@ -2799,107 +2891,24 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
       display:"flex", alignItems:"center", justifyContent:"center", zIndex:2000, padding:16,
     }}>
       <div onClick={e => e.stopPropagation()} className="slide-up" style={{
-        position:"relative", background:C.surface, border:`1px solid ${tc}55`, borderRadius:22,
+        position:"relative", background:C.surface, border:`1px solid ${C.accent}55`, borderRadius:22,
         width:"100%", maxWidth:440, maxHeight:"88vh", overflowY:"auto",
-        boxShadow:`0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${tc}22`,
+        boxShadow:`0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${C.accent}22`,
       }}>
-        <div style={{ height:4, background:`linear-gradient(90deg, ${tc}, ${tc}00)` }} />
         <div style={{ padding:22 }}>
-          {/* Header */}
-          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:18 }}>
+          <div style={{ display:"flex", alignItems:"flex-start", gap:10, marginBottom:16 }}>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontSize:17, fontWeight:700, color:C.text }}>Nouvelle tâche</div>
               <div style={{ fontSize:12, color:C.accent, fontWeight:600, marginTop:3, textTransform:"capitalize" }}>{dateLong}</div>
             </div>
             <button onClick={onClose} title="Fermer" style={{ width:32, height:32, borderRadius:10, flexShrink:0, cursor:"pointer", fontFamily:"inherit", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:14, background:"transparent", border:"none", color:C.muted }}>✕</button>
           </div>
-
-          {/* Step 1 — type picker */}
-          {!gtd && (
-            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
-              {TYPES.map(([k, ic, l, c]) => (
-                <button key={k} onClick={() => setGtd(k)} style={{
-                  display:"flex", flexDirection:"column", alignItems:"center", gap:8, padding:"20px 10px",
-                  borderRadius:16, border:`1px solid ${c}40`, background:`linear-gradient(180deg, ${c}14, ${C.surface2})`,
-                  color:C.text, fontFamily:"inherit", cursor:"pointer", boxShadow:`0 0 12px ${c}1f`,
-                }}>
-                  <span style={{ fontSize:26 }}>{ic}</span>
-                  <span style={{ fontSize:13, fontWeight:700, color:c }}>{l}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Step 2 — full form */}
-          {gtd && (<>
-            {!initialType && <button onClick={() => setGtd(null)} style={{ display:"inline-flex", alignItems:"center", gap:5, marginBottom:16, background:"transparent", border:"none", color:C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>‹ Changer de type</button>}
-
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Nom</div>
-              <Input value={form.name} onChange={v => set({ name:v })} placeholder="Nom de la tâche..." autoFocus />
-            </div>
-
-            <div style={{ marginBottom:14 }}>
-              <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Sphère{gtd === "projet" ? " *" : ""}</div>
-              <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                {Object.entries(SPHERES).map(([k, v]) => (
-                  <button key={k} onClick={() => set({ sphere:form.sphere === k ? null : k })} style={{ padding:"6px 12px", borderRadius:999, border:`1px solid ${form.sphere === k ? v.c : C.border}`, background:form.sphere === k ? v.c + "22" : "transparent", color:form.sphere === k ? v.c : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{v.label}</button>
-                ))}
-              </div>
-            </div>
-
-            {gtd === "projet" && (<>
-              <div style={{ marginBottom:14 }}>
-                <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>Matrice *</div>
-                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-                  {Object.entries(MATRICES).map(([k, v]) => (
-                    <button key={k} onClick={() => set({ matrice:form.matrice === k ? null : k })} style={{ padding:"10px", borderRadius:12, border:`1px solid ${form.matrice === k ? C.accent : C.border}`, background:form.matrice === k ? C.accentBg : C.surface2, color:form.matrice === k ? C.accent : C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer", textAlign:"center" }}>{v.label}</button>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display:"flex", gap:10, marginBottom:12 }}>
-                <DateField label="Date début" k="dateDebut" />
-                <DateField label="Date fin *" k="dateFin" />
-              </div>
-              <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-                {[["deadline","🔴 Deadline"],["duedate","🔵 Due Date"]].map(([k, l]) => (
-                  <button key={k} onClick={() => set({ dateFinType:k })} style={{ flex:1, padding:9, borderRadius:10, border:`1px solid ${form.dateFinType === k ? C.accent : C.border}`, background:form.dateFinType === k ? C.accentBg : "transparent", color:form.dateFinType === k ? C.accent : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{l}</button>
-                ))}
-              </div>
-              <ObjectifLinkPicker value={form.objectifId} onChange={v => set({ objectifId:v })} required />
-            </>)}
-
-            {gtd === "memo" && (
-              <div style={{ marginBottom:14 }}>
-                <DateField label={form.recurrence?.enabled ? "Date de la 1ère récurrence *" : "Date assignée *"} k="dateAssignee" />
-              </div>
-            )}
-
-            {gtd === "check" && (
-              <div style={{ marginBottom:14 }}>
-                <DateField label={form.recurrence?.enabled ? "Date de la 1ère récurrence" : "Date (optionnel)"} k="dateAssignee" />
-              </div>
-            )}
-
-            {gtd === "waiting" && (<>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Qui ? *</div>
-                <Input value={form.waitingFor} onChange={v => set({ waitingFor:v })} placeholder="Nom de la personne ou entité..." />
-              </div>
-              <div style={{ marginBottom:12 }}>
-                <DateField label="Date de relance" k="dateAssignee" />
-              </div>
-              <div style={{ marginBottom:14 }}>
-                <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Note (optionnel)</div>
-                <Input value={form.waitingNote} onChange={v => set({ waitingNote:v })} placeholder="Contexte..." />
-              </div>
-            </>)}
-
-            {/* Récurrente ? */}
-            <RecurrenceToggle value={form.recurrence} onChange={r => set({ recurrence:r })} />
-
-            <Btn onClick={handleCreate} variant="accent" disabled={!canCreate} style={{ width:"100%", marginTop:4 }}>Créer la tâche</Btn>
-          </>)}
+          <div style={{ marginBottom:14 }}>
+            <Input value={form.name} onChange={v => set({ name:v })} onKeyDown={e => e.key === "Enter" && submit()} placeholder="Nom de la tâche..." autoFocus />
+          </div>
+          <TaskTypeChips value={form.gtd} onChange={gtd => set({ gtd })} />
+          <TaskTriageFields form={form} set={set} />
+          <Btn onClick={submit} variant="accent" disabled={!ready} style={{ width:"100%", marginTop:4 }}>Créer la tâche</Btn>
         </div>
       </div>
     </div>
@@ -3131,7 +3140,7 @@ function ProjectCard({item, todos, onUpdate, onDelete, onToggleDone, onEdit}) {
   );
 }
 
-// ── ClarifyModal ──
+// ── ClarifyModal — tri d'une tâche de l'inbox : un type, ses champs essentiels, le reste sous « Plus » ──
 function ClarifyModal({item, onSave, onClose}) {
   const [form, setForm] = useState({
     gtd: item.gtd==="inbox"?"":item.gtd, name:item.name,
@@ -3139,91 +3148,25 @@ function ClarifyModal({item, onSave, onClose}) {
     dateDebut:item.dateDebut||"", dateFin:item.dateFin||"",
     dateFinType:item.dateFinType||"duedate", statut:item.statut||"a_planifier",
     dateAssignee:item.dateAssignee||"", waitingFor:item.waitingFor||"", waitingNote:item.waitingNote||"",
-    objectifId:todoGoalId(item),
+    objectifId:todoGoalId(item), recurrence:item.recurrence||null,
   });
   const set = p => setForm(f=>({...f,...p}));
   const needGoal = runningGoals(getLS("lp_goals",{}),todayStr()).length>0;
-  const canConfirm = form.gtd && form.name.trim() &&
-    (form.gtd!=="projet" || (form.sphere&&form.matrice&&form.dateFin&&(!needGoal||form.objectifId))) &&
-    (form.gtd!=="memo"   || form.dateAssignee) &&
-    (form.gtd!=="waiting"|| form.waitingFor.trim());
+  const ready = taskReady(form, needGoal);
   const handleSave = () => {
-    if(!canConfirm) return;
-    const u={gtd:form.gtd,name:form.name,sphere:form.sphere||undefined};
-    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin,dateFinType:form.dateFinType,statut:form.statut,sousTaches:item.sousTaches||[],objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
-    else if(form.gtd==="memo") Object.assign(u,{dateAssignee:form.dateAssignee});
-    else if(form.gtd==="check") Object.assign(u,{dateAssignee:form.dateAssignee||undefined});
-    else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
-    onSave(u); onClose();
+    if(!ready) return;
+    onSave(taskFromForm(form, item.sousTaches||[])); onClose();
   };
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
       <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:4}}>Classifier cette tâche</div>
-        <div style={{fontSize:12,color:C.muted,marginBottom:20}}>{item.name}</div>
-        <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:10}}>Quel type ?</div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:20}}>
-          {[["projet","🔴 Projet",C.red],["memo","📝 Mémo","#6366f1"],["waiting","⏳ Waiting For",C.amber],["check","✅ Check Task",C.green],["someday","💭 Someday-Maybe",C.faint]].map(([k,l,c])=>(
-            <button key={k} onClick={()=>set({gtd:k})} style={{padding:14,borderRadius:14,border:`1px solid ${form.gtd===k?c:C.border}`,background:form.gtd===k?c+"22":C.surface2,color:form.gtd===k?c:C.muted,fontSize:14,fontFamily:"inherit",textAlign:"center",cursor:"pointer",transition:TR}}>{l}</button>
-          ))}
+        <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:12}}>Classifier cette tâche</div>
+        <div style={{marginBottom:14}}>
+          <Input value={form.name} onChange={v=>set({name:v})} placeholder="Nom de la tâche..."/>
         </div>
-        {form.gtd&&(<>
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Nom</div>
-            <Input value={form.name} onChange={v=>set({name:v})} placeholder="Nom de la tâche..."/>
-          </div>
-          <div style={{marginBottom:14}}>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Sphère{form.gtd==="projet"?" *":""}</div>
-            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-              {Object.entries(SPHERES).map(([k,v])=>(
-                <button key={k} onClick={()=>set({sphere:form.sphere===k?null:k})} style={{padding:"6px 12px",borderRadius:999,border:`1px solid ${form.sphere===k?v.c:C.border}`,background:form.sphere===k?v.c+"22":"transparent",color:form.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{v.label}</button>
-              ))}
-            </div>
-          </div>
-          {form.gtd==="projet"&&(<>
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Matrice *</div>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                {Object.entries(MATRICES).map(([k,v])=>(
-                  <button key={k} onClick={()=>set({matrice:form.matrice===k?null:k})} style={{padding:"10px",borderRadius:12,border:`1px solid ${form.matrice===k?C.accent:C.border}`,background:form.matrice===k?C.accentBg:C.surface2,color:form.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center"}}>{v.label}</button>
-                ))}
-              </div>
-            </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-              <div>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date début</div>
-                <input type="date" value={form.dateDebut} onChange={e=>set({dateDebut:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-              <div>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date fin *</div>
-                <input type="date" value={form.dateFin} onChange={e=>set({dateFin:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-            </div>
-            <div style={{display:"flex",gap:8,marginBottom:12}}>
-              {[["deadline","🔴 Deadline"],["duedate","🔵 Due Date"]].map(([k,l])=>(
-                <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
-              ))}
-            </div>
-            <ObjectifLinkPicker value={form.objectifId} onChange={v=>set({objectifId:v})} required/>
-          </>)}
-          {(form.gtd==="memo"||form.gtd==="check")&&(
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence *":form.gtd==="check"?"Date (optionnel)":"Date assignée *"}</div>
-              <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-            </div>
-          )}
-          {form.gtd==="waiting"&&(<>
-            <div style={{marginBottom:12}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Qui ? *</div>
-              <Input value={form.waitingFor} onChange={v=>set({waitingFor:v})} placeholder="Nom de la personne ou entité..."/>
-            </div>
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Note (optionnel)</div>
-              <Input value={form.waitingNote} onChange={v=>set({waitingNote:v})} placeholder="Contexte..."/>
-            </div>
-          </>)}
-          <Btn onClick={handleSave} variant="accent" disabled={!canConfirm} style={{width:"100%",marginTop:8}}>Confirmer</Btn>
-        </>)}
+        <TaskTypeChips value={form.gtd} onChange={gtd=>set({gtd})}/>
+        <TaskTriageFields form={form} set={set}/>
+        {form.gtd&&<Btn onClick={handleSave} variant="accent" disabled={!ready} style={{width:"100%",marginTop:4}}>Confirmer</Btn>}
       </div>
     </div>
   );
@@ -3467,77 +3410,24 @@ function RecurrenceToggle({ value, onChange }) {
 }
 
 // ── TodoModule ──
-// ── TaskCaptureModal — bottom-sheet « Nouvelle tâche », Inbox par défaut.
-// Extrait de TodoModule (il y était inline) pour que Home et le sélecteur de
-// highlight ouvrent le même flux au lieu d'en dupliquer un.
-function TaskCaptureModal({ initialGTD = "inbox", initialName = "", onCreate, onClose }) {
+// ── TaskCaptureModal — capture GTD : un nom, Entrée, c'est dans l'inbox (le tri se fait ensuite).
+// Partagé par TodoModule, Home et le sélecteur de highlight.
+function TaskCaptureModal({ initialName = "", onCreate, onClose }) {
   const C = CF;
-  const [form, setForm] = useState({
-    name:initialName, gtd:initialGTD, sphere:null, matrice:null,
-    dateFin:"", dateFinType:"duedate", dateAssignee:"", waitingFor:"", waitingNote:"", recurrence:null, objectifId:"",
-  });
-  const set = p => setForm(f => ({ ...f, ...p }));
-  const needGoal = runningGoals(getLS("lp_goals", {}), todayStr()).length > 0;
+  const [name, setName] = useState(initialName);
   const submit = () => {
-    if (!form.name.trim()) return;
-    if (form.gtd === "projet" && needGoal && !form.objectifId) return;
-    const o = { name:form.name.trim(), gtd:form.gtd || "inbox", sphere:form.sphere || undefined };
-    if (o.gtd === "projet") Object.assign(o, { matrice:form.matrice, dateFin:form.dateFin || undefined, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[], objectifId:form.objectifId || undefined });
-    else if (o.gtd === "memo")    o.dateAssignee = form.dateAssignee || undefined;
-    else if (o.gtd === "waiting") Object.assign(o, { waitingFor:form.waitingFor, waitingNote:form.waitingNote || undefined });
-    if (form.recurrence?.enabled) o.recurrence = form.recurrence;
-    onCreate(o);
+    if (!name.trim()) return;
+    onCreate({ name:name.trim(), gtd:"inbox" });
   };
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",zIndex:2100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
-      <div onClick={e=>e.stopPropagation()} className="slide-up theme-light" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
-        <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Nouvelle tâche</div>
-        <Input autoFocus value={form.name} onChange={v=>set({name:v})} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Nom de la tâche..."/>
-        <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Type</div>
-        <div className="chip-row" style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-          {[["inbox","📥 Inbox"],["projet","🔴 Projet"],["memo","📝 Mémo"],["waiting","⏳ Waiting"],["someday","💭 Someday"]].map(([k,l])=>(
-            <button key={k} onClick={()=>set({gtd:k})} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${form.gtd===k?C.accent:C.border}`,background:form.gtd===k?C.accentBg:"transparent",color:form.gtd===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",minHeight:34}}>{l}</button>
-          ))}
-        </div>
-        <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Sphère</div>
-        <div className="chip-row" style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:4}}>
-          {Object.entries(SPHERES).map(([k,v])=>(
-            <button key={k} onClick={()=>set({sphere:form.sphere===k?null:k})} style={{flexShrink:0,padding:"6px 12px",borderRadius:999,border:`1px solid ${form.sphere===k?v.c:C.border}`,background:form.sphere===k?v.c+"22":"transparent",color:form.sphere===k?v.c:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer",minHeight:34}}>{v.label}</button>
-          ))}
-        </div>
-        {form.gtd==="projet"&&(
-          <div className="slide-up">
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",margin:"14px 0 8px"}}>Matrice</div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-              {Object.entries(MATRICES).map(([k,v])=>(
-                <button key={k} onClick={()=>set({matrice:form.matrice===k?null:k})} style={{padding:"8px",borderRadius:12,border:`1px solid ${form.matrice===k?C.accent:C.border}`,background:form.matrice===k?C.accentBg:"transparent",color:form.matrice===k?C.accent:C.muted,fontSize:11,fontFamily:"inherit",cursor:"pointer",textAlign:"center",minHeight:40}}>{v.label}</button>
-              ))}
-            </div>
-            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date limite</div>
-            <input type="date" value={form.dateFin} onChange={e=>set({dateFin:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-            <div style={{marginTop:14}}><ObjectifLinkPicker value={form.objectifId} onChange={v=>set({objectifId:v})} required colors={C}/></div>
-          </div>
-        )}
-        {form.gtd==="memo"&&(
-          <div style={{marginTop:12}}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{form.recurrence?.enabled?"Date de la 1ère récurrence":"Date assignée"}</div>
-            <input type="date" value={form.dateAssignee} onChange={e=>set({dateAssignee:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-          </div>
-        )}
-        {form.gtd==="waiting"&&(
-          <div style={{marginTop:12}}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Attendu de</div>
-            <Input value={form.waitingFor} onChange={v=>set({waitingFor:v})} placeholder="Nom de la personne..."/>
-          </div>
-        )}
-        {(form.gtd==="projet"||form.gtd==="memo"||form.gtd==="waiting")&&(
-          <div style={{marginTop:12}}>
-            <RecurrenceToggle value={form.recurrence} onChange={rec=>set({recurrence:rec})} />
-          </div>
-        )}
+      <div onClick={e=>e.stopPropagation()} className="slide-up theme-light" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20}}>
+        <div style={{fontSize:15,fontWeight:700,color:C.text,marginBottom:14,textAlign:"center"}}>Capturer</div>
+        <Input autoFocus value={name} onChange={setName} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Qu'est-ce qui te passe par la tête ?"/>
+        <div style={{fontSize:11,color:C.muted,margin:"8px 2px 0"}}>Va dans l'inbox. Tu la classes ensuite en un tap.</div>
         <div style={{marginTop:16,display:"flex",gap:8}}>
           <Btn onClick={onClose} variant="ghost" style={{flex:1}}>Annuler</Btn>
-          <Btn onClick={submit} variant="accent" disabled={form.gtd==="projet"&&needGoal&&!form.objectifId} style={{flex:2}}>Créer →</Btn>
+          <Btn onClick={submit} variant="accent" disabled={!name.trim()} style={{flex:2}}>Capturer →</Btn>
         </div>
       </div>
     </div>
