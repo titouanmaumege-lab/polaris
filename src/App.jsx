@@ -448,7 +448,6 @@ function WeeklyCalendar() {
   }, []);
   const [selIdx, setSelIdx] = useState(() => (new Date().getDay() + 6) % 7);
   const [checkOpen, setCheckOpen] = useState(false);
-  const [recurOpen, setRecurOpen] = useState(() => getLS("lp_recur_open", true) !== false);
   const swipeRef = useRef(null);
   const [editId, setEditId] = useState(null);
   const [editMode, setEditMode] = useState(false);
@@ -464,7 +463,7 @@ function WeeklyCalendar() {
   const boardRef = useRef(null);
   const [, boardSize] = useBoxSize(boardRef);
   // Hauteurs mesurées dans le DOM (0 = pas encore rendu → constante de repli)
-  const [calMetrics, setCalMetrics] = useState({ head: 0, clot: 0, line: 0, card: 0, hint: 0, lane: 0 });
+  const [calMetrics, setCalMetrics] = useState({ head: 0, clot: 0, recur: 0, line: 0, card: 0, hint: 0, lane: 0 });
   const [dragOverDay, setDragOverDay] = useState(null);
   const [overCheck, setOverCheck] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -601,26 +600,10 @@ function WeeklyCalendar() {
     if (r.unit === "month") return n === 1 ? "Chaque mois" : `Tous les ${n} mois`;
     return n === 1 ? "Chaque an" : `Tous les ${n} ans`;
   };
-  const toggleRecurOpen = () => setRecurOpen(o => { setLS("lp_recur_open", !o); return !o; });
   const RECUR_C = "#8B5CF6", RECUR_C2 = "#22D3EE";
-  const recurCell = (sr, ds) => {
-    const { a, occ, done } = sr;
-    const base = { width:22, height:22, borderRadius:"50%", margin:"0 auto", display:"flex", alignItems:"center", justifyContent:"center", boxSizing:"border-box", fontSize:11, lineHeight:1, padding:0 };
-    if (done.has(ds)) return <span style={{ ...base, background:`linear-gradient(135deg, ${RECUR_C}, ${RECUR_C2})`, color:"#fff", fontWeight:800 }}>✓</span>;
-    if (occ.has(ds)) {
-      if (ds === a.dateAssignee && ds <= today) {
-        const late = ds < today, col = late ? "#ef4444" : RECUR_C2;
-        return (
-          <span className="cal-hit" role="button" tabIndex={0} title={late ? "En retard — marquer fait" : "Marquer fait"} aria-label={`Marquer fait : ${a.name}`}
-            onClick={() => toggleDone(a.id)}
-            onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDone(a.id); } }}
-            style={{ ...base, border:`2px solid ${col}`, boxShadow:`0 0 9px ${col}77` }} />
-        );
-      }
-      return <span style={{ ...base, border:`1.5px dashed ${ds < today ? "#ef444488" : RECUR_C + "88"}` }} />;
-    }
-    return <span style={{ ...base, width:4, height:4, background:"rgba(255,255,255,0.14)" }} />;
-  };
+  // Occurrences par jour : faite (historique) ou prévue (à partir de la prochaine occurrence)
+  const recurByDay = Object.fromEntries(days7.map(ds => [ds, recurSeries.filter(sr => sr.done.has(ds) || sr.occ.has(ds))]));
+  const recurAny = days7.some(ds => recurByDay[ds].length > 0);
 
   // ── Drag & drop ───────────────────────────────────────────────
   const startDrag = (e, payload) => {
@@ -889,6 +872,34 @@ function WeeklyCalendar() {
     );
   };
 
+  // ── Récurrente : pastille violet/cyan, 🔄, contour pointillé tant que pas faite
+  const RecurChip = ({ sr, ds }) => {
+    const { a, occ, done } = sr;
+    const isDone = done.has(ds);
+    const actionable = !isDone && occ.has(ds) && ds === a.dateAssignee && ds <= today;
+    const missed = !isDone && occ.has(ds) && ds < today;
+    const col = missed ? RED : RECUR_C2;
+    return (
+      <div className="cal-chip-wrap" onClick={e => { e.stopPropagation(); setEditId(a.id); }}
+        title={`${a.name} — ${recurCadence(a.recurrence)}`}
+        style={{
+          display:"flex", alignItems:"center", gap:5, width:"100%", boxSizing:"border-box", minHeight:26, minWidth:0,
+          padding:"2px 4px 2px 7px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
+          background: isDone ? `linear-gradient(90deg, ${RECUR_C}4d, ${RECUR_C2}38)` : `linear-gradient(90deg, ${RECUR_C}29, ${RECUR_C2}12)`,
+          border: isDone ? `1px solid ${RECUR_C}` : `1px dashed ${missed ? RED + "99" : RECUR_C + "99"}`,
+          opacity: isDone ? 0.72 : 1,
+        }}>
+        <span aria-hidden="true" style={{ fontSize:9, flexShrink:0 }}>🔄</span>
+        <span style={{ flex:1, minWidth:0, fontSize:11, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", textDecoration: isDone ? "line-through" : "none" }}>{a.name}</span>
+        {isDone
+          ? <span style={{ flexShrink:0, width:15, height:15, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center", fontSize:9, color:"#fff", background:`linear-gradient(135deg, ${RECUR_C}, ${RECUR_C2})` }}>✓</span>
+          : actionable
+            ? <CheckDot onDone={() => toggleDone(a.id)} color={col} size={15} label={a.name} />
+            : <span aria-hidden="true" style={{ flexShrink:0, width:13, height:13, borderRadius:"50%", boxSizing:"border-box", border:`1.5px dashed ${col}88` }} />}
+      </div>
+    );
+  };
+
   // Mémos + tâches simples en haut, Waiting en bas.
   const bucketsOf = ds => {
     const items = dayTasks[ds] || [];
@@ -912,7 +923,7 @@ function WeeklyCalendar() {
     // Projets : garder ~2 lanes visibles (ou le min-height de .cal-projects)
     const laneH = (m.lane || 40) + BAND_GAP;
     const projMin = Math.max(56, Math.min(visibleLanes, 2) * laneH + 8) + (hiddenSpans.length ? 26 : 0);
-    const avail = boardSize.h - (m.head || 48) - m.clot - projMin;
+    const avail = boardSize.h - (m.head || 48) - m.clot - m.recur - projMin;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     // Waiting ne doit pas affamer la bande du haut : on lui garde jusqu'à 4 lignes.
     const topKeep = Math.max(2, Math.min(needTop, 4));
@@ -978,7 +989,7 @@ function WeeklyCalendar() {
     else setSelIdx(n);
   };
   const spansOn = ci => spanItems.filter(s => s.startCol <= ci && s.endCol >= ci);
-  const dayLoaded = ci => (dayTasks[days7[ci]] || []).length > 0 || spansOn(ci).length > 0 || !!closuresByCol[ci];
+  const dayLoaded = ci => (recurByDay[days7[ci]] || []).length > 0 || (dayTasks[days7[ci]] || []).length > 0 || spansOn(ci).length > 0 || !!closuresByCol[ci];
   const onSwipeStart = e => { const t = e.touches[0]; swipeRef.current = { x: t.clientX, y: t.clientY }; };
   const onSwipeEnd = e => {
     const s = swipeRef.current; swipeRef.current = null; if (!s) return;
@@ -1021,6 +1032,13 @@ function WeeklyCalendar() {
         </div>
 
         <div className="cal-day-body" onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd}>
+          {recurByDay[selDs].length > 0 && (
+            <div className="cal-day-sec">
+              <div className="cal-day-label" style={{ color:RECUR_C }}>Récurrentes</div>
+              {recurByDay[selDs].map(sr => <RecurChip key={sr.a.id} sr={sr} ds={selDs} />)}
+            </div>
+          )}
+
           {closuresByCol[selIdx] && <div className="cal-day-sec">{closureCard(selIdx)}</div>}
 
           {top.length > 0 && (
@@ -1045,7 +1063,7 @@ function WeeklyCalendar() {
             </div>
           )}
 
-          {top.length + spans.length + wait.length === 0 && !closuresByCol[selIdx] && (
+          {top.length + spans.length + wait.length + recurByDay[selDs].length === 0 && !closuresByCol[selIdx] && (
             <div className="cal-day-empty">Rien de prévu ce jour-là.</div>
           )}
 
@@ -1063,6 +1081,7 @@ function WeeklyCalendar() {
     const next = {
       head: hOf(".cal-head"),
       clot: hOf(".cal-clotures"),
+      recur: hOf(".cal-band-recur"),
       line: hOf(".cal-band-top .cal-chip-wrap"),
       card: hOf(".cal-band-wait .cal-chip-wrap"),
       hint: hOf(".cal-band-top .cal-add-hint"),
@@ -1085,43 +1104,6 @@ function WeeklyCalendar() {
           <span style={{ flex:1, height:1, background:"var(--c-border)", margin:"0 14px" }} />
           <div style={{ display:"flex", gap:8 }}><NavBtn dir={-1} /><NavBtn dir={1} /></div>
         </div>
-
-        {/* Bandeau Récurrentes — une ligne par série, une pastille par jour (violet/cyan, pointillés = à venir) */}
-        {recurSeries.length > 0 && (
-          <div style={{ marginBottom:12, borderRadius:16, padding:"10px 12px 6px", background:`linear-gradient(135deg, ${RECUR_C}29, ${RECUR_C2}12)`, border:`1px dashed ${RECUR_C}80` }}>
-            <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-              <button onClick={toggleRecurOpen} aria-expanded={recurOpen} style={{ display:"inline-flex", alignItems:"center", gap:7, background:"none", border:"none", padding:0, cursor:"pointer", fontFamily:"inherit", color:RECUR_C, fontSize:10, fontWeight:800, textTransform:"uppercase", letterSpacing:"0.14em" }}>
-                <span aria-hidden="true" style={{ fontSize:13 }}>🔄</span> Récurrentes
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ transform: recurOpen ? "rotate(180deg)" : "none", transition:"transform .15s" }}><path d="M6 9l6 6 6-6" /></svg>
-              </button>
-              <span style={{ fontSize:10.5, fontWeight:700, padding:"2px 9px", borderRadius:999, color: recurDueNow ? RECUR_C2 : "#34D399", background: recurDueNow ? `${RECUR_C2}1f` : "rgba(52,211,153,0.14)", border:`1px solid ${recurDueNow ? RECUR_C2 + "55" : "rgba(52,211,153,0.4)"}` }}>{recurDueNow ? `${recurDueNow} à faire` : "à jour ✓"}</span>
-              <span style={{ flex:1 }} />
-              <button onClick={() => { setAddType("memo"); setAddDate(today); }} title="Nouvelle tâche (récurrence sous « Plus »)" aria-label="Nouvelle tâche récurrente" className="tap44"
-                style={{ width:22, height:22, borderRadius:7, cursor:"pointer", fontFamily:"inherit", fontSize:13, lineHeight:1, display:"inline-flex", alignItems:"center", justifyContent:"center", background:`${RECUR_C}24`, border:`1px solid ${RECUR_C}66`, color:RECUR_C }}>+</button>
-            </div>
-            {recurOpen && (
-              <div style={{ marginTop:8, display:"flex", flexDirection:"column", gap:2 }}>
-                <div style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) repeat(7, 30px)", columnGap:4 }}>
-                  <span />
-                  {days7.map((ds, i) => (
-                    <span key={ds} style={{ textAlign:"center", fontSize:9.5, lineHeight:1.25, fontWeight: ds === today ? 800 : 600, color: ds === today ? RECUR_C2 : "var(--c-muted)" }}>
-                      {DAY_SHORT[i][0]}<br />{new Date(ds + "T12:00:00").getDate()}
-                    </span>
-                  ))}
-                </div>
-                {recurSeries.map(sr => (
-                  <div key={sr.a.id} style={{ display:"grid", gridTemplateColumns:"minmax(0,1fr) repeat(7, 30px)", columnGap:4, alignItems:"center", minHeight:34, borderTop:"1px solid rgba(139,92,246,0.14)" }}>
-                    <div onClick={() => setEditId(sr.a.id)} title={sr.a.name} style={{ minWidth:0, cursor:"pointer", display:"flex", flexDirection:"column", lineHeight:1.25, padding:"3px 0" }}>
-                      <span style={{ fontSize:12, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{sr.a.name}</span>
-                      <span style={{ fontSize:9.5, color:"var(--c-muted)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{recurCadence(sr.a.recurrence)}</span>
-                    </div>
-                    {days7.map(ds => <div key={ds} style={{ display:"flex", justifyContent:"center" }}>{recurCell(sr, ds)}</div>)}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
 
         <div className="cal-layout">
           {/* Panneau Check Tasks — à cocher, drop target */}
@@ -1208,6 +1190,21 @@ function WeeklyCalendar() {
                 );
               })}
             </div>
+
+            {/* Bande Récurrentes — tout en haut, sous les jours, visuel violet/cyan */}
+            {recurAny && (
+              <div className="cal-band cal-band-recur">
+                {days7.map(ds => {
+                  const { shown, rest } = fitList(recurByDay[ds], 5);
+                  return (
+                    <div key={ds} className="cal-band-cell" style={{ gap:4, paddingTop:6, paddingBottom:6 }}>
+                      {shown.map(sr => <RecurChip key={sr.a.id} sr={sr} ds={ds} />)}
+                      {rest > 0 && <MoreChip n={rest} onClick={() => setListSheet({ title: fmtDate(ds), items: recurByDay[ds].map(x => x.a) })} />}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Lane clôtures OKR */}
             {closureCols.length > 0 && (
