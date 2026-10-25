@@ -42,6 +42,7 @@ export POLARIS_KEY="pol_xxxxxxxxxxxxxxxx"
 | `dateDebut`, `dateFin`, `dateAssignee` | string | `YYYY-MM-DD` |
 | `notes` | string | 5000 caractères max |
 | `waitingFor` | string | pour `gtd: "waiting"` : qui on attend |
+| `objectifId` | string | projet seulement : id d'un objectif mensuel ou trimestriel **en cours** (statut « En cours », non archivé, période non dépassée) ; refusé sinon |
 | `done` | boolean | |
 | `source` | string | `"claude"` pour les tâches créées via l'API |
 
@@ -70,7 +71,7 @@ Réponse `200` :
 
 Crée une tâche, ou jusqu'à 50 d'un coup avec `{ "todos": [ … ] }`.
 
-Champs acceptés : `name` (obligatoire), `gtd`, `sphere`, `matrice`, `dateDebut`, `dateFin`, `dateAssignee`, `notes`, `waitingFor`. Tout autre champ est refusé.
+Champs acceptés : `name` (obligatoire), `gtd`, `sphere`, `matrice`, `dateDebut`, `dateFin`, `dateAssignee`, `notes`, `waitingFor`, `objectifId` (projets). Tout autre champ est refusé.
 
 ```bash
 curl -s -X POST "$POLARIS_URL/todos" \
@@ -94,7 +95,7 @@ Réponse `201` : `{ "todos": [ … ], "count": 2 }`
 
 ## PATCH /todos/:id
 
-Mise à jour partielle. Champs : `name`, `gtd`, `sphere`, `matrice`, `statut`, `dateDebut`, `dateFin`, `dateAssignee`, `notes`, `waitingFor`, `done`. Mettre un champ (sauf `name` et `gtd`) à `null` l'efface.
+Mise à jour partielle. Champs : `name`, `gtd`, `sphere`, `matrice`, `statut`, `dateDebut`, `dateFin`, `dateAssignee`, `notes`, `waitingFor`, `objectifId`, `done`. Mettre un champ (sauf `name` et `gtd`) à `null` l'efface.
 
 `"done": true` marque la tâche comme faite ; si elle est récurrente, Polaris crée automatiquement l'occurrence suivante.
 

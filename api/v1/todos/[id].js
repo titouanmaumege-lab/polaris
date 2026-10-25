@@ -2,7 +2,7 @@
 // done:true passe par toggleDone côté app (la récurrence crée l'occurrence suivante).
 // Pas de DELETE : l'assistant ne peut rien supprimer.
 
-import { authenticate, sendError, readBody, currentTodos, validatePatch, makeId } from "../../_lib/polaris-api.js";
+import { authenticate, sendError, readBody, currentTodos, validatePatch, makeId, goalLinkErrors } from "../../_lib/polaris-api.js";
 import { applyOps } from "../../../src/utils/todoOps.js";
 
 export default async function handler(req, res) {
@@ -25,7 +25,13 @@ export default async function handler(req, res) {
 
   try {
     const todos = await currentTodos(db, userId);
-    if (!todos.some(t => t.id === id)) return sendError(res, 404, "not_found", `Aucune tâche avec l'id ${id}.`);
+    const cur = todos.find(t => t.id === id);
+    if (!cur) return sendError(res, 404, "not_found", `Aucune tâche avec l'id ${id}.`);
+
+    if (patch.objectifId) {
+      const details = (patch.gtd || cur.gtd) === "projet" ? await goalLinkErrors(db, userId, [patch.objectifId]) : ["objectifId n'existe que sur un projet (gtd = projet)"];
+      if (details.length) return sendError(res, 400, "validation_error", "Données invalides.", { details });
+    }
 
     const op = { user_id: userId, key_id: keyId, type: "update_todo", todo_id: id, payload: patch };
     const { error } = await db.from("api_ops").insert(op);

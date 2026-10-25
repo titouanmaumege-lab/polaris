@@ -2,7 +2,7 @@
 // POST /api/v1/todos                 — { name, … } ou { todos: [ … ] } (50 max)
 // Auth : Authorization: Bearer pol_… — cf. API.md et api/_lib/polaris-api.js.
 
-import { authenticate, sendError, readBody, currentTodos, buildNewTodo } from "../../_lib/polaris-api.js";
+import { authenticate, sendError, readBody, currentTodos, buildNewTodo, goalLinkErrors } from "../../_lib/polaris-api.js";
 
 const MAX_BATCH = 50;
 
@@ -44,6 +44,7 @@ export default async function handler(req, res) {
       if (r.errors) details.push(...r.errors.map(e => (batch ? `todos[${i}] : ${e}` : e)));
       else created.push(r.todo);
     });
+    if (!details.length) details.push(...await goalLinkErrors(db, userId, created.map(t => t.objectifId)));
     if (details.length) return sendError(res, 400, "validation_error", "Données invalides.", { details });
 
     const rows = created.map(t => ({ user_id: userId, key_id: keyId, type: "add_todo", todo_id: t.id, payload: t }));

@@ -18,6 +18,7 @@ import {
 import { uid } from "./utils/id";
 import { calculateNextOccurrence, toggleDoneIn, applyOps } from "./utils/todoOps";
 import { applyGoalOps } from "./utils/goalOps";
+import { runningGoals, todoGoalId } from "./utils/goalLinks";
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
 import {
@@ -1846,8 +1847,8 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
   const childLevelId  = LEVEL_CHILD[levelId];
   const childLevel    = LEVELS.find(l=>l.id===childLevelId);
   const children      = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id):[];
-  const linkedProjects = levelId==="mensuel"
-    ? (()=>{const s=getLS("leplan_todos",null)||getLS("lp_todos",[]);return(s||[]).map(migrateOneTodo).filter(Boolean).filter(t=>t.gtd==="projet"&&t.objectifMensuelId===obj.id&&!t.done);})()
+  const linkedProjects = (levelId==="mensuel"||levelId==="trimestriel")
+    ? (()=>{const s=getLS("leplan_todos",null)||getLS("lp_todos",[]);return(s||[]).map(migrateOneTodo).filter(Boolean).filter(t=>t.gtd==="projet"&&todoGoalId(t)===obj.id&&!t.done);})()
     : [];
   const addKR = () => {
     if(!newKR.nom.trim()) return;
@@ -2750,6 +2751,33 @@ async function applyApiOpsToStore(ops, userId) {
   if (userId) await syncToSupabase(userId).catch(() => {});
 }
 
+// ── ObjectifLinkPicker — rattache un projet à un objectif en cours (mensuel puis trimestriel)
+// Un lien vers un objectif désormais clos reste affiché (« clos ») pour ne pas disparaître en silence.
+function ObjectifLinkPicker({ value, onChange, required = false, colors = C }) {
+  const goals = getLS("lp_goals", {});
+  const running = runningGoals(goals, todayStr());
+  const stale = value && !running.some(g => g.id === value)
+    ? [...(goals.mensuel || []), ...(goals.trimestriel || [])].find(g => g.id === value)
+    : null;
+  const LV = { mensuel:"Mensuel", trimestriel:"Trimestre" };
+  const btn = on => ({ textAlign:"left", padding:"7px 12px", borderRadius:10, border:`1px solid ${on ? colors.accent : colors.border}`, background:on ? colors.accentBg : "transparent", color:on ? colors.accent : colors.text, fontSize:12, fontFamily:"inherit", cursor:"pointer" });
+  return (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:10, color:colors.muted, textTransform:"uppercase", letterSpacing:"0.1em", marginBottom:8 }}>⭐ Objectif en cours{required && running.length ? " *" : ""}</div>
+      {!running.length && !stale && <div style={{ fontSize:12, color:colors.muted }}>Aucun objectif en cours. Passe un objectif en « En cours » dans Objectifs pour y rattacher ce projet.</div>}
+      <div style={{ display:"flex", flexDirection:"column", gap:4 }}>
+        {(!required || !running.length) && (running.length > 0 || stale) && <button onClick={() => onChange("")} style={btn(!value)}>— Aucun</button>}
+        {stale && <button onClick={() => onChange(stale.id)} style={btn(true)}>{stale.titre} <span style={{ color:colors.muted }}>(clos)</span></button>}
+        {running.map(g => (
+          <button key={g.id} onClick={() => onChange(g.id)} style={btn(value === g.id)}>
+            {g.titre} <span style={{ color:colors.muted }}>· {LV[g.level]}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── TaskSummaryModal ──
 // ── DayCreateModal — clic sur un jour → choix du type → formulaire complet (date pré-remplie)
 // initialType : ouvre directement le formulaire d'un type donné (ex. le « + »
@@ -2760,9 +2788,10 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
     name:"", sphere:null, matrice:null,
     dateDebut:date, dateFin:date, dateFinType:"duedate",
     dateAssignee:date, waitingFor:"", waitingNote:"",
-    recurrence:null,
+    recurrence:null, objectifId:"",
   });
   const set = p => setForm(f => ({ ...f, ...p }));
+  const needGoal = runningGoals(getLS("lp_goals", {}), todayStr()).length > 0;
   const dateLong = new Date(date + "T12:00:00").toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" });
 
   const TYPES = [
@@ -2774,13 +2803,13 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
   const tc = (TYPES.find(t => t[0] === gtd) || [,,,C.accent])[3];
 
   const canCreate = !!gtd && form.name.trim() &&
-    (gtd !== "projet"  || (form.sphere && form.matrice && form.dateFin)) &&
+    (gtd !== "projet"  || (form.sphere && form.matrice && form.dateFin && (!needGoal || form.objectifId))) &&
     (gtd !== "waiting" || form.waitingFor.trim());
 
   const handleCreate = () => {
     if (!canCreate) return;
     const u = { name:form.name.trim(), gtd, sphere:form.sphere || undefined };
-    if (gtd === "projet")  Object.assign(u, { matrice:form.matrice, dateDebut:form.dateDebut || undefined, dateFin:form.dateFin, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[] });
+    if (gtd === "projet")  Object.assign(u, { matrice:form.matrice, dateDebut:form.dateDebut || undefined, dateFin:form.dateFin, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[], objectifId:form.objectifId || undefined });
     else if (gtd === "memo")    u.dateAssignee = form.dateAssignee || undefined;
     else if (gtd === "check")   u.dateAssignee = form.dateAssignee || undefined;
     else if (gtd === "waiting") Object.assign(u, { waitingFor:form.waitingFor.trim(), waitingNote:form.waitingNote || undefined, dateAssignee:form.dateAssignee || undefined });
@@ -2869,6 +2898,7 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
                   <button key={k} onClick={() => set({ dateFinType:k })} style={{ flex:1, padding:9, borderRadius:10, border:`1px solid ${form.dateFinType === k ? C.accent : C.border}`, background:form.dateFinType === k ? C.accentBg : "transparent", color:form.dateFinType === k ? C.accent : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{l}</button>
                 ))}
               </div>
+              <ObjectifLinkPicker value={form.objectifId} onChange={v => set({ objectifId:v })} required />
             </>)}
 
             {gtd === "memo" && (
@@ -2911,8 +2941,7 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
 function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
   const today = todayStr();
   const goals = getLS("lp_goals", {});
-  const mensuelGoals = goals.mensuel || [];
-  const linkedObj = item.objectifMensuelId ? mensuelGoals.find(o => o.id === item.objectifMensuelId) : null;
+  const linkedObj = todoGoalId(item) ? [...(goals.mensuel || []), ...(goals.trimestriel || [])].find(o => o.id === todoGoalId(item)) : null;
   const daysLeft = item.dateFin
     ? Math.ceil((new Date(item.dateFin + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000)
     : null;
@@ -3142,16 +3171,18 @@ function ClarifyModal({item, onSave, onClose}) {
     dateDebut:item.dateDebut||"", dateFin:item.dateFin||"",
     dateFinType:item.dateFinType||"duedate", statut:item.statut||"a_planifier",
     dateAssignee:item.dateAssignee||"", waitingFor:item.waitingFor||"", waitingNote:item.waitingNote||"",
+    objectifId:todoGoalId(item),
   });
   const set = p => setForm(f=>({...f,...p}));
+  const needGoal = runningGoals(getLS("lp_goals",{}),todayStr()).length>0;
   const canConfirm = form.gtd && form.name.trim() &&
-    (form.gtd!=="projet" || (form.sphere&&form.matrice&&form.dateFin)) &&
+    (form.gtd!=="projet" || (form.sphere&&form.matrice&&form.dateFin&&(!needGoal||form.objectifId))) &&
     (form.gtd!=="memo"   || form.dateAssignee) &&
     (form.gtd!=="waiting"|| form.waitingFor.trim());
   const handleSave = () => {
     if(!canConfirm) return;
     const u={gtd:form.gtd,name:form.name,sphere:form.sphere||undefined};
-    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin,dateFinType:form.dateFinType,statut:form.statut,sousTaches:item.sousTaches||[]});
+    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin,dateFinType:form.dateFinType,statut:form.statut,sousTaches:item.sousTaches||[],objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
     else if(form.gtd==="memo") Object.assign(u,{dateAssignee:form.dateAssignee});
     else if(form.gtd==="check") Object.assign(u,{dateAssignee:form.dateAssignee||undefined});
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
@@ -3205,6 +3236,7 @@ function ClarifyModal({item, onSave, onClose}) {
                 <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
               ))}
             </div>
+            <ObjectifLinkPicker value={form.objectifId} onChange={v=>set({objectifId:v})} required/>
           </>)}
           {(form.gtd==="memo"||form.gtd==="check")&&(
             <div style={{marginBottom:14}}>
@@ -3236,16 +3268,15 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
     dateDebut:item.dateDebut||"", dateFin:item.dateFin||"", dateFinType:item.dateFinType||"duedate",
     statut:item.statut||"a_planifier", dateAssignee:item.dateAssignee||"",
     waitingFor:item.waitingFor||"", waitingNote:item.waitingNote||"", sousTaches:item.sousTaches||[],
-    objectifMensuelId:item.objectifMensuelId||"",
+    objectifId:todoGoalId(item),
   });
-  const mensuelGoals = (getLS("lp_goals",{}).mensuel||[]);
   const [newSubName, setNewSubName] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
   const set = p => setForm(f=>({...f,...p}));
 
   const handleSave = () => {
     const u={name:form.name,gtd:form.gtd,sphere:form.sphere||undefined};
-    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifMensuelId:form.objectifMensuelId||undefined});
+    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
     else if(form.gtd==="memo"||form.gtd==="check") u.dateAssignee=form.dateAssignee||undefined;
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
     onSave(u); onClose();
@@ -3303,17 +3334,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
               <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
             ))}
           </div>
-          {mensuelGoals.length>0&&(
-            <div style={{marginBottom:14}}>
-              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>⭐ Objectif mensuel</div>
-              <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                <button onClick={()=>set({objectifMensuelId:""})} style={{textAlign:"left",padding:"7px 12px",borderRadius:10,border:`1px solid ${!form.objectifMensuelId?C.accent:C.border}`,background:!form.objectifMensuelId?C.accentBg:"transparent",color:!form.objectifMensuelId?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>— Aucun</button>
-                {mensuelGoals.map(o=>(
-                  <button key={o.id} onClick={()=>set({objectifMensuelId:o.id})} style={{textAlign:"left",padding:"7px 12px",borderRadius:10,border:`1px solid ${form.objectifMensuelId===o.id?C.amber:C.border}`,background:form.objectifMensuelId===o.id?C.amberBg:"transparent",color:form.objectifMensuelId===o.id?C.amber:C.text,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{o.titre}</button>
-                ))}
-              </div>
-            </div>
-          )}
+          <ObjectifLinkPicker value={form.objectifId} onChange={v=>set({objectifId:v})}/>
           <div style={{marginBottom:14}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Sous-tâches</div>
             {form.sousTaches.map(s=>(
@@ -3485,13 +3506,15 @@ function TaskCaptureModal({ initialGTD = "inbox", initialName = "", onCreate, on
   const C = CF;
   const [form, setForm] = useState({
     name:initialName, gtd:initialGTD, sphere:null, matrice:null,
-    dateFin:"", dateFinType:"duedate", dateAssignee:"", waitingFor:"", waitingNote:"", recurrence:null,
+    dateFin:"", dateFinType:"duedate", dateAssignee:"", waitingFor:"", waitingNote:"", recurrence:null, objectifId:"",
   });
   const set = p => setForm(f => ({ ...f, ...p }));
+  const needGoal = runningGoals(getLS("lp_goals", {}), todayStr()).length > 0;
   const submit = () => {
     if (!form.name.trim()) return;
+    if (form.gtd === "projet" && needGoal && !form.objectifId) return;
     const o = { name:form.name.trim(), gtd:form.gtd || "inbox", sphere:form.sphere || undefined };
-    if (o.gtd === "projet") Object.assign(o, { matrice:form.matrice, dateFin:form.dateFin || undefined, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[] });
+    if (o.gtd === "projet") Object.assign(o, { matrice:form.matrice, dateFin:form.dateFin || undefined, dateFinType:form.dateFinType, statut:"a_planifier", sousTaches:[], objectifId:form.objectifId || undefined });
     else if (o.gtd === "memo")    o.dateAssignee = form.dateAssignee || undefined;
     else if (o.gtd === "waiting") Object.assign(o, { waitingFor:form.waitingFor, waitingNote:form.waitingNote || undefined });
     if (form.recurrence?.enabled) o.recurrence = form.recurrence;
@@ -3524,6 +3547,7 @@ function TaskCaptureModal({ initialGTD = "inbox", initialName = "", onCreate, on
             </div>
             <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Date limite</div>
             <input type="date" value={form.dateFin} onChange={e=>set({dateFin:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
+            <div style={{marginTop:14}}><ObjectifLinkPicker value={form.objectifId} onChange={v=>set({objectifId:v})} required colors={C}/></div>
           </div>
         )}
         {form.gtd==="memo"&&(
@@ -3545,7 +3569,7 @@ function TaskCaptureModal({ initialGTD = "inbox", initialName = "", onCreate, on
         )}
         <div style={{marginTop:16,display:"flex",gap:8}}>
           <Btn onClick={onClose} variant="ghost" style={{flex:1}}>Annuler</Btn>
-          <Btn onClick={submit} variant="accent" style={{flex:2}}>Créer →</Btn>
+          <Btn onClick={submit} variant="accent" disabled={form.gtd==="projet"&&needGoal&&!form.objectifId} style={{flex:2}}>Créer →</Btn>
         </div>
       </div>
     </div>

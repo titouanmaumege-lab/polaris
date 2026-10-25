@@ -14,6 +14,7 @@ import { createClient } from "@supabase/supabase-js";
 import { applyOps } from "../../src/utils/todoOps.js";
 import { GOAL_LEVELS, applyGoalOps } from "../../src/utils/goalOps.js";
 import { periodeTypeForLevel, computeCloture, defaultPeriode } from "../../src/utils/date.js";
+import { GOAL_LINK_LEVELS, isGoalRunning } from "../../src/utils/goalLinks.js";
 
 export const RATE_LIMIT_PER_MIN = 60;
 
@@ -128,8 +129,9 @@ const FIELDS = {
   dateAssignee: { check: date, nullable: true },
   notes:        { check: str(5000), nullable: true },
   waitingFor:   { check: str(120), nullable: true },
+  objectifId:   { check: str(64), nullable: true }, // projet → objectif mensuel/trimestriel en cours
 };
-const CREATE_FIELDS = ["name", "gtd", "sphere", "matrice", "dateDebut", "dateFin", "dateAssignee", "notes", "waitingFor"];
+const CREATE_FIELDS = ["name", "gtd", "sphere", "matrice", "dateDebut", "dateFin", "dateAssignee", "notes", "waitingFor", "objectifId"];
 const UPDATE_FIELDS = [...Object.keys(FIELDS), "done"];
 
 function validateFields(obj, allowed, { partial }) {
@@ -159,6 +161,7 @@ export function buildNewTodo(input) {
   const { errors, value } = validateFields(input, CREATE_FIELDS, { partial: false });
   if (!errors.length && !value.name) errors.push("name est obligatoire");
   if (!errors.length && value.dateDebut && value.dateFin && value.dateDebut > value.dateFin) errors.push("dateDebut doit précéder dateFin");
+  if (!errors.length && value.objectifId && value.gtd !== "projet") errors.push("objectifId n'existe que sur un projet (gtd = projet)");
   if (errors.length) return { errors };
   return {
     todo: {
@@ -178,6 +181,20 @@ export function validatePatch(input) {
   const { errors, value } = validateFields(input, UPDATE_FIELDS, { partial: true });
   if (!errors.length && !Object.keys(value).length) errors.push("aucun champ à modifier");
   return errors.length ? { errors } : { patch: value };
+}
+
+/** Vérifie que chaque objectifId pointe un objectif mensuel/trimestriel EN COURS (ni archivé, ni dépassé). */
+export async function goalLinkErrors(db, userId, ids) {
+  const wanted = [...new Set(ids.filter(Boolean))];
+  if (!wanted.length) return [];
+  const goals = await currentGoals(db, userId);
+  const today = new Date().toISOString().split("T")[0];
+  const pool = GOAL_LINK_LEVELS.flatMap(l => goals[l] || []);
+  return wanted.flatMap(id => {
+    const g = pool.find(o => o.id === id);
+    if (!g) return [`objectifId : aucun objectif mensuel ou trimestriel avec l'id ${id}`];
+    return isGoalRunning(g, today) ? [] : [`objectifId : « ${g.titre} » n'est pas en cours (statut, archivé ou période dépassée)`];
+  });
 }
 
 // ── Objectifs (OKR) ────────────────────────────────────────────────────────
