@@ -2846,6 +2846,59 @@ const TRIAGE_TYPES = [
   ["someday", "💭 Someday",  null],
 ];
 
+// Calendrier toujours visible pour choisir des dates : 1 clic = début, 1 clic = fin ; double-clic (ou 2 clics sur le même jour) = 1 seul jour.
+function DateRangePicker({ start, end, onChange }) {
+  const today = todayStr();
+  const [ym, setYm] = useState((start || end || today).slice(0, 7));
+  const [hover, setHover] = useState("");
+  const [y, m] = ym.split("-").map(Number);
+  const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+  const dim = new Date(y, m, 0).getDate();
+  const cells = [...Array(lead).fill(null), ...Array.from({ length:dim }, (_, i) => `${ym}-${String(i + 1).padStart(2, "0")}`)];
+  const awaiting = !!start && !end;
+  const shiftMonth = n => { const d = new Date(y, m - 1 + n, 1); setYm(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); };
+  const pick = ds => {
+    if (awaiting) { if (ds < start) onChange(ds, start); else onChange(start, ds); }
+    else onChange(ds, "");
+  };
+  const edge = awaiting && hover ? hover : (end || start);
+  const lo = start && edge ? (start < edge ? start : edge) : start;
+  const hi = start && edge ? (start < edge ? edge : start) : start;
+  const fmt = d => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : "…");
+  const label = new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month:"long", year:"numeric" });
+  const nav = { width:34, height:34, borderRadius:10, border:`1px solid ${C.border}`, background:"transparent", color:C.muted, fontSize:16, cursor:"pointer", fontFamily:"inherit" };
+  return (
+    <div style={{ background:C.surface2, border:`1px solid ${C.border}`, borderRadius:16, padding:10 }} onMouseLeave={() => setHover("")}>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+        <button type="button" aria-label="Mois précédent" onClick={() => shiftMonth(-1)} style={nav}>‹</button>
+        <span style={{ fontSize:13, fontWeight:700, color:C.text, textTransform:"capitalize" }}>{label}</span>
+        <button type="button" aria-label="Mois suivant" onClick={() => shiftMonth(1)} style={nav}>›</button>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:2 }}>
+        {["L", "M", "M", "J", "V", "S", "D"].map((d, i) => <span key={i} style={{ textAlign:"center", fontSize:10, fontWeight:700, color:C.faint, padding:"4px 0" }}>{d}</span>)}
+        {cells.map((ds, i) => {
+          if (!ds) return <span key={"e" + i} />;
+          const isEdge = ds === lo || ds === hi;
+          const inRange = lo && hi && ds >= lo && ds <= hi;
+          return (
+            <button type="button" key={ds} onClick={() => pick(ds)} onMouseEnter={() => setHover(ds)}
+              style={{
+                height:38, borderRadius:isEdge ? 10 : 6, fontSize:13, fontFamily:"inherit", cursor:"pointer", padding:0,
+                fontWeight: isEdge || ds === today ? 700 : 500, fontVariantNumeric:"tabular-nums",
+                border: ds === today && !isEdge ? `1px solid ${C.accent}` : "1px solid transparent",
+                background: isEdge ? C.accent : inRange ? C.accentBg : "transparent",
+                color: isEdge ? "#fff" : C.text,
+              }}>{Number(ds.slice(8))}</button>
+          );
+        })}
+      </div>
+      <div style={{ marginTop:8, fontSize:11.5, color: awaiting ? C.accent : C.muted, textAlign:"center" }}>
+        {awaiting ? `Début ${fmt(start)} : clique la date de fin` : start ? `${fmt(start)} → ${fmt(end)}${start === end ? " (1 jour)" : ""} · clique pour recommencer` : "Clique le début, puis la fin · double-clic = 1 jour"}
+      </div>
+    </div>
+  );
+}
+
 // Champs d'une tâche à trier : essentiels visibles selon le type, le reste sous « Plus ».
 function TaskTriageFields({ form, set }) {
   const [more, setMore] = useState(false);
@@ -2875,7 +2928,12 @@ function TaskTriageFields({ form, set }) {
 
   return (<>
     {g === "memo" && dateField("dateAssignee", "Quel jour ? *")}
-    {g === "projet" && dateField("dateFin", "Date de fin *")}
+    {g === "projet" && (
+      <div style={{ marginBottom:14 }}>
+        <div style={lbl}>Dates *</div>
+        <DateRangePicker start={form.dateDebut} end={form.dateFin} onChange={(a, b) => set({ dateDebut:a, dateFin:b })} />
+      </div>
+    )}
     {g === "projet" && <ObjectifLinkPicker value={form.objectifId} onChange={v => set({ objectifId:v })} required />}
     {g === "waiting" && (
       <div style={{ marginBottom:14 }}>
@@ -2905,10 +2963,6 @@ function TaskTriageFields({ form, set }) {
               <button key={k} onClick={() => set({ matrice:form.matrice === k ? null : k })} style={{ padding:"10px", borderRadius:12, border:`1px solid ${form.matrice === k ? C.accent : C.border}`, background:form.matrice === k ? C.accentBg : C.surface2, color:form.matrice === k ? C.accent : C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer", textAlign:"center" }}>{v.label}</button>
             ))}
           </div>
-        </div>
-        <div style={{ marginBottom:14 }}>
-          <div style={{ fontSize:10, color:C.muted, marginBottom:6 }}>Date début</div>
-          <input type="date" value={form.dateDebut} onChange={e => set({ dateDebut:e.target.value })} style={inp} />
         </div>
         <div style={{ display:"flex", gap:8, marginBottom:14 }}>
           {[["deadline", "🔴 Deadline"], ["duedate", "🔵 Due Date"]].map(([k, l]) => (
@@ -3261,7 +3315,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
 
   const handleSave = () => {
     const u={name:form.name,gtd:form.gtd,sphere:form.sphere||undefined};
-    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
+    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||form.dateDebut||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
     else if(form.gtd==="memo"||form.gtd==="check") u.dateAssignee=form.dateAssignee||undefined;
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
     onSave(u); onClose();
@@ -3306,13 +3360,9 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
               ))}
             </div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
-            {[["dateDebut","Date début"],["dateFin","Date fin"]].map(([k,l])=>(
-              <div key={k}>
-                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>{l}</div>
-                <input type="date" value={form[k]} onChange={e=>set({[k]:e.target.value})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:12,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
-              </div>
-            ))}
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Dates</div>
+            <DateRangePicker start={form.dateDebut} end={form.dateFin} onChange={(a,b)=>set({dateDebut:a,dateFin:b})}/>
           </div>
           <div style={{display:"flex",gap:8,marginBottom:12}}>
             {[["deadline","🔴 Deadline"],["duedate","🔵 Due Date"]].map(([k,l])=>(
