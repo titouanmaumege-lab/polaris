@@ -2,8 +2,8 @@
 // et les routes /api/v1, qui doivent juger « objectif en cours » de la même façon.
 import { computeCloture } from "./date.js";
 
-// Niveaux auxquels un projet peut se rattacher, du plus concret au plus large.
-export const GOAL_LINK_LEVELS = ["mensuel", "trimestriel"];
+// Un projet se rattache à un objectif mensuel, et à rien d'autre.
+export const GOAL_LINK_LEVELS = ["mensuel"];
 
 // En cours = ni archivé, ni dépassé (date de clôture passée), statut « En cours ».
 export function isGoalRunning(goal, today) {
@@ -12,7 +12,7 @@ export function isGoalRunning(goal, today) {
   return !cloture || cloture >= today;
 }
 
-// Objectifs liables : [{ ...goal, level }], mensuels d'abord.
+// Objectifs liables : [{ ...goal, level }].
 export function runningGoals(goals, today) {
   return GOAL_LINK_LEVELS.flatMap(level =>
     ((goals && goals[level]) || []).filter(g => isGoalRunning(g, today)).map(g => ({ ...g, level }))

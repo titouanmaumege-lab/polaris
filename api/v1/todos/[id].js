@@ -28,6 +28,11 @@ export default async function handler(req, res) {
     const cur = todos.find(t => t.id === id);
     if (!cur) return sendError(res, 404, "not_found", `Aucune tâche avec l'id ${id}.`);
 
+    if (patch.recurrence) {
+      const next = { ...cur, ...patch };
+      if (!["memo", "check", "waiting", "projet"].includes(next.gtd)) return sendError(res, 400, "validation_error", "Données invalides.", { details: ["recurrence demande gtd = memo | check | waiting | projet"] });
+      if (!next.dateAssignee && !next.dateFin) return sendError(res, 400, "validation_error", "Données invalides.", { details: ["recurrence demande une date : dateAssignee (ou dateFin pour un projet)"] });
+    }
     if (patch.objectifId) {
       const details = (patch.gtd || cur.gtd) === "projet" ? await goalLinkErrors(db, userId, [patch.objectifId]) : ["objectifId n'existe que sur un projet (gtd = projet)"];
       if (details.length) return sendError(res, 400, "validation_error", "Données invalides.", { details });

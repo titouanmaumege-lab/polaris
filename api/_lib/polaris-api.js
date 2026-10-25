@@ -117,6 +117,23 @@ const str = max => (v, k) => {
 const oneOf = list => (v, k) => list.includes(v) ? null : `${k} doit valoir ${list.join(" | ")}`;
 const date = (v, k) => isDate(v) ? null : `${k} doit être une date YYYY-MM-DD`;
 
+// Récurrence : mêmes champs que l'app (RecurrenceToggle). dayOfWeek : 0 = dimanche … 6 = samedi.
+const REC_UNITS = ["day", "week", "month", "year"];
+const REC_RANGES = { interval: [1, 99], dayOfWeek: [0, 6], dayOfMonth: [1, 31], monthOfYear: [1, 12], durationCount: [1, 999] };
+const recurrence = (v, k) => {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return `${k} doit être un objet { unit, interval, … }`;
+  const extra = Object.keys(v).filter(x => x !== "unit" && x !== "durationUnit" && !REC_RANGES[x]);
+  if (extra.length) return `${k} : champ inconnu ${extra.join(", ")}`;
+  if (!REC_UNITS.includes(v.unit)) return `${k}.unit doit valoir ${REC_UNITS.join(" | ")}`;
+  if (v.durationUnit !== undefined && !REC_UNITS.includes(v.durationUnit)) return `${k}.durationUnit doit valoir ${REC_UNITS.join(" | ")}`;
+  for (const [f, [lo, hi]] of Object.entries(REC_RANGES)) {
+    if (v[f] === undefined) continue;
+    if (!Number.isInteger(v[f]) || v[f] < lo || v[f] > hi) return `${k}.${f} doit être un entier de ${lo} à ${hi}`;
+  }
+  if (v.interval === undefined) return `${k}.interval est obligatoire (1 à 99)`;
+  return null;
+};
+
 // champ → validateur ; nullable = on peut l'effacer avec null (PATCH)
 const FIELDS = {
   name:         { check: str(300) },
@@ -129,9 +146,10 @@ const FIELDS = {
   dateAssignee: { check: date, nullable: true },
   notes:        { check: str(5000), nullable: true },
   waitingFor:   { check: str(120), nullable: true },
-  objectifId:   { check: str(64), nullable: true }, // projet → objectif mensuel/trimestriel en cours
+  objectifId:   { check: str(64), nullable: true }, // projet → objectif mensuel en cours
+  recurrence:   { check: recurrence, nullable: true },
 };
-const CREATE_FIELDS = ["name", "gtd", "sphere", "matrice", "dateDebut", "dateFin", "dateAssignee", "notes", "waitingFor", "objectifId"];
+const CREATE_FIELDS = ["name", "gtd", "sphere", "matrice", "dateDebut", "dateFin", "dateAssignee", "notes", "waitingFor", "objectifId", "recurrence"];
 const UPDATE_FIELDS = [...Object.keys(FIELDS), "done"];
 
 function validateFields(obj, allowed, { partial }) {
@@ -151,7 +169,7 @@ function validateFields(obj, allowed, { partial }) {
     }
     if (v === undefined) continue;
     const e = FIELDS[k].check(v, k);
-    if (e) errors.push(e); else out[k] = typeof v === "string" ? v.trim() : v;
+    if (e) errors.push(e); else out[k] = typeof v === "string" ? v.trim() : k === "recurrence" ? { enabled: true, ...v } : v;
   }
   return { errors, value: out };
 }
@@ -162,6 +180,10 @@ export function buildNewTodo(input) {
   if (!errors.length && !value.name) errors.push("name est obligatoire");
   if (!errors.length && value.dateDebut && value.dateFin && value.dateDebut > value.dateFin) errors.push("dateDebut doit précéder dateFin");
   if (!errors.length && value.objectifId && value.gtd !== "projet") errors.push("objectifId n'existe que sur un projet (gtd = projet)");
+  if (!errors.length && value.recurrence) {
+    if (!["memo", "check", "waiting", "projet"].includes(value.gtd)) errors.push("recurrence demande gtd = memo | check | waiting | projet");
+    else if (!value.dateAssignee && !value.dateFin) errors.push("recurrence demande la date de la 1re occurrence : dateAssignee (ou dateFin pour un projet)");
+  }
   if (errors.length) return { errors };
   return {
     todo: {
@@ -183,7 +205,7 @@ export function validatePatch(input) {
   return errors.length ? { errors } : { patch: value };
 }
 
-/** Vérifie que chaque objectifId pointe un objectif mensuel/trimestriel EN COURS (ni archivé, ni dépassé). */
+/** Vérifie que chaque objectifId pointe un objectif mensuel EN COURS (ni archivé, ni dépassé). */
 export async function goalLinkErrors(db, userId, ids) {
   const wanted = [...new Set(ids.filter(Boolean))];
   if (!wanted.length) return [];
@@ -192,7 +214,7 @@ export async function goalLinkErrors(db, userId, ids) {
   const pool = GOAL_LINK_LEVELS.flatMap(l => goals[l] || []);
   return wanted.flatMap(id => {
     const g = pool.find(o => o.id === id);
-    if (!g) return [`objectifId : aucun objectif mensuel ou trimestriel avec l'id ${id}`];
+    if (!g) return [`objectifId : aucun objectif mensuel avec l'id ${id}`];
     return isGoalRunning(g, today) ? [] : [`objectifId : « ${g.titre} » n'est pas en cours (statut, archivé ou période dépassée)`];
   });
 }

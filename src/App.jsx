@@ -7,7 +7,6 @@ import { hasHealthConsent, onConsentChange, setHealthConsent } from "./state/con
 import { exportAllData, deleteAccount } from "./state/account";
 import { supabase, syncToSupabase } from "./supabase";
 import { pullApiOps, listApiKeys, createApiKey, revokeApiKey } from "./state/apiAccess";
-import LazyEmbed from "./ui/LazyEmbed";
 import PolarisLogo from "./PolarisLogo";
 import {
   pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked, isReviewLocked,
@@ -1847,7 +1846,7 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
   const childLevelId  = LEVEL_CHILD[levelId];
   const childLevel    = LEVELS.find(l=>l.id===childLevelId);
   const children      = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id):[];
-  const linkedProjects = (levelId==="mensuel"||levelId==="trimestriel")
+  const linkedProjects = levelId==="mensuel"
     ? (()=>{const s=getLS("leplan_todos",null)||getLS("lp_todos",[]);return(s||[]).map(migrateOneTodo).filter(Boolean).filter(t=>t.gtd==="projet"&&todoGoalId(t)===obj.id&&!t.done);})()
     : [];
   const addKR = () => {
@@ -2223,111 +2222,170 @@ function ObjectifCard({ obj, levelColor, levelId, allGoals, onOpenEdit }) {
   );
 }
 
-// ── LIFE PLAN — arbre horizontal type carte/constellation (tidy-tree, branches courbes néon)
+// ── LIFE PLAN — tout le plan sur un écran : Long Terme → Annuel → Trimestre → Mensuel → projets liés.
+// Arbre vertical repliable (pas de défilement horizontal), résultats clés et projets visibles sous chaque objectif.
+const LP_MATRICE_COLOR = { ui: "red", uni: "amber", nui: "blue", nuni: "faint" };
+const lpDate = d => (d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : "");
+
 function LifePlanTree({ goals, onOpenEdit }) {
   const [showArch, setShowArch] = useState(false);
-  const COLW = 244, NODEW = 196, NODEH = 60, ROWH = 78, HEADH = 44, PADX = 12, PADY = 14;
-  const lvIndex = id => LEVELS.findIndex(l => l.id === id);
+  const [openMap, setOpenMap] = useState({});
+  const { todos } = useTodos();
 
-  // Layout "tidy tree" : feuilles séquentielles, parents centrés sur leurs enfants
-  const nodeMap = {};
-  let slot = 0;
-  const place = (obj, level) => {
-    if (nodeMap[obj.id]) return nodeMap[obj.id].y;
-    const childLvl = LEVEL_CHILD[level];
-    const children = childLvl ? (goals[childLvl] || []).filter(o => o.parentId === obj.id && !o.archived) : [];
-    let y;
-    if (!children.length) { y = slot; slot += 1; }
-    else { const ys = children.map(c => place(c, childLvl)); y = (Math.min(...ys) + Math.max(...ys)) / 2; }
-    nodeMap[obj.id] = { obj, level, y };
-    return y;
-  };
-  (goals.lt || []).filter(o => !o.archived).forEach(o => place(o, "lt"));
-  ["annuel", "trimestriel", "mensuel"].forEach(lvl => {
-    const pl = LEVEL_PARENT[lvl];
-    (goals[lvl] || []).filter(o => !o.archived && (!o.parentId || !(goals[pl] || []).some(p => p.id === o.parentId))).forEach(o => place(o, lvl));
-  });
-  const archived = ["lt","annuel","trimestriel","mensuel"].flatMap(lvl => (goals[lvl] || []).filter(o => o.archived).map(o => ({ o, lvl })))
+  const live = l => (goals[l] || []).filter(o => !o.archived);
+  const childrenOf = (o, level) => (LEVEL_CHILD[level] ? live(LEVEL_CHILD[level]).filter(c => c.parentId === o.id) : []);
+
+  // Projets (hors récurrentes) rattachés à un objectif mensuel vivant ; les autres = « sans objectif »
+  const liveMensuelIds = new Set(live("mensuel").map(o => o.id));
+  const projects = todos.filter(t => t.gtd === "projet" && !t.recurrence?.enabled);
+  const byGoal = {};
+  projects.forEach(p => { const g = todoGoalId(p); if (g && liveMensuelIds.has(g)) (byGoal[g] = byGoal[g] || []).push(p); });
+  const orphans = projects.filter(p => !p.done && !liveMensuelIds.has(todoGoalId(p)));
+
+  // Racines : les Long Terme + tout objectif dont le parent n'existe plus
+  const roots = [
+    ...live("lt").map(o => ({ o, level: "lt" })),
+    ...["annuel", "trimestriel", "mensuel"].flatMap(l =>
+      live(l).filter(o => !live(LEVEL_PARENT[l]).some(p => p.id === o.parentId)).map(o => ({ o, level: l }))),
+  ];
+
+  const allIds = [];
+  const collect = (o, level) => { allIds.push(o.id); childrenOf(o, level).forEach(c => collect(c, LEVEL_CHILD[level])); };
+  roots.forEach(r => collect(r.o, r.level));
+
+  const archived = ["lt", "annuel", "trimestriel", "mensuel"].flatMap(lvl => (goals[lvl] || []).filter(o => o.archived).map(o => ({ o, lvl })))
     .sort((a, b) => (b.o.clotureDate || "").localeCompare(a.o.clotureDate || ""));
-  const nodes = Object.values(nodeMap);
-  const empty = nodes.length === 0;
 
-  const nodeLeft = level => lvIndex(level) * COLW + PADX;
-  const nodeTop  = y => HEADH + PADY + y * ROWH;
-  const maxY = nodes.reduce((m, n) => Math.max(m, n.y), 0);
-  const totalW = 4 * COLW;
-  const totalH = HEADH + PADY * 2 + (maxY + 1) * ROWH;
+  const defaultOpen = (o, level) => (level === "mensuel" ? o.statut === "En cours" || o.statut === "C'est chaud" : !isObjClosed(o.statut));
+  const isOpen = (o, level) => (openMap[o.id] !== undefined ? openMap[o.id] : defaultOpen(o, level));
+  const toggle = (o, level) => setOpenMap(m => ({ ...m, [o.id]: !isOpen(o, level) }));
+  const setAll = v => setOpenMap(Object.fromEntries(allIds.map(id => [id, v])));
 
-  // Liens parent → enfant (bézier horizontal)
-  const links = [];
-  nodes.forEach(n => {
-    const childLvl = LEVEL_CHILD[n.level];
-    if (!childLvl) return;
-    nodes.filter(m => m.level === childLvl && m.obj.parentId === n.obj.id).forEach(c => {
-      const x1 = nodeLeft(n.level) + NODEW, y1 = nodeTop(n.y) + NODEH / 2;
-      const x2 = nodeLeft(c.level), y2 = nodeTop(c.y) + NODEH / 2;
-      const mx = (x1 + x2) / 2;
-      links.push({ d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`, c: LEVELS.find(l => l.id === n.level)?.c || C.accent });
-    });
-  });
+  const runningCount = ["lt", "annuel", "trimestriel", "mensuel"].reduce((n, l) => n + live(l).filter(o => o.statut === "En cours").length, 0);
+  const linkedCount = Object.values(byGoal).flat().filter(p => !p.done).length;
+
+  const Chip = ({ children, c = C.muted }) => (
+    <span style={{ fontSize: 11, fontWeight: 700, color: c, background: `${c}1c`, border: `1px solid ${c}33`, borderRadius: 999, padding: "3px 10px", whiteSpace: "nowrap" }}>{children}</span>
+  );
+
+  const renderProject = p => {
+    const mc = C[LP_MATRICE_COLOR[p.matrice]] || C.faint;
+    const st = PROJ_STATUTS[getProjectStatus(p)];
+    const subs = p.sousTaches || [];
+    const subDone = subs.filter(s => s.done).length;
+    return (
+      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 11px", borderRadius: 11, background: C.surface3, border: `1px solid ${C.border}`, opacity: p.done ? 0.55 : 1 }}>
+        <span title={MATRICES[p.matrice]?.label || "Sans matrice"} style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: mc, boxShadow: `0 0 6px ${mc}99` }} />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.text, lineHeight: 1.3, textDecoration: p.done ? "line-through" : "none" }}>{p.name}</span>
+        {subs.length > 0 && <span style={{ fontSize: 10.5, color: C.muted, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{subDone}/{subs.length}</span>}
+        <span style={{ fontSize: 10.5, color: C.muted, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{p.dateDebut && p.dateDebut !== p.dateFin ? `${lpDate(p.dateDebut)} → ` : ""}{lpDate(p.dateFin)}</span>
+        {p.done
+          ? <span style={{ fontSize: 11, color: C.green, flexShrink: 0 }}>✓</span>
+          : <span style={{ fontSize: 10, fontWeight: 700, color: st.c, flexShrink: 0 }}>{st.label}</span>}
+      </div>
+    );
+  };
+
+  const renderNode = (o, level) => {
+    const lv = LEVELS.find(l => l.id === level);
+    const kids = childrenOf(o, level);
+    const projs = level === "mensuel" ? (byGoal[o.id] || []).slice().sort((a, b) => (a.done - b.done) || (a.dateFin || "").localeCompare(b.dateFin || "")) : [];
+    const p = krsProgress(o.krs || []);
+    const reached = p !== null && p >= 100;
+    const closed = isObjClosed(o.statut);
+    const open = isOpen(o, level);
+    const hasBody = kids.length > 0 || (o.krs || []).length > 0 || projs.length > 0;
+    const ac = reached ? C.green : lv.c;
+    const periode = periodeLabel(o.periode);
+    return (
+      <div key={o.id}>
+        <div style={{ borderRadius: 16, background: `linear-gradient(110deg, ${lv.c}22, ${C.surface2} 68%)`, border: `1px solid ${lv.c}44`, boxShadow: `0 0 18px ${lv.c}14`, opacity: closed && !reached ? 0.65 : 1, overflow: "hidden" }}>
+          <div onClick={() => hasBody && toggle(o, level)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 12px 11px 14px", cursor: hasBody ? "pointer" : "default" }}>
+            <span style={{ fontSize: 15, flexShrink: 0, filter: `drop-shadow(0 0 5px ${lv.c}aa)` }}>{lv.icon}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 9.5, fontWeight: 800, color: lv.c, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 2 }}>
+                {lv.label}{periode ? ` · ${periode}` : ""}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text, lineHeight: 1.3, textDecoration: closed && !reached ? "line-through" : "none" }}>{o.titre}</div>
+            </div>
+            {p !== null
+              ? <span style={{ flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 17, fontWeight: 800, color: ac, fontVariantNumeric: "tabular-nums" }}>{reached ? "🏆" : ""}{p}<span style={{ fontSize: 10 }}>%</span></span>
+              : <StatusPill statut={o.statut} />}
+            <button aria-label="Modifier l'objectif" title="Modifier" onClick={e => { e.stopPropagation(); onOpenEdit(o, level); }}
+              style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, cursor: "pointer", fontSize: 12, fontFamily: "inherit" }}>✏️</button>
+            {hasBody && <span style={{ flexShrink: 0, color: C.muted, fontSize: 11, width: 12, textAlign: "center" }}>{open ? "▲" : "▼"}</span>}
+          </div>
+          {p !== null && (
+            <div style={{ height: 3, background: "rgba(0,0,0,0.35)" }}>
+              <div style={{ height: "100%", width: `${Math.min(100, p)}%`, background: `linear-gradient(90deg, ${lv.c}, ${ac})`, transition: "width .4s" }} />
+            </div>
+          )}
+          {open && ((o.krs || []).length > 0 || projs.length > 0) && (
+            <div style={{ padding: "10px 14px 12px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {(o.krs || []).length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {(o.krs || []).map(kr => {
+                    const k = krPct(kr);
+                    return (
+                      <div key={kr.id}>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8, fontSize: 12 }}>
+                          <span style={{ flex: 1, minWidth: 0, color: C.text }}>{kr.nom}</span>
+                          <span style={{ color: C.muted, fontVariantNumeric: "tabular-nums", flexShrink: 0 }}>{kr.actuelle ?? kr.depart} / {kr.cible}</span>
+                          <span style={{ color: k >= 100 ? C.green : lv.c, fontWeight: 700, fontVariantNumeric: "tabular-nums", width: 38, textAlign: "right", flexShrink: 0 }}>{k}%</span>
+                        </div>
+                        <div style={{ height: 3, borderRadius: 2, background: "rgba(255,255,255,0.08)", marginTop: 3 }}>
+                          <div style={{ height: "100%", width: `${Math.min(100, k)}%`, background: k >= 100 ? C.green : lv.c, borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {projs.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: C.muted, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 6 }}>🔴 Projets · {projs.filter(x => !x.done).length} à faire</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{projs.map(renderProject)}</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {open && kids.length > 0 && (
+          <div style={{ marginLeft: 14, paddingLeft: 12, borderLeft: `1.5px solid ${lv.c}55`, display: "flex", flexDirection: "column", gap: 9, marginTop: 9 }}>
+            {kids.map(c => renderNode(c, LEVEL_CHILD[level]))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const btn = { background: C.surface2, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "6px 13px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" };
 
   return (
-    <div>
+    <div style={{ maxWidth: 820 }}>
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 800, color: C.text, letterSpacing: "-0.01em" }}>🌳 Life Plan</div>
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>Carte de tes objectifs reliés, du Long Terme au Mensuel. {totalW > 700 && "Fais défiler ↔"}</div>
+        <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>Du Long Terme au mensuel, avec résultats clés et projets liés. Touche une carte pour la déplier.</div>
       </div>
-      {empty
-        ? <div style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "48px 0" }}>Aucun objectif. Crée-en et relie-les via « Rattaché à » entre chronologies.</div>
-        : (
-        <div style={{ overflowX: "auto", overflowY: "hidden", paddingBottom: 8, borderRadius: 18 }}>
-          <div style={{ position: "relative", width: totalW, height: totalH, minWidth: totalW }}>
-            {/* Branches */}
-            <svg width={totalW} height={totalH} style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
-              <defs>
-                <filter id="lp-glow" x="-30%" y="-30%" width="160%" height="160%">
-                  <feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-                </filter>
-              </defs>
-              <g filter="url(#lp-glow)" fill="none">
-                {links.map((l, i) => <path key={`g${i}`} d={l.d} stroke={`${l.c}40`} strokeWidth="4" />)}
-              </g>
-              <g fill="none">
-                {links.map((l, i) => <path key={`c${i}`} d={l.d} stroke={`${l.c}cc`} strokeWidth="1.6" />)}
-              </g>
-            </svg>
 
-            {/* En-têtes colonnes */}
-            {LEVELS.map(l => (
-              <div key={l.id} style={{ position: "absolute", left: nodeLeft(l.id), top: 0, width: NODEW, display: "flex", alignItems: "center", gap: 7 }}>
-                <span style={{ fontSize: 15, filter: `drop-shadow(0 0 5px ${l.c}aa)` }}>{l.icon}</span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: l.c, textTransform: "uppercase", letterSpacing: "0.08em" }}>{l.label}</span>
-              </div>
-            ))}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+        <Chip c={C.accent}>{runningCount} en cours</Chip>
+        <Chip c={C.purple}>{linkedCount} projet{linkedCount > 1 ? "s" : ""} lié{linkedCount > 1 ? "s" : ""}</Chip>
+        {orphans.length > 0 && <Chip c={C.amber}>{orphans.length} sans objectif</Chip>}
+        <span style={{ flex: 1 }} />
+        <button onClick={() => setAll(true)} style={btn}>Tout déplier</button>
+        <button onClick={() => setAll(false)} style={btn}>Tout replier</button>
+      </div>
 
-            {/* Nœuds */}
-            {nodes.map(n => {
-              const lv = LEVELS.find(l => l.id === n.level);
-              const p = krsProgress(n.obj.krs || []);
-              const reached = p !== null && p >= 100;
-              const st = STATUTS[n.obj.statut] || { c: C.muted };
-              const ac = reached ? C.green : lv.c;
-              const closed = isObjClosed(n.obj.statut);
-              return (
-                <button key={n.obj.id} onClick={() => onOpenEdit(n.obj, n.level)} title={n.obj.titre} style={{
-                  position: "absolute", left: nodeLeft(n.level), top: nodeTop(n.y), width: NODEW, height: NODEH,
-                  display: "flex", alignItems: "center", gap: 9, padding: "0 12px", borderRadius: 14, cursor: "pointer",
-                  fontFamily: "inherit", textAlign: "left", color: C.text, opacity: closed && !reached ? 0.6 : 1,
-                  background: `linear-gradient(110deg, ${lv.c}2a, ${C.surface2} 72%)`, border: `1px solid ${lv.c}5a`, boxShadow: `0 0 16px ${lv.c}22`,
-                }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 600, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", textDecoration: !reached && closed ? "line-through" : "none" }}>{n.obj.titre}</span>
-                  {p !== null
-                    ? <span style={{ flexShrink: 0, fontFamily: "var(--font-display)", fontSize: 14, fontWeight: 800, color: ac, fontVariantNumeric: "tabular-nums" }}>{reached ? "🏆" : ""}{p}<span style={{ fontSize: 9 }}>%</span></span>
-                    : <span title={n.obj.statut} style={{ flexShrink: 0, width: 10, height: 10, borderRadius: "50%", background: st.c, boxShadow: `0 0 7px ${st.c}` }} />}
-                </button>
-              );
-            })}
-          </div>
+      {roots.length === 0
+        ? <div style={{ fontSize: 13, color: C.muted, textAlign: "center", padding: "48px 0" }}>Aucun objectif. Crée-en et relie-les via « Lié à » entre chronologies.</div>
+        : <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>{roots.map(r => renderNode(r.o, r.level))}</div>}
+
+      {orphans.length > 0 && (
+        <div style={{ marginTop: 22 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, color: C.amber, textTransform: "uppercase", letterSpacing: "0.09em", marginBottom: 4 }}>⚠️ Projets sans objectif mensuel en cours</div>
+          <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 8 }}>Rattache-les à un objectif mensuel depuis leur fiche (Todo → modifier).</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{orphans.map(renderProject)}</div>
         </div>
       )}
 
@@ -2387,85 +2445,6 @@ function LifePlanTree({ goals, onOpenEdit }) {
 }
 
 const OBJ_MAX_PER_LEVEL = 6;
-// Petit sélecteur d'émoji inline (même DA)
-const RM_EMOJIS = ["🗺","📊","🧠","💡","🎯","🚀","🗂️","📌","🔭","🧩","📈","🌐","🛠️","📋","✨","🔥","📅","🧭"];
-function MiroMetaEdit({ name, emoji, onMeta }) {
-  const [editName, setEditName] = useState(false);
-  const [draftName, setDraftName] = useState(name);
-  const [pick, setPick] = useState(false);
-  useEffect(() => setDraftName(name), [name]);
-  const commit = () => { onMeta(draftName.trim() || "Roadmap", emoji); setEditName(false); };
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, position: "relative" }}>
-      <span onClick={() => setPick(p => !p)} title="Changer l'émoji" style={{ fontSize: 20, cursor: "pointer", lineHeight: 1 }}>{emoji}</span>
-      {editName
-        ? <input autoFocus value={draftName} onChange={e => setDraftName(e.target.value)} onBlur={commit} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraftName(name); setEditName(false); } }}
-            style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: C.text, background: "transparent", border: "none", borderBottom: `1px solid ${C.accent}`, outline: "none", width: 200, letterSpacing: "-0.01em" }} />
-        : <span onClick={() => setEditName(true)} title="Renommer" style={{ fontFamily: "var(--font-display)", fontSize: 18, fontWeight: 800, color: C.text, cursor: "pointer", letterSpacing: "-0.01em" }}>{name}</span>}
-      {pick && (
-        <div style={{ position: "absolute", top: "120%", left: 0, zIndex: 50, background: C.surface2, border: `1px solid ${C.borderMid}`, borderRadius: 14, padding: 10, display: "grid", gridTemplateColumns: "repeat(6, 34px)", gap: 4, boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}>
-          {RM_EMOJIS.map(e => (
-            <button key={e} onClick={() => { onMeta(name, e); setPick(false); }} style={{ width: 34, height: 34, borderRadius: 9, fontSize: 18, cursor: "pointer", background: emoji === e ? C.accentBg : "transparent", border: `1px solid ${emoji === e ? C.accent : "transparent"}` }}>{e}</button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Tableau MIRO intégré (live-embed iframe) — éditable si connecté à Miro
-function MiroRoadmap({ name = "Roadmap", emoji = "🗺", onMeta }) {
-  const [raw, setRaw] = useState(() => getLS("lp_roadmap_miro", ""));
-  const [editing, setEditing] = useState(() => !getLS("lp_roadmap_miro", ""));
-  const [draft, setDraft] = useState(() => getLS("lp_roadmap_miro", ""));
-
-  const toEmbed = (s) => {
-    if (!s) return "";
-    const t = s.trim();
-    const srcM = t.match(/src=["']([^"']+)["']/); // iframe collé
-    if (srcM) return srcM[1];
-    if (t.includes("live-embed")) return t;
-    const idM = t.match(/board\/([^/?\s]+)/); // lien de partage Miro
-    if (idM) return `https://miro.com/app/live-embed/${idM[1]}/?autoplay=true`;
-    return t;
-  };
-  const embed = toEmbed(raw);
-  const save = () => { const v = draft.trim(); setRaw(v); setLS("lp_roadmap_miro", v); setEditing(false); };
-
-  if (editing || !embed) {
-    return (
-      <div style={{ maxWidth: 560 }}>
-        <div style={{ marginBottom: 14 }}><MiroMetaEdit name={name} emoji={emoji} onMeta={onMeta} /></div>
-        <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, marginBottom: 14 }}>
-          Colle le <b style={{ color: C.text }}>lien de partage</b> de ton tableau Miro (ou le code d'intégration iframe).<br />
-          Dans Miro : <b style={{ color: C.text }}>Partager → Intégrer → copier</b>. Vérifie que le partage autorise la modification pour pouvoir éditer ici.
-        </div>
-        <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={3} placeholder="https://miro.com/app/board/uXjV…=/  ou  <iframe src=…>"
-          style={{ width: "100%", background: C.surface3, border: `1px solid ${C.border}`, color: C.text, borderRadius: 12, padding: "12px 14px", fontSize: 13, fontFamily: "inherit", outline: "none", resize: "vertical", boxSizing: "border-box", marginBottom: 12 }} />
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={save} disabled={!draft.trim()} style={{ background: GRAD, color: "#fff", border: "none", borderRadius: 12, padding: "11px 20px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: draft.trim() ? 1 : 0.5, boxShadow: GLOW_SM }}>Afficher la roadmap</button>
-          {embed && <button onClick={() => { setDraft(raw); setEditing(false); }} style={{ background: "transparent", color: C.muted, border: `1px solid ${C.border}`, borderRadius: 12, padding: "11px 18px", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>Annuler</button>}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
-        <MiroMetaEdit name={name} emoji={emoji} onMeta={onMeta} />
-        <button onClick={() => { setDraft(raw); setEditing(true); }} style={{ background: C.surface2, color: C.muted, border: `1px solid ${C.border}`, borderRadius: 999, padding: "6px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Changer le tableau</button>
-      </div>
-      <div style={{ position: "relative", width: "100%", height: "72vh", borderRadius: 18, overflow: "hidden", border: `1px solid ${C.borderMid}`, background: C.surface2 }}>
-        <LazyEmbed
-          src={embed} title="Roadmap Miro" provider="Miro"
-          allow="fullscreen; clipboard-read; clipboard-write"
-        />
-      </div>
-    </div>
-  );
-}
-
 // Instances montées qui tiennent une copie de lp_goals : les opérations de l'API
 // (applyApiOpsToStore) les rafraîchissent pour qu'elles n'écrasent pas le nouvel état.
 const _goalSubs = new Set();
@@ -2475,9 +2454,6 @@ function ObjectifsModule({ initialTab = "lt" }) {
   useEffect(() => { _goalSubs.add(setGoals); return () => { _goalSubs.delete(setGoals); }; }, []);
   const [tab, setTab]       = useState(initialTab);
   useEffect(()=>{ if(initialTab) setTab(initialTab); }, [initialTab]);
-  const [rmName, setRmName]   = useState(()=>getLS("lp_roadmap_name","Roadmap"));
-  const [rmEmoji, setRmEmoji] = useState(()=>getLS("lp_roadmap_emoji","🗺"));
-  const saveRmMeta = (name, emoji) => { setRmName(name); setRmEmoji(emoji); setLS("lp_roadmap_name", name); setLS("lp_roadmap_emoji", emoji); };
   const [newTitre, setNewTitre] = useState("");
   const [newSpaces, setNewSpaces] = useState([]);
   const [newParentId, setNewParentId] = useState("");
@@ -2522,7 +2498,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
     setToast(null);
   };
   return (
-    <div className="theme-light" style={{minHeight:"100dvh", ...(tab==="roadmap" ? { background:"#000", backgroundImage:"none" } : {})}}>
+    <div className="theme-light" style={{minHeight:"100dvh"}}>
       <CFHeader eyebrow="Vision &amp; cap" title="Objectifs" />
       <div style={{padding:"4px 16px 100px"}}>
         <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
@@ -2541,16 +2517,9 @@ function ObjectifsModule({ initialTab = "lt" }) {
               </button>
             );
           })}
-          {(() => { const rm=tab==="roadmap"; return (
-            <button onClick={()=>setTab("roadmap")} style={{flexShrink:0,padding:"8px 16px",borderRadius:999,fontSize:12,fontFamily:"inherit",cursor:"pointer",border:`1px solid ${rm?"#22D3EE":C.border}`,background:rm?"rgba(34,211,238,0.16)":C.surface2,color:rm?"#22D3EE":C.muted,fontWeight:rm?700:400,display:"flex",alignItems:"center",gap:6}}>
-              <span>{rmEmoji}</span><span>{rmName}</span>
-            </button>
-          );})()}
         </div>
 
-        {tab==="roadmap" ? (
-          <MiroRoadmap name={rmName} emoji={rmEmoji} onMeta={saveRmMeta} />
-        ) : tab==="lifeplan" ? (
+        {tab==="lifeplan" ? (
           <LifePlanTree goals={goals} onOpenEdit={openEdit} />
         ) : (<>
         {/* En-tête niveau + crayon d'ajout */}
@@ -2751,15 +2720,14 @@ async function applyApiOpsToStore(ops, userId) {
   if (userId) await syncToSupabase(userId).catch(() => {});
 }
 
-// ── ObjectifLinkPicker — rattache un projet à un objectif en cours (mensuel puis trimestriel)
+// ── ObjectifLinkPicker — rattache un projet à un objectif mensuel en cours
 // Un lien vers un objectif désormais clos reste affiché (« clos ») pour ne pas disparaître en silence.
 function ObjectifLinkPicker({ value, onChange, required = false, colors = C }) {
   const goals = getLS("lp_goals", {});
   const running = runningGoals(goals, todayStr());
   const stale = value && !running.some(g => g.id === value)
-    ? [...(goals.mensuel || []), ...(goals.trimestriel || [])].find(g => g.id === value)
+    ? (goals.mensuel || []).find(g => g.id === value)
     : null;
-  const LV = { mensuel:"Mensuel", trimestriel:"Trimestre" };
   const btn = on => ({ textAlign:"left", padding:"7px 12px", borderRadius:10, border:`1px solid ${on ? colors.accent : colors.border}`, background:on ? colors.accentBg : "transparent", color:on ? colors.accent : colors.text, fontSize:12, fontFamily:"inherit", cursor:"pointer" });
   return (
     <div style={{ marginBottom:14 }}>
@@ -2770,7 +2738,7 @@ function ObjectifLinkPicker({ value, onChange, required = false, colors = C }) {
         {stale && <button onClick={() => onChange(stale.id)} style={btn(true)}>{stale.titre} <span style={{ color:colors.muted }}>(clos)</span></button>}
         {running.map(g => (
           <button key={g.id} onClick={() => onChange(g.id)} style={btn(value === g.id)}>
-            {g.titre} <span style={{ color:colors.muted }}>· {LV[g.level]}</span>
+            {g.titre}
           </button>
         ))}
       </div>
@@ -2941,7 +2909,7 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
 function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
   const today = todayStr();
   const goals = getLS("lp_goals", {});
-  const linkedObj = todoGoalId(item) ? [...(goals.mensuel || []), ...(goals.trimestriel || [])].find(o => o.id === todoGoalId(item)) : null;
+  const linkedObj = todoGoalId(item) ? (goals.mensuel || []).find(o => o.id === todoGoalId(item)) : null;
   const daysLeft = item.dateFin
     ? Math.ceil((new Date(item.dateFin + "T12:00:00") - new Date(today + "T12:00:00")) / 86400000)
     : null;
