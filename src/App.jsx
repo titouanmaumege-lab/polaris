@@ -836,7 +836,7 @@ function WeeklyCalendar() {
         }}>
         <span aria-hidden="true" style={{ fontSize:12, flexShrink:0 }}>👤</span>
         <span style={{ flex:1, minWidth:0, display:"flex", flexDirection:"column" }}>
-          <span style={{ fontSize:11, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}{it.source==="claude"&&<ClaudeBadge/>}</span>
+          <span style={{ fontSize:11, fontWeight:600, color:"var(--c-text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</span>
           {it.waitingFor && (
             <span style={{ fontSize:9.5, color:CYAN, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{it.waitingFor}</span>
           )}
@@ -1144,7 +1144,7 @@ function WeeklyCalendar() {
                       style={{ flexShrink:0, width:17, height:17, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center",
                         border:`1.5px solid #34D399`, color:"#34D399", fontSize:9, lineHeight:1, cursor:"pointer" }} />
                     <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:600, color:"var(--c-text)", lineHeight:1.3,
-                      overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}{it.source==="claude"&&<ClaudeBadge/>}</span>
+                      overflow:"hidden", textOverflow:"ellipsis", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical" }}>{it.name}</span>
                     {it.recurrence?.enabled && <span style={{ fontSize:10, flexShrink:0 }}>🔄</span>}
                     <span style={{ width:6, height:6, borderRadius:"50%", background:col, boxShadow:`0 0 5px ${col}`, flexShrink:0 }} />
                   </div>
@@ -1296,7 +1296,7 @@ function WeeklyCalendar() {
                 borderLeft:`3px solid ${it.gtd === "waiting" ? CYAN : it.gtd === "memo" ? AMBER : colorOf(it)}`,
                 cursor:"pointer",
               }}>
-                <span style={{ flex:1, minWidth:0, fontSize:13, color:"var(--c-text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it.name}{it.source==="claude"&&<ClaudeBadge/>}</span>
+                <span style={{ flex:1, minWidth:0, fontSize:13, color:"var(--c-text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{it.name}</span>
                 {it.gtd === "waiting" && it.waitingFor && <span style={{ flexShrink:0, fontSize:10.5, color:CYAN }}>{it.waitingFor}</span>}
                 <CheckDot onDone={() => markDone(it)} color={it.gtd === "waiting" ? CYAN : it.gtd === "memo" ? AMBER : colorOf(it)} size={17} />
               </div>
@@ -2704,10 +2704,6 @@ const getProjectStatus = (item) => {
   if (debut <= today && today <= item.dateFin) return "en_cours";
   return "planifie";
 };
-// Tâche créée par l'assistant IA via l'API (/api/v1, champ source: "claude").
-const ClaudeBadge = () => (
-  <span title="Ajoutée par Claude via l'API" style={{display:"inline-block",marginLeft:6,padding:"1px 6px",borderRadius:999,fontSize:9,fontWeight:700,letterSpacing:"0.04em",verticalAlign:"middle",lineHeight:1.5,background:"rgba(217,119,87,0.14)",color:"#d97757",border:"1px solid rgba(217,119,87,0.35)",whiteSpace:"nowrap",textDecoration:"none"}}>Claude</span>
-);
 const migrateOneTodo = raw => {
   if (!raw) return null;
   // already new format
@@ -3104,7 +3100,7 @@ function TaskSummaryModal({ item, onClose, onToggleSousTache, onEdit }) {
                 {item.sphere && <Pill c={sc}>{SPHERES[item.sphere]?.label}</Pill>}
                 {statut && <Pill c={statut.c}>{statut.label}</Pill>}
               </div>
-              <div style={{ fontSize:18, fontWeight:700, color:C.text, lineHeight:1.3, letterSpacing:"-0.01em" }}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+              <div style={{ fontSize:18, fontWeight:700, color:C.text, lineHeight:1.3, letterSpacing:"-0.01em" }}>{item.name}</div>
             </div>
             <div style={{ display:"flex", gap:6 }}>
               <IconBtn onClick={onEdit} title="Modifier">✏️</IconBtn>
@@ -3221,7 +3217,7 @@ function ProjectCard({item, todos, onUpdate, onDelete, onToggleDone, onEdit}) {
       <div style={{padding:"14px 16px"}}>
         <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
           <div style={{flex:1}}>
-            <div onClick={()=>onEdit&&onEdit()} style={{fontSize:15,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none",marginBottom:6,lineHeight:1.35,cursor:onEdit?"pointer":"default"}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+            <div onClick={()=>onEdit&&onEdit()} style={{fontSize:15,fontWeight:600,color:item.done?C.muted:C.text,textDecoration:item.done?"line-through":"none",marginBottom:6,lineHeight:1.35,cursor:onEdit?"pointer":"default"}}>{item.name}</div>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center",marginBottom:4}}>
               {mat&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:C.surface3,color:C.muted,border:`1px solid ${C.border}`}}>{mat.label}</span>}
               {item.sphere&&<span style={{fontSize:10,padding:"2px 7px",borderRadius:999,background:sc+"22",color:sc}}>{SPHERES[item.sphere]?.label}</span>}
@@ -3673,7 +3669,7 @@ function TodoModule() {
                   return (
                     <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:"pointer"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
                         <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center"}}>
                           <span style={{background:bc,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,textTransform:"uppercase"}}>{gtdLabel}</span>
                           {item.sphere&&<span style={{fontSize:11,color:SPHERES[item.sphere]?.c||C.muted}}>{SPHERES[item.sphere]?.label}</span>}
@@ -3702,7 +3698,7 @@ function TodoModule() {
               : inboxItems.map(item=>(
                 <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`}}>
                   <div style={{flex:1,cursor:"pointer"}} onClick={()=>setEditId(item.id)}>
-                    <div style={{fontSize:14,color:C.text}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+                    <div style={{fontSize:14,color:C.text}}>{item.name}</div>
                     <span style={{fontSize:11,fontWeight:600,color:C.amber}}>À clarifier</span>
                   </div>
                   <Btn onClick={()=>setClarifyId(item.id)} variant="ghost" style={{fontSize:12,padding:"6px 12px",whiteSpace:"nowrap"}}>Clarifier →</Btn>
@@ -3760,7 +3756,7 @@ function TodoModule() {
                     <div key={item.id} onClick={()=>setEditId(item.id)} style={{padding:"14px 16px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #f59e0b",cursor:"pointer"}}>
                       <div style={{display:"flex",alignItems:"center",gap:10}}>
                         <div style={{flex:1}}>
-                          <div style={{fontSize:14,color:C.text,marginBottom:4}}>⏳ {item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+                          <div style={{fontSize:14,color:C.text,marginBottom:4}}>⏳ {item.name}</div>
                           {item.waitingFor&&<div style={{fontSize:12,color:C.amber}}>Attend : {item.waitingFor}</div>}
                           {item.waitingNote&&<div style={{fontSize:11,color:C.faint,marginTop:2}}>{item.waitingNote}</div>}
                           {item.sphere&&<span style={{fontSize:10,color:sc,marginTop:4,display:"block"}}>{SPHERES[item.sphere]?.label}</span>}
@@ -3788,7 +3784,7 @@ function TodoModule() {
                       return (
                         <div key={item.id} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:6,background:C.surface2,border:`1px solid ${C.border}`,borderLeft:"3px solid #6366f1"}}>
                           <div style={{flex:1,cursor:"pointer"}} onClick={()=>setEditId(item.id)}>
-                            <div style={{fontSize:14,color:C.text}}>📝 {item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+                            <div style={{fontSize:14,color:C.text}}>📝 {item.name}</div>
                             {item.sphere&&<span style={{fontSize:11,color:sc}}>{SPHERES[item.sphere]?.label}</span>}
                           </div>
                           <div onClick={()=>{toggleDone(item.id);showToast("Mémo fait.");}} style={{width:26,height:26,borderRadius:"50%",border:`2px solid ${C.borderMid}`,cursor:"pointer",flexShrink:0}}/>
@@ -3811,7 +3807,7 @@ function TodoModule() {
               : somedayItems.filter(t=>!somedayQ||t.name.toLowerCase().includes(somedayQ.toLowerCase())).map(item=>(
                 <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,opacity:0.8,cursor:"pointer"}}>
                   <div style={{flex:1}}>
-                    <div style={{fontSize:14,color:C.muted}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+                    <div style={{fontSize:14,color:C.muted}}>{item.name}</div>
                     <div style={{display:"flex",gap:8,marginTop:4}}>
                       {item.sphere&&<span style={{fontSize:11,color:SPHERES[item.sphere]?.c}}>{SPHERES[item.sphere]?.label}</span>}
                       <span style={{fontSize:11,color:C.faint}}>{item.createdAt?.slice(0,10)}</span>
@@ -3837,7 +3833,7 @@ function TodoModule() {
                   return (
                     <div key={item.id} onClick={()=>setEditId(item.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",borderRadius:14,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:"pointer"}}>
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}{item.source==="claude"&&<ClaudeBadge/>}</div>
+                        <div style={{fontSize:14,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
                         <div style={{display:"flex",gap:6,marginTop:4,alignItems:"center",flexWrap:"wrap"}}>
                           <span style={{background:bc,color:"#fff",fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:999,textTransform:"uppercase"}}>{gtdLabel}</span>
                           <span style={{fontSize:10,padding:"2px 8px",borderRadius:999,background:C.accentBg,color:C.accent,fontWeight:600}}>🔄 {describeRecurrence(item.recurrence)}</span>
