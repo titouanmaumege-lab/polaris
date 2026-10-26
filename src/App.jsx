@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import BaseModule from "./components/knowledge/BaseModule";
 import FinancesModule from "./components/finances/FinancesModule";
 import { LegalFooter } from "./components/legal/LegalPages";
 import { hasHealthConsent, onConsentChange, setHealthConsent } from "./state/consent";
@@ -191,7 +190,6 @@ const BOTTOM_NAV = [
   { id: "workperf",  icon: "⏱️️", label: "Work" },
   { id: "daily",     icon: "📓", label: "Daily" },
   { id: "objectifs", icon: "⭐", label: "Goals" },
-  { id: "base",      icon: "📚", label: "Base" },
   { id: "finances",  icon: "💰", label: "Finances" },
 ];
 
@@ -208,7 +206,6 @@ const NAV_ICON_PATHS = {
   workperf:  "M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM12 9v4l2.5 1.8M9.5 2.5h5",
   daily:     "M6 3.5h11.5a.5.5 0 0 1 .5.5v16a.5.5 0 0 1-.5.5H6A1.5 1.5 0 0 1 4.5 19V5A1.5 1.5 0 0 1 6 3.5zM8.5 8h6M8.5 11.5h6",
   objectifs: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM12 12.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z",
-  base:      "M4.5 5.5c2.5-1 5-1 7.5.5 2.5-1.5 5-1.5 7.5-.5v13c-2.5-1-5-1-7.5.5-2.5-1.5-5-1.5-7.5-.5zM12 6v13",
   finances:  "M3.5 7.5h17v10a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1zM3.5 7.5 6 4.5h12l2.5 3M16 13h1.5",
 };
 function NavIcon({ id, size = 18 }) {
@@ -7638,7 +7635,7 @@ function PersonalisationModal({ onClose, onSave }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App({ session, signOut }) {
   // /bank-callback = retour de la banque après consentement (cf. BankPanel).
-  const [module, setModule]   = useState(()=>window.location.pathname==="/bank-callback"?"finances":getLS("lp_active_module","dashboard"));
+  const [module, setModule]   = useState(()=>window.location.pathname==="/bank-callback"?"finances":(m=>m==="base"?"dashboard":m)(getLS("lp_active_module","dashboard")));
   const [objTab, setObjTab]   = useState("lt");
   const navTo = id => {
     if (typeof id === "string" && id.startsWith("objectifs:")) { setObjTab(id.slice(10)); setModule("objectifs"); return; }
@@ -7772,7 +7769,6 @@ export default function App({ session, signOut }) {
         {module === "workperf"  && <WorkPerfModule activeSession={activeSession} onSessionStart={handleSessionStart} onSessionStop={handleSessionStop} />}
         {module === "daily"     && <DailyPaperModule onNav={navTo} />}
         {module === "todo"      && <TodoModule />}
-        {module === "base"      && <BaseModule userId={session?.user?.id ?? null} />}
         {module === "finances"  && <FinancesModule userId={session?.user?.id ?? null} />}
         {/* Home tient en une page : le footer y ajouterait un scroll.
             Il reste présent sur tous les autres modules. */}
