@@ -16,7 +16,7 @@ import {
 import { uid } from "./utils/id";
 import { calculateNextOccurrence, toggleDoneIn, applyOps } from "./utils/todoOps";
 import { applyGoalOps } from "./utils/goalOps";
-import { runningGoals, todoGoalId } from "./utils/goalLinks";
+import { runningGoals, isGoalRunning, todoGoalId } from "./utils/goalLinks";
 import { clamp, pct, krPct, KR_BONUS_MAX, krsProgress } from "./utils/math";
 import { getLS, setLS, setSyncContext } from "./utils/storage";
 import {
@@ -1947,7 +1947,8 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
   const level         = LEVELS.find(l=>l.id===levelId);
   const parentLevelId = LEVEL_PARENT[levelId];
   const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
-  const parentOptions = parentLevelId?(allGoals[parentLevelId]||[]):[];
+  // Seulement les parents en cours ; le parent déjà lié reste affiché pour ne pas disparaître en silence.
+  const parentOptions = parentLevelId?(allGoals[parentLevelId]||[]).filter(p=>p.id===obj.parentId||isGoalRunning(p,todayStr())):[];
   const childLevelId  = LEVEL_CHILD[levelId];
   const childLevel    = LEVELS.find(l=>l.id===childLevelId);
   const children      = childLevelId?(allGoals[childLevelId]||[]).filter(o=>o.parentId===obj.id):[];
@@ -2574,7 +2575,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
   const items = (goals[tab]||[]).filter(o=>!o.archived);
   const parentLevelId = LEVEL_PARENT[tab];
   const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
-  const parentOptions = parentLevelId?(goals[parentLevelId]||[]).filter(o=>!o.archived):[];
+  const parentOptions = parentLevelId?(goals[parentLevelId]||[]).filter(o=>isGoalRunning(o,todayStr())):[];
   const atMax = items.length >= OBJ_MAX_PER_LEVEL;
   const add = () => {
     if(!newTitre.trim() || atMax) return;
