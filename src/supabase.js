@@ -12,7 +12,7 @@ let _hydrating = Promise.resolve();
 export const whenHydrated = () => _hydrating;
 export const trackHydration = p => { _hydrating = Promise.resolve(p).catch(() => {}); return p; };
 
-const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews", "lp_weekly_objectives", "lp_monthly_reviews"];
+const LS_KEYS = ["lp_habits", "leplan_todos", "lp_goals", "lp_daily", "lp_workperf", "lp_highlight", "lp_view_mode", "lp_weekly_reviews", "lp_weekly_objectives", "lp_monthly_reviews", "lp_custom_items"];
 
 export async function loadUserData(userId) {
   const { data, error } = await supabase
@@ -36,15 +36,16 @@ export async function syncToSupabase(userId) {
     weekly_reviews:  JSON.parse(localStorage.getItem("lp_weekly_reviews")   || "[]"),
     weekly_objectives: JSON.parse(localStorage.getItem("lp_weekly_objectives") || "[]"),
     monthly_reviews: JSON.parse(localStorage.getItem("lp_monthly_reviews")  || "[]"),
+    custom_items:    JSON.parse(localStorage.getItem("lp_custom_items")     || "[]"),
     view_mode:      localStorage.getItem("lp_view_mode") || "pc",
     updated_at:      new Date().toISOString(),
   };
   let { error } = await supabase.from("user_data").upsert(payload);
-  // Migration 012 ou 024 pas encore appliquée : on retire la colonne manquante
+  // Migration 012, 024 ou 026 pas encore appliquée : on retire la colonne manquante
   // et on synchronise le reste plutôt que de bloquer toute la sauvegarde.
   // Les données restent en local et partiront une fois la colonne créée.
   const rest = { ...payload };
-  for (const col of ["monthly_reviews", "weekly_objectives"]) {
+  for (const col of ["monthly_reviews", "weekly_objectives", "custom_items"]) {
     if (!error || !new RegExp(col).test(error.message || "")) continue;
     delete rest[col];
     ({ error } = await supabase.from("user_data").upsert(rest));
@@ -78,6 +79,12 @@ export function hydrateLocalStorage(data) {
   if (data.view_mode)                   localStorage.setItem("lp_view_mode",       data.view_mode);
   // Fusion par id plutôt qu'écrasement : avant la synchro, chaque appareil a pu
   // accumuler ses propres objectifs en local. Le serveur gagne en cas de conflit.
+  if (hasContent(data.custom_items)) {
+    const local = JSON.parse(localStorage.getItem("lp_custom_items") || "[]");
+    const byId = new Map(local.map(o => [o.id, o]));
+    data.custom_items.forEach(o => byId.set(o.id, o));
+    localStorage.setItem("lp_custom_items", JSON.stringify([...byId.values()]));
+  }
   if (hasContent(data.weekly_objectives)) {
     const local = JSON.parse(localStorage.getItem("lp_weekly_objectives") || "[]");
     const byId = new Map(local.map(o => [o.id, o]));

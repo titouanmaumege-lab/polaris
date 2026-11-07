@@ -1719,6 +1719,26 @@ function HighlightCard({ hl, onPick, onToggle, onOpenTask }) {
   );
 }
 
+// « À améliorer » du Daily Paper en tête de Home : celui d'aujourd'hui, sinon le plus récent rempli.
+function HomeAmeliorer({ today }) {
+  const C = CF;
+  const daily = getLS("lp_daily", {});
+  const d = Object.keys(daily).filter(k => k <= today && (djEntry(daily[k]).ameliorer || "").trim()).sort().pop();
+  if (!d) return null;
+  const color = "#60A5FA";
+  return (
+    <div style={{ display:"flex", gap:12, padding:"14px 16px", marginBottom:12, background:C.surface2, border:`1px solid ${C.border}`, borderRadius:14 }}>
+      <div style={{ width:3, borderRadius:3, background:color, flexShrink:0, boxShadow:`0 0 8px ${color}` }} />
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ color, fontSize:11, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.12em", marginBottom:6 }}>
+          🔧 À améliorer{d === today ? "" : ` · ${new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day:"numeric", month:"short" })}`}
+        </div>
+        <div style={{ fontSize:14, lineHeight:1.6, color:C.text, whiteSpace:"pre-wrap" }}>{djEntry(daily[d]).ameliorer}</div>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ onRequestSession }) {
   const C = CF, GRAD = CF_GRAD, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const t = todayStr();
@@ -1823,6 +1843,8 @@ function Dashboard({ onRequestSession }) {
       </div>
 
       <div className="dash-wrap">
+        <HomeAmeliorer today={t} />
+
         <HighlightCard
           hl={hl}
           onPick={() => setPicker(true)}
@@ -5327,7 +5349,19 @@ function RitualGauge({ glyph, label, color, options, value, onChange }) {
   );
 }
 
-function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem, onNav }) {
+// Blocs récurrents du Daily Paper : un bloc (nom + couleur) apparaît chaque jour
+// à partir de sa création, jusqu'à sa suppression (archivedAt). Le contenu écrit
+// reste dans chaque jour (entry.customItems) : supprimer un bloc garde l'historique.
+const blockStart = g => g.from || (g.createdAt || "").slice(0, 10);
+const blockVisibleOn = (g, date, entry) => {
+  const to = g.archivedAt || "";
+  if (to && date >= to) return false;
+  const from = blockStart(g);
+  if (!from || date >= from) return true;
+  return (entry?.customItems || []).some(tc => tc.itemId === g.id);
+};
+
+function RetrospectiveCards({ entry, date, onFieldChange, customGlobalItems, onAddCustomItem, onRemoveCustomItem, onUpdateCustomContent, onEditGlobalItem, onNav }) {
   const C = CF;
   const [showItemModal, setShowItemModal] = useState(false);
   const FIXED = [
@@ -5335,11 +5369,9 @@ function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCust
     { key:'loss',     label:'LOSS',       icon:'💔', color:'#FB7185' },
     { key:'ameliorer',label:'À AMÉLIORER',icon:'🔧', color:'#60A5FA' },
   ];
-  const todayCustom = entry.customItems || [];
-  const todayCustomFull = todayCustom.map(tc => {
-    const g = customGlobalItems.find(g=>g.id===tc.itemId);
-    return g ? { ...g, content: tc.content } : null;
-  }).filter(Boolean);
+  const todayCustomFull = customGlobalItems
+    .filter(g => blockVisibleOn(g, date, entry))
+    .map(g => ({ ...g, content: (entry.customItems || []).find(tc => tc.itemId === g.id)?.content || "" }));
   const block = (color, head, value, onChange, placeholder) => (
     <div style={{display:'flex',gap:12,paddingBottom:16,marginBottom:16,borderBottom:`1px solid ${C.border}`}}>
       <div style={{width:3,borderRadius:3,background:color,flexShrink:0,boxShadow:`0 0 8px ${color}`}}/>
@@ -5364,20 +5396,20 @@ function RetrospectiveCards({ entry, onFieldChange, customGlobalItems, onAddCust
           <span style={{color:item.color,fontWeight:700,fontSize:11,textTransform:'uppercase',letterSpacing:'0.12em'}}>{item.name}</span>
           <div style={{display:'flex',gap:10}}>
             <span onClick={()=>onEditGlobalItem(item.id)} style={{fontSize:13,cursor:'pointer',color:C.muted}}>✏️</span>
-            <span onClick={()=>onRemoveCustomItem(item.id)} style={{fontSize:13,cursor:'pointer',color:C.faint}}>🗑️</span>
+            <span onClick={()=>{ if(window.confirm(`Supprimer le bloc « ${item.name} » ? Il n'apparaîtra plus les jours suivants (l'historique est conservé).`)) onRemoveCustomItem(item.id); }} style={{fontSize:13,cursor:'pointer',color:C.faint}}>🗑️</span>
           </div>
         </div>,
         item.content||'', e=>onUpdateCustomContent(item.id,e.target.value), ''
       ))}
       <button onClick={()=>setShowItemModal(true)} style={{width:'100%',padding:'12px',borderRadius:12,border:`1px dashed ${C.borderMid}`,background:'transparent',color:C.accent,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit'}}>
-        + Ajouter un item
+        + Ajouter un bloc
       </button>
       <button onClick={()=>onNav?.("finances")} style={{width:'100%',marginTop:10,padding:'12px 14px',borderRadius:12,border:`1px solid ${C.amber}55`,background:`linear-gradient(135deg, ${C.amber}1f, transparent 70%)`,color:C.amber,fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}>
         <span style={{fontSize:16}}>💰</span> N'oublie pas de mettre à jour tes comptes du jour
         <span style={{marginLeft:'auto',opacity:0.7}}>→</span>
       </button>
       {showItemModal && (
-        <ItemAddModal globalItems={customGlobalItems} onClose={()=>setShowItemModal(false)}
+        <ItemAddModal globalItems={customGlobalItems.filter(g=>g.archivedAt)} onClose={()=>setShowItemModal(false)}
           onAdd={(itemId)=>{ onAddCustomItem(itemId); setShowItemModal(false); }}
           onCreateAndAdd={(name,color)=>{ const id=onAddCustomItem(null,name,color); setShowItemModal(false); return id; }} />
       )}
@@ -5397,9 +5429,10 @@ function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
     <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
       <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
       <div className="slide-up" style={{position:'relative',width:'min(480px,100%)',background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px 20px',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ajouter un item</div>
+        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ajouter un bloc</div>
+        <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:-8,marginBottom:14}}>Il revient chaque jour jusqu'à ce que tu le supprimes.</div>
         <div style={{display:'flex',gap:4,marginBottom:20}}>
-          {[['nouveau','Nouveau'],['existant','Existants']].map(([id,label])=>(
+          {[['nouveau','Nouveau'],['existant','Supprimés']].map(([id,label])=>(
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'8px',borderRadius:10,border:`1px solid ${tab===id?C.accent:C.border}`,background:tab===id?C.accentBg:'transparent',color:tab===id?C.accent:C.muted,fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>
               {label}
             </button>
@@ -5408,7 +5441,7 @@ function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
         <div style={{overflowY:'auto',flex:1}}>
           {tab==='nouveau' && (
             <div>
-              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nom de l'item..."
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nom du bloc..."
                 style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:14}} />
               <div style={{marginBottom:14}}>
                 <div style={{fontSize:11,color:C.muted,marginBottom:8,fontWeight:600}}>Couleur</div>
@@ -5431,14 +5464,14 @@ function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
           )}
           {tab==='existant' && (
             <div>
-              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 Rechercher un item..."
+              <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 Rechercher un bloc supprimé..."
                 style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:12}} />
-              {filtered.length===0 && <div style={{fontSize:13,color:C.muted,textAlign:'center',padding:'32px 0'}}>Aucun item. Crée-en un dans "Nouveau".</div>}
+              {filtered.length===0 && <div style={{fontSize:13,color:C.muted,textAlign:'center',padding:'32px 0'}}>Aucun bloc supprimé.</div>}
               {filtered.map(item=>(
                 <div key={item.id} onClick={()=>onAdd(item.id)} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 14px',borderRadius:12,marginBottom:8,background:C.surface2,border:`1px solid ${C.border}`,cursor:'pointer'}}>
                   <div style={{width:16,height:16,borderRadius:'50%',background:item.color,flexShrink:0}} />
                   <span style={{flex:1,fontSize:14,color:C.text}}>{item.name}</span>
-                  <span style={{fontSize:12,color:C.accent}}>+ Ajouter</span>
+                  <span style={{fontSize:12,color:C.accent}}>Réactiver</span>
                 </div>
               ))}
             </div>
@@ -5456,7 +5489,7 @@ function EditGlobalItemModal({ item, onClose, onSave }) {
   return (
     <div onClick={onClose} style={{position:'fixed',inset:0,zIndex:450,display:'flex',alignItems:'center',justifyContent:'center',padding:16,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}}>
       <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:'100%',maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px 20px'}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16}}>Modifier l'item</div>
+        <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16}}>Modifier le bloc</div>
         <input value={name} onChange={e=>setName(e.target.value)}
           style={{width:'100%',background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'12px 14px',borderRadius:12,fontSize:14,fontFamily:'inherit',outline:'none',boxSizing:'border-box',marginBottom:14}} />
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:20}}>
@@ -5651,24 +5684,31 @@ function DailyPaperModule({ onNav }) {
   const prevDay = () => { const d=new Date(selDate+"T12:00:00"); d.setDate(d.getDate()-1); setSelDate(d.toISOString().split("T")[0]); };
   const nextDay = () => { const d=new Date(selDate+"T12:00:00"); d.setDate(d.getDate()+1); const next=d.toISOString().split("T")[0]; if(next<=t) setSelDate(next); };
 
+  // Nouveau bloc = récurrent dès ce jour ; réactiver un bloc supprimé = récurrent à nouveau dès ce jour.
   const addCustomItem = (itemId, newName, newColor) => {
     let gId = itemId;
     if (!itemId) {
       gId = uid();
-      saveGlobal([...customGlobalItems, {id:gId, name:newName, color:newColor, createdAt:new Date().toISOString()}]);
+      saveGlobal([...customGlobalItems, {id:gId, name:newName, color:newColor, from:selDate, createdAt:new Date().toISOString()}]);
+    } else {
+      saveGlobal(customGlobalItems.map(g=>g.id===gId?{...g, from:selDate, archivedAt:undefined}:g));
     }
     const e = djEntry(daily[selDate]);
     if ((e.customItems||[]).some(tc=>tc.itemId===gId)) return gId;
     save({...daily,[selDate]:{...e,customItems:[...(e.customItems||[]),{itemId:gId,content:''}]}});
     return gId;
   };
+  // Supprimer = ne plus afficher à partir d'aujourd'hui ; le contenu des jours passés reste.
   const removeCustomItem = (itemId) => {
-    const e=djEntry(daily[selDate]);
-    save({...daily,[selDate]:{...e,customItems:(e.customItems||[]).filter(tc=>tc.itemId!==itemId)}});
+    saveGlobal(customGlobalItems.map(g=>g.id===itemId?{...g, archivedAt:todayStr()}:g));
   };
   const updateCustomContent = (itemId, content) => {
     const e=djEntry(daily[selDate]);
-    save({...daily,[selDate]:{...e,customItems:(e.customItems||[]).map(tc=>tc.itemId===itemId?{...tc,content}:tc)}});
+    const items=e.customItems||[];
+    const next=items.some(tc=>tc.itemId===itemId)
+      ? items.map(tc=>tc.itemId===itemId?{...tc,content}:tc)
+      : [...items,{itemId,content}];
+    save({...daily,[selDate]:{...e,customItems:next}});
   };
   const editingItem = customGlobalItems.find(g=>g.id===editingItemId);
 
@@ -5733,6 +5773,7 @@ function DailyPaperModule({ onNav }) {
         <div style={{fontSize:10,color:C.accent,textTransform:"uppercase",letterSpacing:"0.16em",fontWeight:700,marginBottom:12}}>Rétro du jour</div>
         <RetrospectiveCards
           entry={entry}
+          date={selDate}
           onFieldChange={setField}
           customGlobalItems={customGlobalItems}
           onAddCustomItem={addCustomItem}
@@ -6365,6 +6406,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const [wrLoss, setWrLoss] = useState(existing?.loss || "");
   const [wrAmeliorer, setWrAmeliorer] = useState(existing?.ameliorer || "");
   const [wrCustomItems, setWrCustomItems] = useState(existing?.customItems || []);
+  const [wrBlocks, setWrBlocks] = useState(existing?.blocks || {}); // synthèse hebdo par bloc récurrent du Daily Paper
   const [wrHabitAdjust, setWrHabitAdjust] = useState(existing?.habitAdjust || "");
   const [weeklyObjs, setWeeklyObjs] = useState(() => getLS("lp_weekly_objectives", []));
   const [newObjInput, setNewObjInput] = useState("");
@@ -6412,6 +6454,14 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const todosWeek     = todos.filter(t => t.gtd==="projet" && t.done && t.doneAt && weekDays.includes(t.doneAt.slice(0,10)));
   const dailyEntries  = weekDays.map(d => ({ date: d, entry: djEntry(daily[d]) }));
   const dailyCount    = dailyEntries.filter(({entry:e}) => e.morning||e.win||e.loss||e.remark).length;
+  // Blocs récurrents du Daily Paper actifs ou remplis cette semaine
+  const weekBlocks = getLS("lp_custom_items", []).map(g => {
+    const days = dailyEntries
+      .map(({date, entry}) => ({ date, content: ((entry.customItems||[]).find(tc=>tc.itemId===g.id)?.content || "").trim() }))
+      .filter(x => x.content);
+    const active = weekDays.some(d => blockVisibleOn(g, d, djEntry(daily[d])));
+    return (active || days.length) ? { ...g, days } : null;
+  }).filter(Boolean);
 
   // Daily averages
   const energyVals = dailyEntries.map(({entry:e}) => emojiVal(DJ_ENERGY, e.morning)).filter(v=>v!=null);
@@ -6436,7 +6486,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const { ai, aiLoading, aiError, regenerate } = useWeeklyAI(wkStart, buildDigest, hasWeekData);
 
   // Y a-t-il qqch à sauver ? (évite reviews vides)
-  const isDirty = !!(existing || note || wrWin || wrLoss || wrAmeliorer || wrHabitAdjust || wrCustomItems.length);
+  const isDirty = !!(existing || note || wrWin || wrLoss || wrAmeliorer || wrHabitAdjust || wrCustomItems.length || Object.values(wrBlocks).some(Boolean));
 
   // Persistance LS seule (safe hors render / unmount)
   const persistReview = () => {
@@ -6444,7 +6494,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
     const review = {
       id: existing?.id || uid(),
       weekStart: wkStart, weekEnd: wkEnd,
-      note, win: wrWin, loss: wrLoss, ameliorer: wrAmeliorer, customItems: wrCustomItems,
+      note, win: wrWin, loss: wrLoss, ameliorer: wrAmeliorer, customItems: wrCustomItems, blocks: wrBlocks,
       habitAdjust: wrHabitAdjust,
       summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress, avgHappy },
       createdAt: existing?.createdAt || new Date().toISOString(),
@@ -6784,6 +6834,24 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                 </button>
               </div>
             )}
+            {/* Blocs récurrents du Daily Paper : notes de chaque jour de la semaine + synthèse */}
+            {weekBlocks.map(b=>(
+              <div key={b.id} style={{borderLeft:`4px solid ${b.color}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+                <label style={{color:b.color,fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:1,display:'block',marginBottom:8}}>{b.name}</label>
+                {b.days.length>0 ? (
+                  <div style={{marginBottom:10}}>
+                    {b.days.map(({date,content})=>(
+                      <div key={date} style={{fontSize:12,color:C.muted,lineHeight:1.5,marginBottom:4}}>
+                        <strong style={{color:C.text}}>{fmtDshort(date)}</strong> · {content}
+                      </div>
+                    ))}
+                  </div>
+                ) : <div style={{fontSize:11.5,color:C.faint,marginBottom:8}}>Rien noté cette semaine.</div>}
+                <textarea value={wrBlocks[b.id]||''} onChange={e=>!locked&&setWrBlocks(s=>({...s,[b.id]:e.target.value}))} readOnly={locked}
+                  placeholder={locked?"Verrouillé.":"Ta synthèse de la semaine..."} rows={2}
+                  style={{width:'100%',background:'transparent',border:'none',borderTop:`1px solid ${C.border}`,paddingTop:8,color:locked?C.muted:C.text,resize:'vertical',fontFamily:'inherit',fontSize:13,lineHeight:1.6,outline:'none',boxSizing:'border-box'}} />
+              </div>
+            ))}
             {wrCustomItems.map(item=>(
               <div key={item.id} style={{borderLeft:`4px solid ${C.borderMid}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
