@@ -743,6 +743,7 @@ function WeeklyCalendar() {
     const late = it.dateFin && it.dateFin < today && !it.done;
     const dLeft = it.dateFin ? daysTo(it.dateFin) : null;
     const open  = subs.length > 0 && openSubs.has(it.id);
+    const pc    = colorOf(it);   // couleur de la sphère (violet par défaut)
 
     // Largeur réelle de la barre : le nom doit rester lisible même sur un
     // projet d'une seule journée, donc c'est le reste qui disparaît.
@@ -764,7 +765,7 @@ function WeeklyCalendar() {
         className="cal-drag-handle"
         style={{ position:"absolute", top:0, bottom:0, [edgeSide]:0, width:18, zIndex:2, opacity:0.85, cursor:"ew-resize", touchAction:"none",
           display:"flex", alignItems:"center", justifyContent:"center" }}>
-        <span style={{ width:4, height:18, borderRadius:2, background:"rgba(255,255,255,0.9)", boxShadow:"0 0 0 1px rgba(0,0,0,0.2)" }} />
+        <span style={{ width:3, height:14, borderRadius:2, background:"rgba(255,255,255,0.7)" }} />
       </span>
     );
 
@@ -777,20 +778,21 @@ function WeeklyCalendar() {
         style={{
           gridColumn: `${s.startCol + 1} / ${s.endCol + 2}`, gridRow: s.lane + 1,
           position:"relative", overflow:"hidden", minWidth:0,
-          display:"flex", flexDirection:"column", gap:2,
-          margin:"0 3px", padding:"7px 9px 8px", minHeight:40,
-          fontFamily:"inherit", cursor:"grab", textAlign:"left", color:"#fff",
-          background: PROJ_GRAD,
-          border:`1px solid ${late ? RED : "rgba(255,255,255,0.18)"}`,
+          display:"flex", flexDirection:"column", justifyContent:"center", gap:2,
+          margin:"0 4px", padding:"7px 8px 9px", minHeight:38, boxSizing:"border-box",
+          fontFamily:"inherit", cursor:"grab", textAlign:"left", color:"#f4f2ff",
+          background:`linear-gradient(90deg, ${pc}3d, ${pc}17)`,
+          border:`1px solid ${late ? RED : pc + "8c"}`,
           borderLeftWidth: cl ? 0 : 1, borderRightWidth: cr ? 0 : 1,
-          borderTopLeftRadius: cl ? 0 : 12, borderBottomLeftRadius: cl ? 0 : 12,
-          borderTopRightRadius: cr ? 0 : 12, borderBottomRightRadius: cr ? 0 : 12,
-          boxShadow: late ? `0 0 12px ${RED}44` : "none",
+          borderTopLeftRadius: cl ? 0 : 10, borderBottomLeftRadius: cl ? 0 : 10,
+          borderTopRightRadius: cr ? 0 : 10, borderBottomRightRadius: cr ? 0 : 10,
+          boxShadow: late ? `0 0 12px ${RED}44` : `0 0 14px ${pc}22`,
         }}>
-        {/* Progression : on assombrit le restant, jamais le texte */}
-        {subs.length > 0 && pct < 100 && (
-          <span style={{ position:"absolute", left:`${pct}%`, right:0, top:0, bottom:0,
-            background:"rgba(0,0,0,0.26)", pointerEvents:"none" }} />
+        {/* Progression : fine jauge en bas de la barre */}
+        {subs.length > 0 && (
+          <span aria-hidden="true" style={{ position:"absolute", left:0, right:0, bottom:0, height:2, background:"rgba(255,255,255,0.06)", pointerEvents:"none" }}>
+            <span style={{ display:"block", height:"100%", width:`${pct}%`, background:pc, boxShadow:`0 0 6px ${pc}` }} />
+          </span>
         )}
         {!cl && !isPhone && <Grip kind="start" edgeSide="left" />}
         {!cr && !isPhone && <Grip kind="end" edgeSide="right" />}
@@ -798,8 +800,12 @@ function WeeklyCalendar() {
         {/* Ligne 1 — le nom, et lui seul, plus la coche */}
         <span style={{ position:"relative", display:"flex", alignItems:"center", gap:8, minWidth:0, paddingLeft: cl || isPhone ? 6 : 16, paddingRight: cr || isPhone ? 6 : 16 }}>
           {cl && <span style={{ fontSize:10, opacity:0.75 }}>‹</span>}
-          <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:700, whiteSpace:"nowrap",
-            overflow:"hidden", textOverflow:"ellipsis", textShadow:"0 1px 2px rgba(0,0,0,0.3)" }}>{it.name}</span>
+          <span style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, background:pc, boxShadow:`0 0 6px ${pc}` }} />
+          <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:600, whiteSpace:"nowrap",
+            overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</span>
+          {deadline && !lead && (
+            <span style={{ flexShrink:0, fontSize:10.5, fontVariantNumeric:"tabular-nums", fontWeight: late ? 700 : 500, color: late ? "#FFB4B4" : "rgba(244,242,255,0.7)" }}>{deadline}</span>
+          )}
           {subs.length > 0 && (
             <span role="button" tabIndex={0}
               aria-expanded={open} aria-label={open ? "Replier les sous-tâches" : "Déplier les sous-tâches"} className="tap44"
@@ -813,14 +819,14 @@ function WeeklyCalendar() {
                 transform: open ? "rotate(90deg)" : "none" }}>▸</span>
             </span>
           )}
-          <CheckDot onDone={() => markDone(it)} color="#fff" size={16} label={it.name} />
+          <CheckDot onDone={() => markDone(it)} color={pc} size={16} label={it.name} />
         </span>
 
         {/* Ligne 2 — la prochaine action à gauche, l'échéance à droite */}
-        {(lead || deadline) && (
+        {lead && (
           <span style={{ position:"relative", display:"flex", alignItems:"baseline", gap:10, minWidth:0,
-            paddingLeft: cl || isPhone ? 6 : 16, paddingRight: cr || isPhone ? 6 : 16, fontSize:10,
-            color: late ? "#FFD4D4" : "rgba(255,255,255,0.86)" }}>
+            paddingLeft: cl || isPhone ? 21 : 31, paddingRight: cr || isPhone ? 6 : 16, fontSize:10.5,
+            color: late ? "#FFD4D4" : "rgba(244,242,255,0.62)" }}>
             <span style={{ flex:1, minWidth:0, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{lead}</span>
             {deadline && (
               <span style={{ flexShrink:0, fontVariantNumeric:"tabular-nums", fontWeight: late ? 700 : 500 }}>{deadline}</span>
@@ -1573,11 +1579,36 @@ function HomeWeek({ today, todos, colorOf, onOpen, onDone }) {
     .map(t => ({ t, a: Math.max(0, days.findIndex(ds => ds >= t.dateDebut)), z: (() => { let z = 6; while (z > 0 && days[z] > t.dateFin) z--; return z; })() }))
     .sort((x, y) => x.a - y.a || y.z - x.z)
     .slice(0, 4);
-  // Tâches d'un jour (mémos, check, inbox datées) et occurrence des récurrentes.
+  // Tâches d'un jour (mémos, check, inbox datées). Les récurrentes ont leur propre visuel.
   const byDay = Object.fromEntries(days.map(ds => [ds, []]));
   todos.forEach(t => {
-    if (t.done || (t.dateDebut && t.dateFin) || t.gtd === "projet") return;
+    if (t.done || (t.dateDebut && t.dateFin) || t.gtd === "projet" || t.recurrence?.enabled) return;
     if (t.dateAssignee && byDay[t.dateAssignee]) byDay[t.dateAssignee].push(t);
+  });
+  // Récurrentes : occurrences de la semaine (faites = gardées dans l'historique).
+  const recurByDay = Object.fromEntries(days.map(ds => [ds, []]));
+  const seen = new Set();
+  const doneBy = {};
+  todos.forEach(t => { if (t.done && t.recurrence?.enabled && t.dateAssignee) (doneBy[t.name] = doneBy[t.name] || new Set()).add(t.dateAssignee); });
+  todos.filter(t => t.recurrence?.enabled && !t.done && t.dateAssignee).forEach(a => {
+    if (seen.has(a.name)) return;
+    seen.add(a.name);
+    const occ = new Set(getRecurOccurrences(a, start, end));
+    const dn = doneBy[a.name] || new Set();
+    days.forEach(ds => { if (occ.has(ds) || dn.has(ds)) recurByDay[ds].push({ a, done: dn.has(ds), canDo: ds === a.dateAssignee && !dn.has(ds) }); });
+  });
+  // Clôtures d'objectifs (mois, trimestre, année) tombant cette semaine.
+  const goalsLS = getLS("lp_goals", {});
+  const clotByDay = {};
+  [["annuel", "Clôture année", "🏁"], ["trimestriel", "Clôture trimestre", "🎯"], ["mensuel", "Clôture mois", "🗻"]].forEach(([lvl, label, ic]) => {
+    (goalsLS[lvl] || []).forEach(o => {
+      if (o.archived) return;
+      const date = o.dateCloture || computeCloture(o.periode);
+      if (!date || !(date in byDay)) return;
+      const cur = clotByDay[date];
+      if (!cur) clotByDay[date] = { label, ic, lvl, n: 1 };
+      else { cur.n += 1; if (lvl === "annuel" || (lvl === "trimestriel" && cur.lvl === "mensuel")) Object.assign(cur, { label, ic, lvl }); }
+    });
   });
 
   return (
@@ -1602,6 +1633,21 @@ function HomeWeek({ today, todos, colorOf, onOpen, onDone }) {
         ))}
         {days.map((ds, i) => (
           <div key={`c-${ds}`} className={`hm-day${ds === today ? " is-today" : ""}`} style={{ gridColumn: i + 1, gridRow: bars.length + 2 }}>
+            {clotByDay[ds] && (
+              <div className={`hm-clot is-${clotByDay[ds].lvl}`} title={`${clotByDay[ds].label} · ${clotByDay[ds].n} objectif${clotByDay[ds].n > 1 ? "s" : ""}`}>
+                <span aria-hidden="true">{clotByDay[ds].ic}</span>{clotByDay[ds].label}
+              </div>
+            )}
+            {recurByDay[ds].map(r => (
+              <div key={`r-${r.a.id}`} className={`hm-recur${r.done ? " is-done" : ""}`}>
+                {r.canDo
+                  ? <button onClick={() => onDone(r.a.id)} className="hm-box is-mini is-recur" aria-label={`Marquer fait : ${r.a.name}`} />
+                  : <span className={`hm-recur-mark${r.done ? " is-done" : ""}`} aria-hidden="true">{r.done ? "✓" : ""}</span>}
+                <button onClick={() => onOpen(r.a.id)} className="hm-day-name" title={`${r.a.name} (récurrente)`}>
+                  <span aria-hidden="true" className="hm-recur-ic">↻</span>{r.a.name}
+                </button>
+              </div>
+            ))}
             {byDay[ds].map(t => (
               <div key={t.id} className="hm-day-task">
                 <button onClick={() => onDone(t.id)} className="hm-box is-mini" aria-label={`Marquer fait : ${t.name}`} />
@@ -3737,7 +3783,7 @@ function TodoModule() {
       <div style={{padding:"16px 16px 120px"}}>
 
         {/* ── SEMAINE (calendrier sorti de Home) ── */}
-        {tab==="semaine"&&<WeeklyCalendar />}
+        {tab==="semaine"&&<div className="dash-cal todo-week"><WeeklyCalendar /></div>}
 
         {/* ── TOUT ── */}
         {tab==="tout"&&(

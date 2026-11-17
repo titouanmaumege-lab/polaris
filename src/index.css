@@ -960,3 +960,38 @@ button:active {
 .hm-todo-tag { align-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .hm-todo-tag .hm-scale-v { align-self: auto; }
 .hm-todo-ic { font-size: 15px; line-height: 1; }
+
+/* Home > Semaine : récurrentes (pastille pointillée violet → cyan) et clôtures. */
+.hm-recur {
+  display: flex; align-items: center; gap: 6px; min-height: 26px; min-width: 0; padding: 0 6px; margin: 1px 0;
+  border-radius: 999px; border: 1px dashed rgba(139, 92, 246, 0.6);
+  background: linear-gradient(90deg, rgba(139, 92, 246, 0.16), rgba(34, 211, 238, 0.07));
+}
+.hm-recur.is-done { border-style: solid; opacity: 0.6; }
+.hm-recur.is-done .hm-day-name { text-decoration: line-through; }
+.hm-recur-ic { color: #22d3ee; font-size: 12px; font-weight: 700; }
+.hm-recur-mark { flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%; border: 1.5px dashed rgba(139, 92, 246, 0.6); box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #fff; }
+.hm-recur-mark.is-done { border: none; background: linear-gradient(135deg, #8b5cf6, #22d3ee); }
+.hm-box.is-recur { border-radius: 50%; border-color: rgba(139, 92, 246, 0.8); }
+.hm-clot {
+  display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; margin: 2px 0 4px; border-radius: 6px;
+  font-size: 11px; font-weight: 800; letter-spacing: 0.02em; color: #f59e0b;
+  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hm-clot.is-trimestriel { color: #c084fc; background: rgba(168, 85, 247, 0.14); border-color: rgba(168, 85, 247, 0.5); box-shadow: 0 0 12px rgba(168, 85, 247, 0.22); }
+.hm-clot.is-annuel { color: #fbbf24; background: linear-gradient(100deg, rgba(251, 191, 36, 0.18), rgba(244, 114, 182, 0.14)); border-color: rgba(251, 191, 36, 0.55); }
+
+/* Todo > Semaine : le calendrier occupe toute la hauteur de l'écran, check tasks à gauche. */
+.todo-week { height: calc(100dvh - 205px); min-height: 520px; }
+.todo-week .check-panel { display: flex; flex-direction: column; }
+.todo-week .check-panel-list { flex: 1; min-height: 0; overflow-y: auto; }
+.cal-ribbon .cal-drag-handle { opacity: 0 !important; transition: opacity .15s; }
+.cal-ribbon:hover .cal-drag-handle { opacity: 1 !important; }
+@media (max-width: 760px) { .todo-week { height: auto; min-height: 0; } }
+
+/* Todo > Semaine : projets juste sous les jours (ligne « toute la journée »),
+   puis mémos et tâches du jour qui remplissent la hauteur, attente en bas. */
+.todo-week .cal-projects  { order: 1; flex: none; justify-content: flex-start; padding: 6px 0; }
+.todo-week .cal-band-top  { order: 2; flex: 1; min-height: 0; }
+.todo-week .cal-band-wait { order: 3; }
