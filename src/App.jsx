@@ -1531,7 +1531,8 @@ const hmKr = g => {
   const kr = (g?.krs || [])[0];
   if (!kr) return "";
   const cur = kr.actuelle ?? kr.depart ?? 0;
-  return `${cur} / ${kr.cible ?? 0} · ${kr.nom}`;
+  const word = String(kr.nom || "").trim().split(/\s+/)[0] || "";
+  return `${cur} / ${kr.cible ?? 0} ${word.toLowerCase()}`.trim();
 };
 
 // Colonnes = objectifs du mois en cours, rangés pour que chaque parent couvre
@@ -1541,13 +1542,17 @@ function buildCap(goals, todos, today) {
   const anns = (goals.annuel || []).filter(g => isGoalRunning(g, today));
   const tris = (goals.trimestriel || []).filter(g => isGoalRunning(g, today));
   const idx = (arr, id) => { const i = arr.findIndex(x => x.id === id); return i < 0 ? 999 : i; };
-  const cols = runningGoals(goals, today).map(m => {
+  const raw = runningGoals(goals, today).map(m => {
     const tri = tris.find(x => x.id === m.parentId) || null;
     const ann = tri ? anns.find(x => x.id === tri.parentId) || null : null;
     const lt  = ann ? lts.find(x => x.id === ann.parentId) || null : null;
     return { m, tri, ann, lt };
-  }).sort((a, b) =>
-    idx(lts, a.lt?.id) - idx(lts, b.lt?.id) || idx(anns, a.ann?.id) - idx(anns, b.ann?.id) || idx(tris, a.tri?.id) - idx(tris, b.tri?.id)
+  });
+  const size = (key, id) => id ? raw.filter(c => c[key]?.id === id).length : 0;
+  const cols = raw.sort((a, b) =>
+    size("lt", b.lt?.id) - size("lt", a.lt?.id) || idx(lts, a.lt?.id) - idx(lts, b.lt?.id) ||
+    size("ann", b.ann?.id) - size("ann", a.ann?.id) || idx(anns, a.ann?.id) - idx(anns, b.ann?.id) ||
+    size("tri", b.tri?.id) - size("tri", a.tri?.id) || idx(tris, a.tri?.id) - idx(tris, b.tri?.id)
   ).map((c, i) => {
     const linked = todos.filter(t => todoGoalId(t) === c.m.id);
     const done = linked.filter(t => t.done).length;
@@ -1669,7 +1674,7 @@ function HomeCap({ cap, sel, onSelect }) {
 
 // Prochaines étapes de l'objectif choisi, la tâche qui compte épinglée en tête.
 const HM_STEPS_MAX = 4;
-function HomeSteps({ today, col, todos, hl, firstStep, startAt, onPick, onToggleHL, onOpenTask, onSetStep, onSetStart, onLaunch, onDone, onOpen, onMakeHL, onAdd, outside, onGoTodo }) {
+function HomeSteps({ today, col, todos, hl, firstStep, startAt, onPick, onToggleHL, onOpenTask, onSetStep, onSetStart, onLaunch, onDone, onOpen, onMakeHL, onAdd }) {
   const [all, setAll] = useState(false);
   const [step, setStep] = useState(firstStep || "");
   useEffect(() => { setStep(firstStep || ""); }, [firstStep]);
@@ -1700,8 +1705,12 @@ function HomeSteps({ today, col, todos, hl, firstStep, startAt, onPick, onToggle
         <h2 className="hm-h">Prochaines étapes</h2>
         {col && <><span className="hm-dot" style={{ background: color }} /><span className="hm-steps-goal">{col.m.titre}</span></>}
         <span style={{ flex: 1 }} />
-        {outside > 0 && <button onClick={onGoTodo} className="hm-link-btn is-muted">Hors objectif · {outside}</button>}
-        <button onClick={onAdd} className="hm-link-btn">+ Ajouter</button>
+        {list.length > HM_STEPS_MAX && (
+          <button onClick={() => setAll(v => !v)} className="hm-link-btn">
+            {all ? "Replier" : `+ ${list.length - HM_STEPS_MAX} autre${list.length - HM_STEPS_MAX > 1 ? "s" : ""}`}
+          </button>
+        )}
+        <button onClick={onAdd} className="hm-link-btn is-muted">+ Ajouter</button>
       </div>
 
       <div className={`hm-pin${hlDone ? " is-done" : ""}`}>
@@ -1749,11 +1758,6 @@ function HomeSteps({ today, col, todos, hl, firstStep, startAt, onPick, onToggle
           </div>
         );
       })}
-      {list.length > HM_STEPS_MAX && (
-        <button onClick={() => setAll(v => !v)} className="hm-link-btn" style={{ marginTop: 8 }}>
-          {all ? "Replier" : `+ ${list.length - HM_STEPS_MAX} autre${list.length - HM_STEPS_MAX > 1 ? "s" : ""}`}
-        </button>
-      )}
     </section>
   );
 }
@@ -1898,8 +1902,6 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
   let sel = cap.cols.findIndex(c => c.m.id === selId);
   if (sel < 0) sel = Math.max(0, cap.cols.findIndex(c => c.m.id === hlGoal));
   const col = cap.cols[sel] || null;
-  const goalIds = new Set(cap.cols.map(c => c.m.id));
-  const outside = todos.filter(x => !x.done && !x.recurrence?.enabled && x.gtd !== "someday" && !goalIds.has(todoGoalId(x))).length;
 
   // « À améliorer » du Daily Paper : celui d'aujourd'hui, sinon le plus récent rempli.
   const daily = getLS("lp_daily", {});
@@ -1958,8 +1960,6 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
             onOpen={setEditId}
             onMakeHL={id => pick(id)}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}
-            outside={outside}
-            onGoTodo={() => onNavigate?.("todo")}
           />
         </main>
 

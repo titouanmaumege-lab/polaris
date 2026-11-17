@@ -629,7 +629,7 @@ button:active {
    PC : cap + étapes à gauche, colonne Aujourd'hui (320 px) à droite.
    Téléphone : une colonne qui défile (cap condensé, étapes, aujourd'hui).
    ───────────────────────────────────────────────────────────────────────── */
-.hm-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); }
+.hm-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); background: #0c0a17; position: relative; z-index: 0; }
 .hm-head {
   height: 60px; flex-shrink: 0; box-sizing: border-box;
   display: flex; align-items: center; gap: 14px; padding: 0 20px 0 32px;
@@ -660,17 +660,17 @@ button:active {
 .hm-tree { display: grid; column-gap: 16px; }
 .hm-node {
   min-width: 0; min-height: 56px; box-sizing: border-box; padding: 8px 14px;
-  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  display: flex; align-items: center; gap: 12px;
   border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08); background: #0e0c1a;
 }
 .hm-node-t {
-  min-width: 0; font-size: 12.5px; line-height: 1.3; color: #6f6894;
+  flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.3; color: #6f6894;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.hm-node-k { max-width: 100%; font-size: 11.5px; color: #4f4a72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-node-k { flex-shrink: 0; max-width: 40%; font-size: 11.5px; color: #4f4a72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-node.is-on .hm-node-t { color: #f4f2ff; font-weight: 500; }
 .hm-node.is-on .hm-node-k { color: #9990c0; }
-.hm-link { height: 26px; display: flex; justify-content: center; }
+.hm-link { height: 44px; display: flex; justify-content: center; }
 .hm-link span { width: 1.5px; height: 100%; background: rgba(255, 255, 255, 0.10); }
 .hm-link span.is-on { width: 2px; }
 .hm-scale { display: flex; align-items: center; gap: 10px; padding-left: 12px; border-left: 1px solid rgba(255, 255, 255, 0.10); align-self: center; }
