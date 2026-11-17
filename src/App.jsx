@@ -530,7 +530,9 @@ function WeeklyCalendar() {
   };
   const closureKind = lv => lv.has("annuel") ? "annee" : lv.has("trimestriel") ? "trimestre" : "mois";
 
-  const colorOf = it => SPHERES[it.sphere]?.c || (it.gtd === "memo" ? "#4F46E5" : it.gtd === "projet" ? "#7C5CFC" : it.gtd === "check" ? "#34D399" : "#0EA0BD");
+  // Couleur = celle de l'objectif du mois (mêmes couleurs que l'arbre de Home), gris sinon.
+  const goalColor = Object.fromEntries(buildCap(_goals, todos, today).cols.map(c => [c.m.id, c.color]));
+  const colorOf = it => goalColor[todoGoalId(it)] || HM_GREY;
 
   // ── Rubans multi-jours : toute tâche datée (dateDebut→dateFin) qui chevauche la semaine
   // (projets + tâches étendues par drag ; ISO YYYY-MM-DD → comparaison lexicographique sûre)
@@ -888,8 +890,7 @@ function WeeklyCalendar() {
 
   // ── Mémo / tâche simple : ligne fine, puce colorée, aucun badge ──────────
   const ItemLine = ({ it, day }) => {
-    const isMemo = it.gtd === "memo";
-    const col = isMemo ? AMBER : colorOf(it);
+    const col = colorOf(it);
     return (
       <div className="cal-chip-wrap" draggable
         onDragStart={e => { e.stopPropagation(); startDrag(e, { kind:"move", id: it.id, originDay: day }); }}
@@ -1400,6 +1401,7 @@ function WeeklyCalendar() {
 // (temps de travail, habitudes, clôture). Maquette validée le 17/11/2026.
 // ─────────────────────────────────────────────────────────────────────────────
 const HM_COLORS = ["#b066ff", "#ff4fa3", "#2ee59d", "#1fd5f0", "#ffc53d", "#4f9dff"];
+const HM_GREY = "#7d7896";   // tâche sans objectif du mois
 const HM_MONTHS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 
 // Une ligne de résultat clé courte : « 0 / 10 clients actifs ».
@@ -1540,7 +1542,7 @@ function HomeCap({ cap, sel, onSelect }) {
   const branch = [["👁️", cur.lt], ["🌌", cur.ann], ["🌍", cur.tri]].filter(([, g]) => g);
   return (
     <section className="hm-cap">
-      <div className="hm-tree" style={{ gridTemplateColumns: `128px repeat(${n}, minmax(0, 1fr))` }}>{items}</div>
+      <div className="hm-tree" style={{ gridTemplateColumns: `140px repeat(${n}, minmax(0, 1fr))` }}>{items}</div>
       {/* Téléphone : la branche choisie, puis les objectifs du mois en pastilles. */}
       <div className="hm-cap-phone">
         {branch.map(([ic, g]) => (
@@ -1564,36 +1566,62 @@ function HomeCap({ cap, sel, onSelect }) {
 const HM_STEPS_MAX = 4;
 const HM_VIEW_KEY = "lp_home_view";   // préférence d'affichage locale, non synchronisée
 
-// Rythme du mois : temps écoulé du mois face à l'avancement de l'objectif choisi.
-function HomePace({ today, col }) {
+// Colonne de gauche : le mois en deux anneaux (temps écoulé / résultats des
+// objectifs du mois, J-X au centre) et les heures travaillées de la semaine.
+const HM_WEEK_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
+function HomeMonthWeek({ today, results, week }) {
   const d = new Date(today + "T12:00:00");
   const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
   const left = dim - d.getDate();
   const elapsed = Math.round(d.getDate() / dim * 100);
-  const done = col.total ? Math.round(col.done / col.total * 100) : 0;
-  const late = done < elapsed - 5;
-  const fill = late ? "#f59e0b" : col.color;
+  const late = results < elapsed - 5;
+  const rc = late ? "#f59e0b" : "#b066ff";
+  const C1 = 2 * Math.PI * 50, C2 = 2 * Math.PI * 38;
+  const total = week.reduce((a, x) => a + x.min, 0);
+  const passed = week.filter(x => x.ds <= today).length || 1;
+  const avg = Math.round(total / passed);
+  const best = week.reduce((b, x, i) => (x.min > b.min ? { min: x.min, i } : b), { min: 0, i: -1 });
+  const DAY_FULL = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
   return (
-    <div className="hm-pace" title="Temps écoulé du mois face à l'avancement de l'objectif choisi">
-      <div className="hm-pace-j"><b>J-{left}</b><small>{left > 1 ? "jours restants" : "jour restant"}</small></div>
-      <div className="hm-pace-bars">
-        <div className="hm-pace-col">
-          <div className="hm-pace-track"><span style={{ height: `${elapsed}%`, background: "rgba(255,255,255,0.35)" }} /></div>
-          <b>{elapsed}%</b><small>temps</small>
-        </div>
-        <div className="hm-pace-col">
-          <div className="hm-pace-track"><span style={{ height: `${done}%`, background: fill, boxShadow: `0 0 10px ${fill}66` }} /></div>
-          <b style={{ color: fill }}>{done}%</b><small>fait</small>
-        </div>
+    <div className="hm-mw" title="Temps écoulé du mois face aux résultats de tes objectifs du mois">
+      <span className="hm-mw-k">Le mois</span>
+      <div className="hm-mw-ring">
+        <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true">
+          <circle cx="56" cy="56" r="50" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
+          <circle cx="56" cy="56" r="50" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="7" strokeLinecap="round"
+            strokeDasharray={`${(C1 * elapsed / 100).toFixed(1)} ${C1.toFixed(1)}`} transform="rotate(-90 56 56)" />
+          <circle cx="56" cy="56" r="38" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
+          <circle cx="56" cy="56" r="38" fill="none" stroke={rc} strokeWidth="7" strokeLinecap="round"
+            strokeDasharray={`${(C2 * Math.max(results, 0.5) / 100).toFixed(1)} ${C2.toFixed(1)}`} transform="rotate(-90 56 56)"
+            style={{ filter: `drop-shadow(0 0 4px ${rc}88)` }} />
+        </svg>
+        <span><b>J-{left}</b><small>{left > 1 ? "restants" : "restant"}</small></span>
       </div>
-      <div className={`hm-pace-st${late ? " is-late" : ""}`}>
-        <span className="hm-dot" style={{ background: late ? "#f59e0b" : "#2ee59d" }} />{late ? "en retard" : "à l'heure"}
+      <div className="hm-mw-leg"><span><i style={{ background: "rgba(255,255,255,0.45)" }} />temps</span><b>{elapsed} %</b></div>
+      <div className="hm-mw-leg"><span><i style={{ background: rc }} />résultats</span><b style={{ color: rc }}>{results} %</b></div>
+      <span className="hm-mw-sep" />
+      <span className="hm-mw-k">Semaine · <b>{total ? fmtMin(total) : "0 min"}</b></span>
+      <div className="hm-mw-chart">
+        {[8, 6, 4, 2].map(h => (
+          <span key={h} className="hm-mw-grid" style={{ bottom: `${h / 8 * 100}%` }}><em>{h}h</em></span>
+        ))}
+        {week.map((x, i) => (
+          <div key={x.ds} className="hm-mw-col" title={`${x.ds} · ${x.min ? fmtMin(x.min) : "0 min"}`}>
+            <span className={`hm-mw-bar${x.ds === today ? " is-today" : ""}`}
+              style={{ height: `${Math.max(x.min ? 4 : 2, Math.min(x.min / 480, 1) * 100)}%`, opacity: x.ds > today ? 0.35 : 1 }} />
+            <small className={x.ds === today ? "is-today" : ""}>{HM_WEEK_DAYS[i]}</small>
+          </div>
+        ))}
+      </div>
+      <div className="hm-mw-stats">
+        <div><span>moyenne / jour</span><b>{avg ? fmtMin(avg) : "—"}</b></div>
+        <div><span>meilleur jour</span><b>{best.i >= 0 ? `${DAY_FULL[best.i]} · ${fmtMin(best.min)}` : "—"}</b></div>
       </div>
     </div>
   );
 }
 
-function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
+function HomeSteps({ today, col, todos, results, week, onDone, onOpen, onAdd }) {
   const [all, setAll] = useState(false);
   const [view, setView] = useState(() => { try { return localStorage.getItem(HM_VIEW_KEY) || "steps"; } catch { return "steps"; } });
   const pickView = v => { setView(v); try { localStorage.setItem(HM_VIEW_KEY, v); } catch {} };
@@ -1618,9 +1646,8 @@ function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
 
   return (
     <section className="hm-steps-wrap">
-      <div className="hm-scale hm-scale-todo">
-        <span className="hm-todo-tag" aria-hidden="true"><span className="hm-todo-ic">☑️</span><span className="hm-scale-v">TO-DO</span></span>
-        {col && <HomePace today={today} col={col} />}
+      <div className="hm-side">
+        <HomeMonthWeek today={today} results={results} week={week} />
       </div>
       <div className="hm-steps">
         <div className="hm-steps-head">
@@ -1639,7 +1666,7 @@ function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
           <button onClick={onAdd} className="hm-link-btn is-muted">+ Ajouter</button>
         </div>
 
-        <div key={view} className="hm-view">
+        <div key={view} className={`hm-view${isWeek ? " is-week" : ""}`}>
           {isWeek ? (
             <div className="dash-cal hm-week-full"><WeeklyCalendar /></div>
           ) : (<>
@@ -1803,6 +1830,18 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
     setDailyTick(x => x + 1);
   };
 
+  // Résultats du mois : moyenne de l'avancement des objectifs du mois (KR, sinon étapes).
+  const results = cap.cols.length
+    ? Math.round(cap.cols.reduce((a, c) => a + ((c.m.krs || []).length ? krsProgress(c.m.krs) : (c.total ? c.done / c.total * 100 : 0)), 0) / cap.cols.length)
+    : 0;
+  // Heures travaillées par jour de la semaine en cours (lundi → dimanche).
+  const monday = addDaysISO(t, -((new Date(t + "T12:00:00").getDay() + 6) % 7));
+  const allSessions = getLS("lp_workperf", []);
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const ds = addDaysISO(monday, i);
+    return { ds, min: allSessions.filter(x => x.date === ds).reduce((a, x) => a + (x.temps || 0), 0) };
+  });
+
   const editItem = editId ? todos.find(x => x.id === editId) : null;
   const sessionName = "";
 
@@ -1828,7 +1867,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         <main className="hm-left">
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
-            today={t} col={col} todos={todos}
+            today={t} col={col} todos={todos} results={results} week={week}
             onDone={toggleDone}
             onOpen={setEditId}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}

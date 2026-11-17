@@ -851,12 +851,7 @@ button:active {
 }
 
 /* Home v4 : TO-DO dans l'échelle de droite, arbre plus visuel. */
-.hm-steps-wrap { display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 16px; }
-.hm-scale-todo { align-self: stretch; align-items: stretch; justify-content: flex-start; gap: 10px; padding-top: 2px; }
-.hm-scale-v {
-  writing-mode: vertical-rl; transform: rotate(180deg);
-  font-size: 12px; font-weight: 700; letter-spacing: 0.32em; color: #d6d0f0;
-}
+.hm-steps-wrap { display: grid; grid-template-columns: 140px minmax(0, 1fr); column-gap: 16px; }
 .hm-node { position: relative; overflow: hidden; }
 .hm-node-lt { min-height: 60px; }
 .hm-node-lt .hm-node-t { font-family: var(--font-display); font-size: 13.5px; }
@@ -866,7 +861,7 @@ button:active {
 .hm-node-bar span { display: block; height: 100%; border-radius: 2px; }
 @media (max-width: 760px) {
   .hm-steps-wrap { grid-template-columns: minmax(0, 1fr); }
-  .hm-scale-todo { display: none; }
+  .hm-side { display: none; }
 }
 
 /* Home v6 : double vue Étapes / Semaine sous le cap. */
@@ -886,20 +881,6 @@ button:active {
 @media (prefers-reduced-motion: reduce) { .hm-view { animation: none; } .hm-seg-thumb { transition: none; } }
 
 
-/* Rythme du mois, dans la colonne TO-DO. */
-.hm-pace { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 2px; }
-.hm-pace-j { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
-.hm-pace-j b { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: #f4f2ff; letter-spacing: -0.02em; }
-.hm-pace-j small { font-size: 10.5px; color: #8a82b0; }
-.hm-pace-bars { display: flex; gap: 14px; }
-.hm-pace-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.hm-pace-track { position: relative; width: 8px; height: 96px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
-.hm-pace-track span { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 999px; transition: height .6s cubic-bezier(.4, 0, .2, 1); }
-.hm-pace-col b { font-size: 12px; font-weight: 700; color: #d6d0f0; }
-.hm-pace-col small { font-size: 10px; color: #6b6390; }
-.hm-pace-st { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #2ee59d; }
-.hm-pace-st.is-late { color: #f59e0b; }
-
 /* PC : volets figés. Le cap, l'échelle, l'en-tête de la to-do et la colonne de
    droite restent en place ; seul le contenu Étapes / Semaine défile. */
 .hm-cap { flex: none; }
@@ -907,15 +888,6 @@ button:active {
 .hm-steps { min-height: 0; }
 .hm-steps-head { flex: none; }
 .hm-view { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(176, 102, 255, 0.35) transparent; }
-.hm-scale-v { align-self: flex-start; }
-
-/* Rythme du mois : toute la largeur de la colonne, jauges larges. */
-.hm-pace { align-self: stretch; align-items: stretch; padding-bottom: 4px; }
-.hm-pace-bars { flex: 1; min-height: 0; max-height: 230px; gap: 10px; }
-.hm-pace-col { flex: 1; min-width: 0; min-height: 0; }
-.hm-pace-track { width: 100%; height: auto; flex: 1; min-height: 70px; border-radius: 8px; }
-.hm-pace-track span { border-radius: 8px; }
-.hm-pace-st { justify-content: center; }
 
 @media (max-width: 760px) {
   .hm-left { overflow: visible; }
@@ -924,10 +896,6 @@ button:active {
 }
 
 
-/* Étiquette TO-DO : emoji case à cocher + texte vertical, centrés dans la colonne. */
-.hm-todo-tag { align-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.hm-todo-tag .hm-scale-v { align-self: auto; }
-.hm-todo-ic { font-size: 15px; line-height: 1; }
 
 
 /* Todo > Semaine : le calendrier occupe toute la hauteur de l'écran, check tasks à gauche. */
@@ -966,3 +934,42 @@ button:active {
 /* Calendrier plus sobre : traits de colonnes discrets, jour courant à peine marqué. */
 .cal-colbg > * + * { border-left: 1px solid rgba(255, 255, 255, 0.045); }
 .cal-colbg > .is-today { background: rgba(176, 102, 255, 0.035); box-shadow: inset 0 2px 0 #b066ff; }
+
+/* Home > Semaine : hauteur fixe, rien ne défile ; le calendrier s'adapte (+N). */
+.hm-view.is-week { overflow: hidden; display: flex; flex-direction: column; }
+.hm-view.is-week .hm-week-full { flex: 1; height: auto; min-height: 0; }
+@media (max-width: 760px) { .hm-view.is-week { overflow: visible; } }
+
+/* Colonne de gauche : anneaux du mois + heures de la semaine. */
+.hm-side { min-height: 0; padding-right: 12px; border-right: 1px solid rgba(255, 255, 255, 0.10); display: flex; flex-direction: column; }
+.hm-mw { display: flex; flex-direction: column; min-height: 0; }
+.hm-mw-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #8a82b0; }
+.hm-mw-k b { color: #f4f2ff; letter-spacing: 0; }
+.hm-mw-ring { position: relative; width: 112px; height: 112px; align-self: center; margin: 8px 0 6px; }
+.hm-mw-ring > span { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.hm-mw-ring b { font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1; }
+.hm-mw-ring small { font-size: 9.5px; color: #8a82b0; }
+.hm-mw-leg { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: #8a82b0; min-height: 18px; }
+.hm-mw-leg span { display: flex; align-items: center; gap: 6px; }
+.hm-mw-leg i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.hm-mw-leg b { color: #d6d0f0; font-weight: 700; }
+.hm-mw-sep { height: 1px; background: rgba(255, 255, 255, 0.07); margin: 12px 0 10px; }
+.hm-mw-chart {
+  position: relative; height: 84px; margin: 10px 0 16px 20px;
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; align-items: end;
+}
+.hm-mw-grid { position: absolute; left: 0; right: 0; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-mw-grid em { position: absolute; right: 100%; top: -6px; margin-right: 4px; font-style: normal; font-size: 9px; color: #5a5480; }
+.hm-mw-col { position: relative; z-index: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; }
+.hm-mw-bar { width: 100%; border-radius: 3px; background: rgba(176, 102, 255, 0.55); }
+.hm-mw-bar.is-today { background: linear-gradient(180deg, #b066ff, #7c3aed); box-shadow: 0 0 10px rgba(176, 102, 255, 0.5); }
+.hm-mw-col small { position: absolute; bottom: -15px; font-size: 9.5px; font-weight: 700; color: #6b6390; }
+.hm-mw-col small.is-today { color: #f4f2ff; }
+
+/* Le widget occupe toute la hauteur : le graphique s'étire, les chiffres en bas. */
+.hm-side .hm-mw { flex: 1; }
+.hm-mw-chart { flex: 1; height: auto; min-height: 84px; max-height: 220px; }
+.hm-mw-stats { margin-top: auto; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.07); display: flex; flex-direction: column; gap: 6px; }
+.hm-mw-stats div { display: flex; flex-direction: column; gap: 1px; }
+.hm-mw-stats span { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #6b6390; }
+.hm-mw-stats b { font-size: 12.5px; font-weight: 600; color: #e4def8; }
