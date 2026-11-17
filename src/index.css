@@ -629,7 +629,7 @@ button:active {
    PC : cap + étapes à gauche, colonne Aujourd'hui (320 px) à droite.
    Téléphone : une colonne qui défile (cap condensé, étapes, aujourd'hui).
    ───────────────────────────────────────────────────────────────────────── */
-.hm-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); background: #0c0a17; position: relative; z-index: 0; }
+.hm-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); }
 .hm-head {
   height: 60px; flex-shrink: 0; box-sizing: border-box;
   display: flex; align-items: center; gap: 14px; padding: 0 20px 0 32px;
