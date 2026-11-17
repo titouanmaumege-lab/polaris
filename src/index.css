@@ -200,13 +200,6 @@ button:active {
 .dash-page {
   height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
 }
-/* Pile verticale pleine largeur : Highlight, actions, calendrier, habitudes. */
-.dash-wrap {
-  flex: 1; min-height: 0; display: flex; flex-direction: column;
-  width: 100%; padding: 8px 16px 84px;   /* 84 = barre de nav fixe (58) + air */
-  gap: 12px;
-}
-@media (min-width: 900px) { .dash-wrap { padding: 12px 32px 76px; gap: 16px; } }   /* barre 48 + 28 d'air */
 
 /* Cartouche d'identité — un seul bandeau aligné, pas de bloc empilé. */
 .dash-header {
@@ -238,44 +231,20 @@ button:active {
 }
 @media (max-width: 720px) { .dash-rule, .dash-motto { display: none; } }
 
-/* Barre d'actions — deux liens discrets, sans cadre : secondaires par rapport
-   au highlight, ils n'ont pas à occuper toute la largeur. */
-.dash-actions {
-  display: flex; align-items: center; gap: 4px; flex-shrink: 0;
-  margin: -4px 0 -2px 8px;
-}
-.dash-actions button {
-  min-height: 44px; padding: 0 12px;
-  display: inline-flex; align-items: center; gap: 8px;
-  background: transparent; border: none; border-radius: var(--r-row); cursor: pointer;
-  font-family: inherit; font-size: 13px; font-weight: 500;
-  color: var(--c-muted); transition: color .15s, background .15s;
-}
-.dash-actions button:hover  { color: var(--c-text); background: rgba(255, 255, 255, 0.04); }
-.dash-actions button:active { background: rgba(255, 255, 255, 0.07); }
-.dash-actions button:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
-.dash-actions-sep { width: 1px; height: 14px; background: rgba(255, 255, 255, 0.1); flex-shrink: 0; }
-
-/* Home seulement : le panneau check tasks perd son cadre, le calendrier
-   reste la seule structure dessinée de la page. */
-.dash-cal .check-panel { border-color: transparent; background: rgba(255, 255, 255, 0.02); }
-.dash-cal .check-panel.drag-over { border-color: #34D399; }
 
 /* Zoom 100 % sur un 1080p : le viewport CSS tombe vers 940 px. Sans ça Home,
    qui est en height:100dvh + overflow:hidden, se faisait rogner par le bas. */
 @media (max-height: 1000px) {
   .dash-header { padding: 12px 32px 8px; }
   .dash-logo   { width: 42px; height: 42px; }
-  .dash-wrap   { gap: 10px; padding-bottom: 76px; }
 }
 @media (max-height: 860px) {
   .dash-header { padding: 8px 32px 6px; }
   .dash-logo   { width: 36px; height: 36px; }
-  .dash-wrap   { gap: 8px; padding-top: 4px; padding-bottom: 72px; }
 }
 
 /* Barre de navigation — basse, sans emojis, onglets groupés au centre. */
-.bnav-row { display: flex; align-items: stretch; gap: 4px; width: 100%; max-width: 920px; }
+.bnav-row { display: flex; align-items: stretch; justify-content: space-around; gap: 4px; width: 100%; padding: 0 24px; box-sizing: border-box; }
 .bnav-tab {
   flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px;
   background: none; border: none; cursor: pointer; font-family: inherit; user-select: none;
@@ -422,10 +391,8 @@ button:active {
   .hl-check, .hl-pop { animation: none; }
 }
 
-/* Home — habitudes en vue condensée, sous le calendrier.
-   Grille pleine largeur : plus de colonnes = moins de hauteur. */
-.dash-habits-block { display: flex; flex-direction: column; min-height: 0; flex: 0 1 auto; }
-
+/* Home — plan du jour à gauche, habitudes en bandeau vertical à droite.
+   Sur PC tout tient sans défilement ; sur téléphone le bandeau passe dessous. */
 /* Weekly Review — synthèse IA WIN / LOSS côte à côte */
 .wr-ai-split { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 @media (max-width: 700px) { .wr-ai-split { grid-template-columns: 1fr; } }
@@ -628,11 +595,8 @@ button:active {
   .wr-g1 { grid-template-columns: 1fr !important; }
 }
 
-/* Home sur téléphone : la page défile (journée + habitudes en entier) au lieu
-   d'être figée à la hauteur de l'écran avec des blocs à défilement interne. */
+/* Calendrier de la semaine sur téléphone : les jours ne défilent pas en interne. */
 @media (max-width: 760px) {
-  .dash-page { height: auto; min-height: 100dvh; overflow: visible; }
-  .dash-wrap, .dash-cal, .dash-cal .cal-root, .dash-cal .cal-layout, .dash-cal .cal-day, .dash-habits-block { flex: none !important; }
   .cal-day-body { overflow: visible; }
 }
 
@@ -657,6 +621,231 @@ button:active {
   }
   .legal-link { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; }
   .fin-btn { min-height: 44px; }
-  .dash-actions { margin-left: 0; justify-content: space-between; }
-  .dash-actions button { white-space: nowrap; padding: 0 8px; font-size: 12.5px; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   HOME « Cascade » (maquette validée le 17/11/2026)
+   Un seul fond, des séparations par traits fins, alignement au carré.
+   PC : cap + étapes à gauche, colonne Aujourd'hui (320 px) à droite.
+   Téléphone : une colonne qui défile (cap condensé, étapes, aujourd'hui).
+   ───────────────────────────────────────────────────────────────────────── */
+.hm-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); }
+.hm-head {
+  height: 60px; flex-shrink: 0; box-sizing: border-box;
+  display: flex; align-items: center; gap: 14px; padding: 0 20px 0 32px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.hm-word { font-family: var(--font-display); font-size: 15px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; }
+.hm-ameliorer {
+  display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 52vw; margin-right: 20px;
+  background: none; border: none; padding: 6px 0; cursor: pointer; font-family: inherit; font-size: 13px; color: var(--c-muted);
+}
+.hm-am-k { white-space: nowrap; }
+.hm-am-v { color: #e4def8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-menu {
+  flex-shrink: 0; width: 40px; height: 40px; border-radius: 10px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.12); background: transparent;
+}
+.hm-menu:hover { background: rgba(255, 255, 255, 0.05); }
+.hm-dot { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.hm-h { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #8a82b0; }
+.hm-empty { margin: 14px 4px 0; font-size: 14px; color: #8a82b0; }
+
+.hm-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; padding-bottom: 48px; }
+.hm-left { min-height: 0; min-width: 0; overflow-y: auto; scrollbar-width: none; padding: 26px 32px 24px; display: flex; flex-direction: column; gap: 26px; }
+.hm-left::-webkit-scrollbar { display: none; }
+
+/* Cap : arbre vision → année → trimestre → mois, échelle de temps à droite. */
+.hm-tree { display: grid; column-gap: 16px; }
+.hm-node {
+  min-width: 0; min-height: 56px; box-sizing: border-box; padding: 8px 14px;
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+  border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.08); background: #0e0c1a;
+}
+.hm-node-t {
+  min-width: 0; font-size: 12.5px; line-height: 1.3; color: #6f6894;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hm-node-k { max-width: 100%; font-size: 11.5px; color: #4f4a72; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-node.is-on .hm-node-t { color: #f4f2ff; font-weight: 500; }
+.hm-node.is-on .hm-node-k { color: #9990c0; }
+.hm-link { height: 26px; display: flex; justify-content: center; }
+.hm-link span { width: 1.5px; height: 100%; background: rgba(255, 255, 255, 0.10); }
+.hm-link span.is-on { width: 2px; }
+.hm-scale { display: flex; align-items: center; gap: 10px; padding-left: 12px; border-left: 1px solid rgba(255, 255, 255, 0.10); align-self: center; }
+.hm-scale-i { font-size: 16px; }
+.hm-scale b { display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; color: #d6d0f0; }
+.hm-scale small { display: block; font-size: 11px; color: #6b6390; }
+.hm-month {
+  min-width: 0; height: 60px; box-sizing: border-box; padding: 0 12px; cursor: pointer; color: inherit; font-family: inherit; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.10); background: #0e0c1a;
+}
+.hm-month:hover { background: rgba(255, 255, 255, 0.04); }
+.hm-ring { position: relative; width: 36px; height: 36px; flex-shrink: 0; }
+.hm-ring span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #d6d0f0; }
+.hm-month-t {
+  flex: 1; min-width: 0; font-size: 13px; line-height: 1.25; font-weight: 600; color: #b3abd6;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hm-month.is-on .hm-month-t { color: #f4f2ff; }
+.hm-month-n { flex-shrink: 0; font-size: 11.5px; color: #8a82b0; }
+.hm-cap-phone { display: none; }
+
+/* Prochaines étapes : liste à lignes fines, la tâche qui compte épinglée. */
+.hm-steps { display: flex; flex-direction: column; }
+.hm-steps-head { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-steps-goal { font-size: 13px; color: #d6d0f0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-link-btn { background: none; border: none; padding: 6px 4px; cursor: pointer; font-family: inherit; font-size: 13px; color: #c4b5fd; white-space: nowrap; }
+.hm-link-btn:hover { color: #ede9fe; }
+.hm-link-btn.is-muted { color: #8a82b0; }
+.hm-pin {
+  display: flex; align-items: center; gap: 14px; min-height: 62px; padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06); background: rgba(168, 85, 247, 0.06);
+}
+.hm-pin.is-done { background: rgba(52, 211, 153, 0.07); }
+.hm-pin-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.hm-pin-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.hm-pin-name {
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left;
+  font-size: 15px; font-weight: 600; color: #f4f2ff; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hm-pin.is-done .hm-pin-name { color: #8a82b0; text-decoration: line-through; }
+.hm-pin-tag { flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: 0.12em; color: #c084fc; }
+.hm-pin.is-done .hm-pin-tag { color: #34d399; }
+.hm-pin-empty { font-size: 14.5px; color: #d6d0f0; }
+.hm-pin-sub { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #8a82b0; }
+.hm-pin-sub input {
+  min-width: 0; flex: 1; height: 26px; padding: 0 6px; border-radius: 6px; box-sizing: border-box;
+  border: 1px solid transparent; background: transparent; color: #d6d0f0; font-family: inherit; font-size: 12.5px; outline: none;
+}
+.hm-pin-sub input:hover { border-color: rgba(255, 255, 255, 0.08); }
+.hm-pin-sub input:focus { border-color: var(--c-input-focus); background: rgba(0, 0, 0, 0.25); }
+.hm-pin-sub input::placeholder { color: #55507a; }
+.hm-pin-sub .hm-time { flex: 0 0 92px; color-scheme: dark; }
+.hm-launch {
+  flex-shrink: 0; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 16px; border-radius: 8px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #a855f7, #ec4899); color: #fff; font-family: inherit; font-size: 13px; font-weight: 600;
+}
+.hm-launch:hover { filter: brightness(1.08); }
+.hm-icon-btn {
+  flex-shrink: 0; width: 28px; height: 28px; padding: 0; border-radius: 7px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none; color: #6b6390; font-family: inherit; font-size: 15px;
+}
+.hm-icon-btn:hover { color: #f4f2ff; background: rgba(255, 255, 255, 0.05); }
+.hm-box {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0; border-radius: 6px; cursor: pointer;
+  border: 1.5px solid rgba(255, 255, 255, 0.2); background: transparent; color: #0c0a17; font-size: 12px; font-weight: 800;
+}
+.hm-box:hover { border-color: #34d399; }
+.hm-box.is-pin { border-color: #c084fc; }
+.hm-box.is-checked { background: #34d399; border-color: #34d399; }
+.hm-row { display: flex; align-items: center; gap: 14px; min-height: 46px; padding: 0 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }
+.hm-row:hover { background: rgba(255, 255, 255, 0.025); }
+.hm-row-name {
+  flex: 1; min-width: 0; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left;
+  font-size: 14px; color: #e4def8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hm-when { flex-shrink: 0; font-size: 12.5px; color: #8a82b0; }
+.hm-when.is-late { color: #f59e0b; font-weight: 600; }
+.hm-star { opacity: 0; }
+.hm-row:hover .hm-star, .hm-star:focus-visible { opacity: 1; }
+
+/* Colonne Aujourd'hui. */
+.hm-today { min-height: 0; display: flex; flex-direction: column; border-left: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-work { padding: 24px 24px 20px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-work-num { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; }
+.hm-work-num > span:first-child { font-family: var(--font-display); font-size: 30px; font-weight: 700; letter-spacing: -0.02em; }
+.hm-work-num .is-reached { color: #34d399; }
+.hm-goal { background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; font-size: 13px; color: #8a82b0; }
+.hm-goal:hover { color: #f4f2ff; }
+.hm-goal-edit { font-size: 13px; color: #8a82b0; }
+.hm-goal-edit input {
+  width: 60px; height: 28px; padding: 0 8px; border-radius: 6px; box-sizing: border-box;
+  border: 1px solid var(--c-border); background: rgba(0, 0, 0, 0.25); color: #f4f2ff; font-family: inherit; font-size: 13px; outline: none;
+}
+.hm-bar { height: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); margin: 12px 0 16px; overflow: hidden; }
+.hm-bar span { display: block; height: 100%; border-radius: 999px; transition: width .5s; }
+.hm-work-btns { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.hm-ghost {
+  min-height: 38px; padding: 0 14px; border-radius: 8px; cursor: pointer; font-family: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.12); background: transparent; color: #e4def8; font-size: 13px; font-weight: 600;
+}
+.hm-ghost:hover { background: rgba(255, 255, 255, 0.05); color: #f4f2ff; }
+.hm-ghost.is-muted { color: #9990c0; font-weight: 500; }
+.hm-live {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.10);
+}
+.hm-live.is-paused { border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.08); }
+.hm-live-k { font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #9990c0; }
+.hm-live.is-paused .hm-live-k { color: #f59e0b; }
+.hm-live-n { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-live-t { font-family: var(--font-display); font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; color: #c4b5fd; }
+.hm-live-btn {
+  flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 12px; font-weight: 700;
+  border: 1px solid var(--c-border-mid); background: rgba(255, 255, 255, 0.06); color: #f4f2ff;
+}
+.hm-live-btn.is-stop { background: #10b981; border-color: #10b981; color: #fff; }
+.hm-sessions { margin-top: 12px; }
+.hm-sessions div { display: flex; gap: 10px; align-items: center; min-height: 28px; font-size: 12.5px; color: #8a82b0; border-top: 1px solid rgba(255, 255, 255, 0.05); }
+.hm-sessions div span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d6d0f0; }
+
+.hm-habits { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 18px 24px 10px; }
+.hm-habits-head { display: flex; align-items: baseline; margin-bottom: 6px; }
+.hm-habits-head span { margin-left: auto; font-size: 13px; color: #8a82b0; }
+.hm-habits-list { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.hm-habit {
+  flex: 1 1 0; min-height: 40px; max-height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05); cursor: pointer;
+}
+.hm-habit:hover { background: rgba(255, 255, 255, 0.03); }
+.hm-habit-e { width: 20px; text-align: center; font-size: 15px; }
+.hm-habit-n { flex: 1; min-width: 0; font-size: 13.5px; color: #e4def8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hm-habit-n.is-done { color: #6f6894; text-decoration: line-through; }
+.hm-habit-n.is-ko { color: #fb7185; }
+.hm-habit-c { font-size: 10.5px; font-weight: 700; color: #8a82b0; }
+.hm-check {
+  flex-shrink: 0; width: 22px; height: 22px; padding: 0; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; color: #0c0a17;
+  border: 1.5px solid rgba(255, 255, 255, 0.2); background: transparent;
+}
+.hm-check.is-ok { background: #34d399; border-color: #34d399; }
+.hm-check.is-ko { background: #ef4444; border-color: #ef4444; color: #fff; }
+.hm-close-wrap { padding: 12px 24px 16px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-close { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+
+/* Petit PC / tablette : colonne Aujourd'hui plus étroite. */
+@media (max-width: 1099px) {
+  .hm-grid { grid-template-columns: minmax(0, 1fr) 280px; }
+  .hm-left { padding: 22px 20px; }
+  .hm-scale small { display: none; }
+}
+
+/* Téléphone : une colonne qui défile ; l'arbre devient la branche choisie + pastilles. */
+@media (max-width: 760px) {
+  .hm-page { height: auto; min-height: 100dvh; overflow: visible; }
+  .hm-head { padding: 0 12px 0 16px; }
+  .hm-ameliorer { display: none; }
+  .hm-grid { display: block; padding-bottom: 76px; }
+  .hm-left { overflow: visible; padding: 18px 16px 8px; gap: 20px; }
+  .hm-tree { display: none; }
+  .hm-cap-phone { display: flex; flex-direction: column; gap: 6px; }
+  .hm-branch { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #9990c0; padding: 2px 0; }
+  .hm-branch span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hm-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 8px -16px 0; padding: 0 16px; }
+  .hm-chips::-webkit-scrollbar { display: none; }
+  .hm-chip {
+    flex-shrink: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.10); background: transparent; color: #d6d0f0; font-family: inherit; font-size: 13px; font-weight: 600;
+  }
+  .hm-star { opacity: 1; }
+  .hm-steps-head > .hm-dot, .hm-steps-goal { display: none; }
+  .hm-pin { flex-wrap: wrap; }
+  .hm-pin-sub { flex-wrap: wrap; }
+  .hm-today { border-left: none; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+  .hm-work, .hm-habits, .hm-close-wrap { padding-left: 16px; padding-right: 16px; }
+  .hm-habit { flex: none; min-height: 46px; }
 }
