@@ -23,7 +23,6 @@ import {
   habitValidated, habitsPctOn, habitsAllDoneDays, habitsPctByHabit,
   sessionsOn, workMinutes, minutesBy, monthDaysLocal, monthOkrs, mondaysOfMonth, okrMonthKey,
 } from "./utils/reviewStats";
-import { resolveHighlight, makeHighlightRef } from "./utils/highlight";
 import {
   cumulTotal, startDay, habitUnit,
   heatmapData, heatmapWeeks, rollingRateSeries, rate28WithDelta, weakestWeekday, topLinks,
@@ -1389,141 +1388,11 @@ function WeeklyCalendar() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HOME — Highlight relié à la Todo
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Sélecteur de tâche (bottom-sheet). On ne stocke qu'un pointeur : la Todo
-// (leplan_todos) reste la source de vérité unique.
-function HighlightPickerSheet({ todos, onPick, onCreateTask, onClose }) {
-  const C = CF, GRAD = CF_GRAD, FONT_D = CF_FONT;
-  const t = todayStr();
-  const [q, setQ] = useState("");
-  const [openProj, setOpenProj] = useState(null);
-  const [creating, setCreating] = useState(false);
-
-  const norm  = s => (s || "").toLowerCase();
-  const query = norm(q.trim());
-  const openSubs = p => (p.sousTaches || []).filter(s => !s.done);
-  const matches  = x => !query || norm(x.name).includes(query) || openSubs(x).some(s => norm(s.name).includes(query));
-
-  // Candidats : actionnables uniquement (on exclut waiting / memo / someday).
-  const pool = todos.filter(x => !x.done && ["inbox", "projet", "check"].includes(x.gtd)).filter(matches);
-
-  const taken = new Set();
-  const take = list => { list.forEach(x => taken.add(x.id)); return list; };
-  const secToday   = take(pool.filter(x => x.dateAssignee === t || (x.dateFin && x.dateFin <= t)));
-  const secProjets = take(pool.filter(x => !taken.has(x.id) && x.gtd === "projet" && (x.statut === "en_cours" || getProjectStatus(x) === "en_cours")));
-  const secInbox   = take(pool.filter(x => !taken.has(x.id) && x.gtd === "inbox"));
-  const secAutres  = pool.filter(x => !taken.has(x.id));
-
-  const Row = ({ item, sub, indent }) => {
-    const sc = SPHERES[item.sphere]?.c || C.accent;
-    const label = sub ? sub.name : item.name;
-    return (
-      <button
-        onClick={() => onPick(item.id, sub?.id)}
-        style={{
-          display:"flex", alignItems:"center", gap:10, width:"100%", minHeight:46,
-          padding:`10px 12px 10px ${indent ? 30 : 12}px`, borderRadius:12, marginBottom:4,
-          background:C.surface2, border:`1px solid ${C.border}`, borderLeft:`3px solid ${sc}`,
-          color:C.text, fontFamily:"inherit", fontSize:14, textAlign:"left", cursor:"pointer",
-        }}>
-        <span style={{ flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub ? `↳ ${label}` : label}</span>
-        {item.sphere && <span style={{ flexShrink:0, fontSize:10, color:sc, fontWeight:600 }}>{SPHERES[item.sphere]?.label}</span>}
-      </button>
-    );
-  };
-
-  const ProjectRow = ({ item }) => {
-    const subs = openSubs(item);
-    const open = openProj === item.id;
-    return (
-      <div>
-        <div style={{ display:"flex", gap:6, alignItems:"stretch" }}>
-          <div style={{ flex:1, minWidth:0 }}><Row item={item} /></div>
-          {subs.length > 0 && (
-            <button onClick={() => setOpenProj(open ? null : item.id)} title={open ? "Replier" : "Voir les sous-tâches"}
-              style={{ flexShrink:0, width:44, minHeight:46, marginBottom:4, borderRadius:12, background:C.surface3,
-                border:`1px solid ${C.border}`, color:C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer" }}>
-              {open ? "▲" : `▼ ${subs.length}`}
-            </button>
-          )}
-        </div>
-        {open && subs.map(s => <Row key={s.id} item={item} sub={s} indent />)}
-      </div>
-    );
-  };
-
-  // Un projet reste dépliable partout : on peut choisir le projet ou une sous-tâche.
-  const Section = ({ title, items }) => {
-    if (!items.length) return null;
-    return (
-      <div style={{ marginBottom:16 }}>
-        <div style={{ fontSize:10, color:C.muted, textTransform:"uppercase", letterSpacing:"0.12em", fontWeight:700, marginBottom:8 }}>{title}</div>
-        {items.map(x => x.gtd === "projet" ? <ProjectRow key={x.id} item={x} /> : <Row key={x.id} item={x} />)}
-      </div>
-    );
-  };
-
-  const empty = !secToday.length && !secProjets.length && !secInbox.length && !secAutres.length;
-
-  const sheet = (
-    <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-      <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
-        width:"100%", maxWidth:560, maxHeight:"86vh", display:"flex", flexDirection:"column",
-        background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.borderMid}`, borderBottom:"none",
-        boxShadow:"0 -16px 60px rgba(0,0,0,0.6)",
-      }}>
-        <div style={{ padding:"16px 18px 12px", flexShrink:0 }}>
-          <div style={{ width:38, height:4, borderRadius:999, background:C.surface3, margin:"0 auto 14px" }} />
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-            <div style={{ flex:1, fontFamily:FONT_D, fontSize:18, fontWeight:800, color:C.text }}>Ma tâche du jour</div>
-            <button onClick={onClose} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", fontFamily:"inherit" }}>✕</button>
-          </div>
-          <Input value={q} onChange={setQ} placeholder="Rechercher une tâche..." autoFocus />
-        </div>
-
-        <div style={{ flex:1, overflowY:"auto", padding:"4px 18px 12px" }}>
-          {empty
-            ? <div style={{ fontSize:13, color:C.faint, textAlign:"center", padding:"36px 0" }}>Aucune tâche actionnable.</div>
-            : (<>
-                <Section title="Aujourd'hui" items={secToday} />
-                <Section title="Projets en cours" items={secProjets} />
-                <Section title="Inbox" items={secInbox} />
-                <Section title="Autres" items={secAutres} />
-              </>)}
-        </div>
-
-        <div style={{ padding:"12px 18px calc(16px + env(safe-area-inset-bottom))", flexShrink:0, borderTop:`1px solid ${C.border}` }}>
-          <button onClick={() => setCreating(true)} style={{
-            width:"100%", minHeight:48, borderRadius:14, background:"transparent", border:`1px dashed ${C.borderMid}`,
-            color:C.accent, fontSize:14, fontWeight:600, fontFamily:"inherit", cursor:"pointer",
-          }}>+ Nouvelle tâche</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // Rendu hors de l'overlay : sinon fermer la création fermerait aussi la sheet.
-  return (
-    <>
-      {sheet}
-      {creating && (
-        <TaskCaptureModal
-          onCreate={o => { const created = onCreateTask(o); setCreating(false); if (created) onPick(created.id); }}
-          onClose={() => setCreating(false)}
-        />
-      )}
-    </>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // HOME — « Cascade » : à gauche le cap (vision → année → trimestre → mois) et
 // les prochaines étapes de l'objectif choisi ; à droite la colonne Aujourd'hui
 // (temps de travail, habitudes, clôture). Maquette validée le 17/11/2026.
 // ─────────────────────────────────────────────────────────────────────────────
-const HM_COLORS = ["#a78bfa", "#f472b6", "#34d399", "#22d3ee", "#fbbf24", "#60a5fa"];
+const HM_COLORS = ["#b066ff", "#ff4fa3", "#2ee59d", "#1fd5f0", "#ffc53d", "#4f9dff"];
 const HM_MONTHS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 
 // Une ligne de résultat clé courte : « 0 / 10 clients actifs ».
@@ -1534,6 +1403,9 @@ const hmKr = g => {
   const word = String(kr.nom || "").trim().split(/\s+/)[0] || "";
   return `${cur} / ${kr.cible ?? 0} ${word.toLowerCase()}`.trim();
 };
+
+// Progression du premier résultat clé (null s'il n'y en a pas).
+const hmPct = g => { const kr = (g?.krs || [])[0]; return kr ? krPct(kr) : null; };
 
 // Colonnes = objectifs du mois en cours, rangés pour que chaque parent couvre
 // des colonnes voisines ; chaque niveau devient des « travées » (a → z).
@@ -1598,15 +1470,23 @@ function HomeCap({ cap, sel, onSelect }) {
       const on = sel >= s.a && sel <= s.z;
       const col = on ? cap.cols[sel].color : null;
       items.push(
-        <div key={`${row.key}-${s.goal.id}`} className={`hm-node${on ? " is-on" : ""}`}
-          style={{ gridColumn: `${s.a + 1} / ${s.z + 2}`, gridRow: gr, ...(on ? { borderColor: col, background: `${col}14` } : {}) }}>
+        <div key={`${row.key}-${s.goal.id}`} className={`hm-node hm-node-${row.key}${on ? " is-on" : ""}`}
+          style={{ gridColumn: `${s.a + 2} / ${s.z + 3}`, gridRow: gr, ...(on ? { borderColor: col, background: `${col}22`, boxShadow: `0 0 18px ${col}2e` } : {}) }}>
+          {row.key === "lt" && (
+            <svg className="hm-vstar" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 1.5 L14.3 9.7 L22.5 12 L14.3 14.3 L12 22.5 L9.7 14.3 L1.5 12 L9.7 9.7 Z" fill={on ? col : "rgba(255,255,255,0.16)"} />
+            </svg>
+          )}
           <span className="hm-node-t">{s.goal.titre}</span>
           {row.key !== "lt" && hmKr(s.goal) && <span className="hm-node-k">{hmKr(s.goal)}</span>}
+          {row.key !== "lt" && hmPct(s.goal) !== null && (
+            <span className="hm-node-bar"><span style={{ width: `${hmPct(s.goal)}%`, background: on ? col : "rgba(255,255,255,0.18)" }} /></span>
+          )}
         </div>
       );
     });
     items.push(
-      <div key={`scale-${row.key}`} className="hm-scale" style={{ gridColumn: n + 1, gridRow: gr }}>
+      <div key={`scale-${row.key}`} className="hm-scale" style={{ gridColumn: 1, gridRow: gr }}>
         <span className="hm-scale-i" aria-hidden="true">{row.icon}</span>
         <span><b>{row.label}</b><small>{row.sub}</small></span>
       </div>
@@ -1616,8 +1496,8 @@ function HomeCap({ cap, sel, onSelect }) {
     for (let c = 0; c < n; c++) {
       if (!covers(row, c) || (next && !covers(next, c))) continue;
       items.push(
-        <div key={`link-${row.key}-${c}`} className="hm-link" style={{ gridColumn: c + 1, gridRow: gr + 1 }}>
-          <span style={{ background: c === sel ? cap.cols[sel].color : undefined }} className={c === sel ? "is-on" : ""} />
+        <div key={`link-${row.key}-${c}`} className="hm-link" style={{ gridColumn: c + 2, gridRow: gr + 1 }}>
+          <span style={c === sel ? { background: cap.cols[sel].color, boxShadow: `0 0 8px ${cap.cols[sel].color}` } : undefined} className={c === sel ? "is-on" : ""} />
         </div>
       );
     }
@@ -1628,11 +1508,11 @@ function HomeCap({ cap, sel, onSelect }) {
     const p = c.total ? Math.round(c.done / c.total * 100) : 0;
     items.push(
       <button key={`m-${c.m.id}`} onClick={() => onSelect(i)} className={`hm-month${on ? " is-on" : ""}`}
-        style={{ gridColumn: i + 1, gridRow: mRow, ...(on ? { borderColor: c.color, background: `${c.color}1f` } : {}) }}>
+        style={{ gridColumn: i + 2, gridRow: mRow, ...(on ? { borderColor: c.color, background: `${c.color}2b`, boxShadow: `0 0 20px ${c.color}38` } : {}) }}>
         <span className="hm-ring">
           <svg width="36" height="36" viewBox="0 0 40 40" aria-hidden="true">
             <circle cx="20" cy="20" r="17" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="3" />
-            <circle cx="20" cy="20" r="17" fill="none" stroke={c.color} strokeWidth="3" strokeLinecap="round"
+            <circle cx="20" cy="20" r="17" fill="none" stroke={c.color} strokeWidth="3.5" strokeLinecap="round"
               strokeDasharray={`${(R * p / 100).toFixed(1)} ${R.toFixed(1)}`} transform="rotate(-90 20 20)" />
           </svg>
           <span>{p}</span>
@@ -1643,7 +1523,7 @@ function HomeCap({ cap, sel, onSelect }) {
     );
   });
   items.push(
-    <div key="scale-m" className="hm-scale" style={{ gridColumn: n + 1, gridRow: mRow }}>
+    <div key="scale-m" className="hm-scale" style={{ gridColumn: 1, gridRow: mRow }}>
       <span className="hm-scale-i" aria-hidden="true">🗻</span>
       <span><b>{cap.monthLabel}</b><small>mois en cours</small></span>
     </div>
@@ -1653,7 +1533,7 @@ function HomeCap({ cap, sel, onSelect }) {
   const branch = [["👁️", cur.lt], ["🌌", cur.ann], ["🌍", cur.tri]].filter(([, g]) => g);
   return (
     <section className="hm-cap">
-      <div className="hm-tree" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr)) 128px` }}>{items}</div>
+      <div className="hm-tree" style={{ gridTemplateColumns: `128px repeat(${n}, minmax(0, 1fr))` }}>{items}</div>
       {/* Téléphone : la branche choisie, puis les objectifs du mois en pastilles. */}
       <div className="hm-cap-phone">
         {branch.map(([ic, g]) => (
@@ -1672,12 +1552,10 @@ function HomeCap({ cap, sel, onSelect }) {
   );
 }
 
-// Prochaines étapes de l'objectif choisi, la tâche qui compte épinglée en tête.
+// Prochaines étapes de l'objectif choisi ; à droite, l'échelle se termine par « TO-DO ».
 const HM_STEPS_MAX = 4;
-function HomeSteps({ today, col, todos, hl, firstStep, startAt, onPick, onToggleHL, onOpenTask, onSetStep, onSetStart, onLaunch, onDone, onOpen, onMakeHL, onAdd }) {
+function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
   const [all, setAll] = useState(false);
-  const [step, setStep] = useState(firstStep || "");
-  useEffect(() => { setStep(firstStep || ""); }, [firstStep]);
   useEffect(() => { setAll(false); }, [col?.m?.id]);
   const tomorrow = addDaysISO(today, 1);
   const dateOf = t => t.dateAssignee || t.dateFin || t.dateDebut || "";
@@ -1689,75 +1567,45 @@ function HomeSteps({ today, col, todos, hl, firstStep, startAt, onPick, onToggle
     if (d === tomorrow) return "Demain";
     return new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
   };
-  const hlId = hl?.task?.id;
   const list = col
-    ? todos.filter(t => !t.done && todoGoalId(t) === col.m.id && t.id !== hlId)
-    : todos.filter(t => !t.done && t.id !== hlId && t.gtd !== "projet" && !t.recurrence?.enabled && dateOf(t) && dateOf(t) <= today);
+    ? todos.filter(t => !t.done && todoGoalId(t) === col.m.id)
+    : todos.filter(t => !t.done && t.gtd !== "projet" && !t.recurrence?.enabled && dateOf(t) && dateOf(t) <= today);
   list.sort((a, b) => (dateOf(a) || "9999").localeCompare(dateOf(b) || "9999"));
   const shown = all ? list : list.slice(0, HM_STEPS_MAX);
   const color = col?.color || "#a78bfa";
-  const hlOk = hl && (hl.status === "ok" || hl.status === "done");
-  const hlDone = hl?.status === "done";
 
   return (
-    <section className="hm-steps">
-      <div className="hm-steps-head">
-        <h2 className="hm-h">Prochaines étapes</h2>
-        {col && <><span className="hm-dot" style={{ background: color }} /><span className="hm-steps-goal">{col.m.titre}</span></>}
-        <span style={{ flex: 1 }} />
-        {list.length > HM_STEPS_MAX && (
-          <button onClick={() => setAll(v => !v)} className="hm-link-btn">
-            {all ? "Replier" : `+ ${list.length - HM_STEPS_MAX} autre${list.length - HM_STEPS_MAX > 1 ? "s" : ""}`}
-          </button>
+    <section className="hm-steps-wrap">
+      <div className="hm-scale hm-scale-todo" aria-hidden="true">
+        <span className="hm-scale-v">TO-DO</span>
+      </div>
+      <div className="hm-steps">
+        <div className="hm-steps-head">
+          <h2 className="hm-h">Prochaines étapes</h2>
+          {col && <><span className="hm-dot" style={{ background: color }} /><span className="hm-steps-goal">{col.m.titre}</span></>}
+          <span style={{ flex: 1 }} />
+          {list.length > HM_STEPS_MAX && (
+            <button onClick={() => setAll(v => !v)} className="hm-link-btn">
+              {all ? "Replier" : `+ ${list.length - HM_STEPS_MAX} autre${list.length - HM_STEPS_MAX > 1 ? "s" : ""}`}
+            </button>
+          )}
+          <button onClick={onAdd} className="hm-link-btn is-muted">+ Ajouter</button>
+        </div>
+        {list.length === 0 && (
+          <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
         )}
-        <button onClick={onAdd} className="hm-link-btn is-muted">+ Ajouter</button>
-      </div>
-
-      <div className={`hm-pin${hlDone ? " is-done" : ""}`}>
-        <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1.5 L14.3 9.7 L22.5 12 L14.3 14.3 L12 22.5 L9.7 14.3 L1.5 12 L9.7 9.7 Z" fill={hlOk ? "#c084fc" : "rgba(192,132,252,0.4)"} /></svg>
-        {hlOk ? (<>
-          <div className="hm-pin-body">
-            <div className="hm-pin-top">
-              <button onClick={onOpenTask} className="hm-pin-name">{hl.label}</button>
-              <span className="hm-pin-tag">{hlDone ? "FAIT · JOURNÉE GAGNÉE" : "LA TÂCHE QUI COMPTE"}</span>
-              <button onClick={onPick} className="hm-icon-btn" aria-label="Changer la tâche qui compte" title="Changer">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9M4 13a8 8 0 0 0 14.3 4.9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /><path d="M5.5 2.5v4h4M18.5 21.5v-4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              </button>
+        {shown.map(t => {
+          const w = whenOf(t);
+          return (
+            <div key={t.id} className="hm-row">
+              <span className="hm-dot" style={{ background: color }} />
+              <button onClick={() => onOpen(t.id)} className="hm-row-name">{t.name}</button>
+              {w && <span className={`hm-when${w === "À reprendre" ? " is-late" : ""}`}>{w}</span>}
+              <button onClick={() => onDone(t.id)} className="hm-box" aria-label={`Marquer fait : ${t.name}`} />
             </div>
-            {!hlDone && (
-              <div className="hm-pin-sub">
-                <span>Premier pas :</span>
-                <input value={step} onChange={e => setStep(e.target.value)} maxLength={140}
-                  onBlur={() => { if (step.trim() !== (firstStep || "")) onSetStep(step.trim()); }}
-                  onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                  placeholder="le geste de 2 min pour démarrer" aria-label="Premier pas" />
-                <input type="time" value={startAt || ""} onChange={e => onSetStart(e.target.value)} aria-label="Heure de départ" className="hm-time" />
-              </div>
-            )}
-          </div>
-          {!hlDone && <button onClick={onLaunch} className="hm-launch"><svg width="10" height="10" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" /></svg>Lancer</button>}
-          <button onClick={onToggleHL} className={`hm-box is-pin${hlDone ? " is-checked" : ""}`} aria-label={hlDone ? "Annuler" : "Valider la tâche qui compte"}>{hlDone ? "✓" : ""}</button>
-        </>) : (<>
-          <div className="hm-pin-body"><span className="hm-pin-empty">{hl?.status === "missing" ? "Ta tâche du jour a été supprimée." : "Si tu ne fais qu'une chose aujourd'hui, c'est quoi ?"}</span></div>
-          <button onClick={onPick} className="hm-launch">Choisir</button>
-        </>)}
+          );
+        })}
       </div>
-
-      {list.length === 0 && (
-        <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
-      )}
-      {shown.map(t => {
-        const w = whenOf(t);
-        return (
-          <div key={t.id} className="hm-row">
-            <span className="hm-dot" style={{ background: color }} />
-            <button onClick={() => onOpen(t.id)} className="hm-row-name">{t.name}</button>
-            {w && <span className={`hm-when${w === "À reprendre" ? " is-late" : ""}`}>{w}</span>}
-            <button onClick={() => onMakeHL(t.id)} className="hm-icon-btn hm-star" aria-label={`En faire la tâche qui compte : ${t.name}`} title="En faire la tâche qui compte">☆</button>
-            <button onClick={() => onDone(t.id)} className="hm-box" aria-label={`Marquer fait : ${t.name}`} />
-          </div>
-        );
-      })}
     </section>
   );
 }
@@ -1850,8 +1698,6 @@ function HomeToday({ minutes, goalMin, onSetGoal, sessionsToday, active, onPause
 function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSession, onPauseSession, onResumeSession, onStopSession }) {
   const t = todayStr();
   const { todos, addTodo, updateTodo, deleteTodo, toggleDone } = useTodos();
-  const [highlight, setHighlight] = useState(() => getLS("lp_highlight", {}));
-  const [picker, setPicker]       = useState(false);
   const [creating, setCreating]   = useState(false);
   const [creatingFor, setCreatingFor] = useState(null);
   const [editId, setEditId]       = useState(null);
@@ -1879,28 +1725,9 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
     }));
   };
 
-  // Tâche qui compte (lp_highlight) : premier pas et heure vivent sur la référence du jour.
-  const ref = highlight[t];
-  const hl = resolveHighlight(ref, todos);
-  const saveHL = r => { const u = { ...highlight, [t]: r }; setHighlight(u); setLS("lp_highlight", u); };
-  const pick = (taskId, subTaskId) => { saveHL(makeHighlightRef(taskId, subTaskId)); setPicker(false); };
-  const setHLField = (k, v) => {
-    if (!ref || typeof ref !== "object") return;
-    const r = { ...ref };
-    if (v) r[k] = v; else delete r[k];
-    saveHL(r);
-  };
-  const toggleHL = () => {
-    if (!hl?.task) return;
-    if (hl.subTask) updateTodo(hl.task.id, { sousTaches: (hl.task.sousTaches || []).map(s => s.id === hl.subTask.id ? { ...s, done: !s.done } : s) });
-    else toggleDone(hl.task.id);
-  };
-
-  // Cap : l'objectif du mois choisi ; par défaut celui de la tâche qui compte.
+  // Cap : l'objectif du mois choisi (le premier par défaut).
   const cap = buildCap(goals, todos, t);
-  const hlGoal = hl?.task ? todoGoalId(hl.task) : "";
-  let sel = cap.cols.findIndex(c => c.m.id === selId);
-  if (sel < 0) sel = Math.max(0, cap.cols.findIndex(c => c.m.id === hlGoal));
+  const sel = Math.max(0, cap.cols.findIndex(c => c.m.id === selId));
   const col = cap.cols[sel] || null;
 
   // « À améliorer » du Daily Paper : celui d'aujourd'hui, sinon le plus récent rempli.
@@ -1923,7 +1750,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
   };
 
   const editItem = editId ? todos.find(x => x.id === editId) : null;
-  const sessionName = hl?.label || "";
+  const sessionName = "";
 
   return (
     <div className="theme-light hm-page" style={{ fontFamily: "var(--font-body)" }}>
@@ -1947,18 +1774,9 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         <main className="hm-left">
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
-            today={t} col={col} todos={todos} hl={hl}
-            firstStep={ref && typeof ref === "object" ? ref.firstStep : ""}
-            startAt={ref && typeof ref === "object" ? ref.startAt : ""}
-            onPick={() => setPicker(true)}
-            onToggleHL={toggleHL}
-            onOpenTask={() => hl?.task && setEditId(hl.task.id)}
-            onSetStep={v => setHLField("firstStep", v)}
-            onSetStart={v => setHLField("startAt", v)}
-            onLaunch={() => onStartLive?.(sessionName)}
+            today={t} col={col} todos={todos}
             onDone={toggleDone}
             onOpen={setEditId}
-            onMakeHL={id => pick(id)}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}
           />
         </main>
@@ -1972,14 +1790,6 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         />
       </div>
 
-      {picker && (
-        <HighlightPickerSheet
-          todos={todos}
-          onPick={pick}
-          onCreateTask={o => addTodo({ gtd: "inbox", ...o })}
-          onClose={() => setPicker(false)}
-        />
-      )}
       {(creating || creatingFor) && (
         <TaskCaptureModal
           onCreate={o => { addTodo(creatingFor ? { ...o, objectifId: creatingFor } : o); setCreating(false); setCreatingFor(null); }}
