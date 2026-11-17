@@ -885,34 +885,6 @@ button:active {
 @keyframes hmFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .hm-view { animation: none; } .hm-seg-thumb { transition: none; } }
 
-.hm-week-nav { display: flex; align-items: center; gap: 6px; padding: 8px 0 6px; font-size: 13px; color: #d6d0f0; }
-.hm-week-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 6px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
-.hm-day-head {
-  display: flex; align-items: center; gap: 7px; padding: 10px 8px 4px;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8a82b0;
-  border-left: 1px solid rgba(255, 255, 255, 0.05);
-}
-.hm-day-head:first-child { border-left: none; }
-.hm-day-head b { font-size: 14px; font-weight: 600; letter-spacing: 0; color: #e4def8; min-width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; }
-.hm-day-head.is-today b { color: #fff; background: #b066ff; box-shadow: 0 0 12px rgba(176, 102, 255, 0.55); }
-.hm-bar-proj {
-  display: flex; align-items: center; gap: 7px; min-width: 0; height: 26px; margin: 0 3px; padding: 0 9px; box-sizing: border-box;
-  border: 1px solid; border-radius: 6px; cursor: pointer; text-align: left;
-  font-family: inherit; font-size: 12px; font-weight: 500; color: #f4f2ff; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-}
-.hm-day { min-height: 120px; padding: 2px 6px 8px; border-left: 1px solid rgba(255, 255, 255, 0.05); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.hm-day.is-today { background: rgba(176, 102, 255, 0.05); }
-.hm-day-task { display: flex; align-items: center; gap: 6px; min-height: 28px; min-width: 0; }
-.hm-box.is-mini { width: 14px; height: 14px; border-radius: 4px; }
-.hm-day-name {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: none; padding: 0; cursor: pointer; text-align: left;
-  font-family: inherit; font-size: 12.5px; color: #d6d0f0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
-}
-.hm-day-name:hover { color: #fff; }
-@media (max-width: 760px) {
-  .hm-week { overflow-x: auto; }
-  .hm-week-grid { min-width: 640px; }
-}
 
 /* Rythme du mois, dans la colonne TO-DO. */
 .hm-pace { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 2px; }
@@ -951,36 +923,12 @@ button:active {
   .hm-view { overflow: visible; }
 }
 
-/* Vue Semaine : la navigation et les en-têtes de jours restent figés en haut. */
-.hm-week-nav { position: sticky; top: 0; z-index: 2; height: 36px; box-sizing: border-box; background: #0d0a19; }
-.hm-day-head { position: sticky; top: 36px; z-index: 2; background: #0d0a19; }
-@media (max-width: 760px) { .hm-week-nav, .hm-day-head { position: static; } }
 
 /* Étiquette TO-DO : emoji case à cocher + texte vertical, centrés dans la colonne. */
 .hm-todo-tag { align-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .hm-todo-tag .hm-scale-v { align-self: auto; }
 .hm-todo-ic { font-size: 15px; line-height: 1; }
 
-/* Home > Semaine : récurrentes (pastille pointillée violet → cyan) et clôtures. */
-.hm-recur {
-  display: flex; align-items: center; gap: 6px; min-height: 26px; min-width: 0; padding: 0 6px; margin: 1px 0;
-  border-radius: 999px; border: 1px dashed rgba(139, 92, 246, 0.6);
-  background: linear-gradient(90deg, rgba(139, 92, 246, 0.16), rgba(34, 211, 238, 0.07));
-}
-.hm-recur.is-done { border-style: solid; opacity: 0.6; }
-.hm-recur.is-done .hm-day-name { text-decoration: line-through; }
-.hm-recur-ic { color: #22d3ee; font-size: 12px; font-weight: 700; }
-.hm-recur-mark { flex-shrink: 0; width: 14px; height: 14px; border-radius: 50%; border: 1.5px dashed rgba(139, 92, 246, 0.6); box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; color: #fff; }
-.hm-recur-mark.is-done { border: none; background: linear-gradient(135deg, #8b5cf6, #22d3ee); }
-.hm-box.is-recur { border-radius: 50%; border-color: rgba(139, 92, 246, 0.8); }
-.hm-clot {
-  display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 0 8px; margin: 2px 0 4px; border-radius: 6px;
-  font-size: 11px; font-weight: 800; letter-spacing: 0.02em; color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.45); box-shadow: 0 0 12px rgba(245, 158, 11, 0.2);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.hm-clot.is-trimestriel { color: #c084fc; background: rgba(168, 85, 247, 0.14); border-color: rgba(168, 85, 247, 0.5); box-shadow: 0 0 12px rgba(168, 85, 247, 0.22); }
-.hm-clot.is-annuel { color: #fbbf24; background: linear-gradient(100deg, rgba(251, 191, 36, 0.18), rgba(244, 114, 182, 0.14)); border-color: rgba(251, 191, 36, 0.55); }
 
 /* Todo > Semaine : le calendrier occupe toute la hauteur de l'écran, check tasks à gauche. */
 .todo-week { height: calc(100dvh - 205px); min-height: 520px; }
@@ -995,3 +943,26 @@ button:active {
 .todo-week .cal-projects  { order: 1; flex: none; justify-content: flex-start; padding: 6px 0; }
 .todo-week .cal-band-top  { order: 2; flex: 1; min-height: 0; }
 .todo-week .cal-band-wait { order: 3; }
+
+/* Home > Semaine : le calendrier de Todo dans le volet qui défile. */
+.hm-week-full { height: 100%; min-height: 460px; display: flex; flex-direction: column; }
+@media (max-width: 760px) { .hm-week-full { height: auto; min-height: 0; } }
+.hm-week-full .check-panel { display: flex; flex-direction: column; }
+.hm-week-full .check-panel-list { flex: 1; min-height: 0; overflow-y: auto; }
+.hm-week-full .cal-projects  { order: 1; flex: none; justify-content: flex-start; padding: 6px 0; }
+.hm-week-full .cal-band-top  { order: 2; flex: 1; min-height: 0; }
+.hm-week-full .cal-band-wait { order: 3; }
+
+/* Home compactée : bandeau et arbre plus serrés, plus de place pour le calendrier. */
+.hm-head { height: 48px; }
+.hm-left { padding: 14px 32px 14px; gap: 14px; }
+.hm-node { min-height: 42px; padding: 6px 14px; }
+.hm-node-lt { min-height: 44px; }
+.hm-node-bar { bottom: 4px; }
+.hm-link { height: 18px; }
+.hm-month { height: 48px; }
+.hm-scale small { display: none; }
+
+/* Calendrier plus sobre : traits de colonnes discrets, jour courant à peine marqué. */
+.cal-colbg > * + * { border-left: 1px solid rgba(255, 255, 255, 0.045); }
+.cal-colbg > .is-today { background: rgba(176, 102, 255, 0.035); box-shadow: inset 0 2px 0 #b066ff; }

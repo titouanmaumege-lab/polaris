@@ -781,7 +781,7 @@ function WeeklyCalendar() {
           display:"flex", flexDirection:"column", justifyContent:"center", gap:2,
           margin:"0 4px", padding:"7px 8px 9px", minHeight:38, boxSizing:"border-box",
           fontFamily:"inherit", cursor:"grab", textAlign:"left", color:"#f4f2ff",
-          background:`linear-gradient(90deg, ${pc}3d, ${pc}17)`,
+          background:`linear-gradient(90deg, ${pc}33, ${pc}14), #120f22`,
           border:`1px solid ${late ? RED : pc + "8c"}`,
           borderLeftWidth: cl ? 0 : 1, borderRightWidth: cr ? 0 : 1,
           borderTopLeftRadius: cl ? 0 : 10, borderBottomLeftRadius: cl ? 0 : 10,
@@ -798,12 +798,13 @@ function WeeklyCalendar() {
         {!cr && !isPhone && <Grip kind="end" edgeSide="right" />}
 
         {/* Ligne 1 — le nom, et lui seul, plus la coche */}
-        <span style={{ position:"relative", display:"flex", alignItems:"center", gap:8, minWidth:0, paddingLeft: cl || isPhone ? 6 : 16, paddingRight: cr || isPhone ? 6 : 16 }}>
+        <span style={{ position:"relative", display:"flex", alignItems:"center", gap: mid ? 8 : 5, minWidth:0, paddingLeft: cl || isPhone || !mid ? 4 : 16, paddingRight: cr || isPhone || !mid ? 2 : 16 }}>
           {cl && <span style={{ fontSize:10, opacity:0.75 }}>‹</span>}
           <span style={{ width:7, height:7, borderRadius:"50%", flexShrink:0, background:pc, boxShadow:`0 0 6px ${pc}` }} />
-          <span style={{ flex:1, minWidth:0, fontSize:12.5, fontWeight:600, whiteSpace:"nowrap",
-            overflow:"hidden", textOverflow:"ellipsis" }}>{it.name}</span>
-          {deadline && !lead && (
+          <span style={mid
+            ? { flex:1, minWidth:0, fontSize:12.5, fontWeight:600, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }
+            : { flex:1, minWidth:0, fontSize:11.5, fontWeight:600, lineHeight:1.2, overflow:"hidden", display:"-webkit-box", WebkitLineClamp:2, WebkitBoxOrient:"vertical", wordBreak:"break-word" }}>{it.name}</span>
+          {deadline && !lead && mid && (
             <span style={{ flexShrink:0, fontSize:10.5, fontVariantNumeric:"tabular-nums", fontWeight: late ? 700 : 500, color: late ? "#FFB4B4" : "rgba(244,242,255,0.7)" }}>{deadline}</span>
           )}
           {subs.length > 0 && (
@@ -867,7 +868,7 @@ function WeeklyCalendar() {
         style={{
           display:"flex", alignItems:"center", gap:6, width:"100%", boxSizing:"border-box",
           minHeight:40, padding:"4px 6px 4px 7px", borderRadius:9,
-          background:"transparent", border:`1px dashed ${CYAN}77`,
+          background:"#120f22", border:`1px dashed ${CYAN}77`,
           cursor:"grab", fontFamily:"inherit", minWidth:0,
         }}>
         <span aria-hidden="true" style={{ fontSize:12, flexShrink:0 }}>👤</span>
@@ -921,7 +922,7 @@ function WeeklyCalendar() {
         style={{
           display:"flex", alignItems:"center", gap:5, width:"100%", boxSizing:"border-box", minHeight:26, minWidth:0,
           padding:"2px 4px 2px 7px", borderRadius:999, cursor:"pointer", fontFamily:"inherit",
-          background: isDone ? `linear-gradient(90deg, ${RECUR_C}4d, ${RECUR_C2}38)` : `linear-gradient(90deg, ${RECUR_C}29, ${RECUR_C2}12)`,
+          background: (isDone ? `linear-gradient(90deg, ${RECUR_C}4d, ${RECUR_C2}38)` : `linear-gradient(90deg, ${RECUR_C}29, ${RECUR_C2}12)`) + ', #120f22',
           border: isDone ? `1px solid ${RECUR_C}` : `1px dashed ${missed ? RED + "99" : RECUR_C + "99"}`,
           opacity: isDone ? 0.72 : 1,
         }}>
@@ -1003,7 +1004,7 @@ function WeeklyCalendar() {
         } : {})} style={{ cursor: reviewMk ? "pointer" : "default",
         position:"relative", overflow:"hidden", borderRadius:14, padding:"12px 12px 11px", minHeight:92,
         display:"flex", flexDirection:"column", justifyContent:"center",
-        background:`${da.c}22`, border:`1px solid ${da.c}77`, boxShadow:`0 0 22px ${da.c}44`,
+        background:`linear-gradient(${da.c}22, ${da.c}22), #120f22`, border:`1px solid ${da.c}77`, boxShadow:`0 0 14px ${da.c}2e`,
       }}>
         <div style={{ position:"absolute", top:0, left:0, right:0, height:5, background:da.grad }} />
         <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
@@ -1218,9 +1219,9 @@ function WeeklyCalendar() {
                       display:"inline-flex", alignItems:"center", justifyContent:"center",
                       fontFamily:"var(--font-display)", fontSize:14, fontWeight:isToday?700:600,
                       lineHeight:1, fontVariantNumeric:"tabular-nums",
-                      background:isToday?"linear-gradient(135deg,#A855F7,#EC4899)":"transparent",
+                      background:isToday?"#b066ff":"transparent",
                       color:isToday?"#fff":"var(--c-text)",
-                      boxShadow:isToday?"0 0 16px rgba(168,85,247,0.6)":"none",
+                      boxShadow:"none",
                     }}>{dn}</span>
                   </div>
                 );
@@ -1559,109 +1560,9 @@ function HomeCap({ cap, sel, onSelect }) {
 }
 
 // Sous le cap : double vue, « Étapes » (tâches de l'objectif choisi) ou « Semaine »
-// (calendrier épuré, en lecture : pas de glisser-déposer). À gauche, « TO-DO ».
+// (le calendrier de Todo, identique). À gauche, « TO-DO ».
 const HM_STEPS_MAX = 4;
 const HM_VIEW_KEY = "lp_home_view";   // préférence d'affichage locale, non synchronisée
-const HM_DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
-
-function HomeWeek({ today, todos, colorOf, onOpen, onDone }) {
-  const [offset, setOffset] = useState(0);
-  const d0 = new Date(today + "T12:00:00");
-  const monday = addDaysISO(today, -((d0.getDay() + 6) % 7) + offset * 7);
-  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
-  const start = days[0], end = days[6];
-  const fmt = ds => new Date(ds + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-  const label = offset === 0 ? "Cette semaine" : offset === 1 ? "Semaine prochaine" : offset === -1 ? "Semaine passée" : `${fmt(start)} – ${fmt(end)}`;
-
-  // Projets (et tâches étirées) : une barre fine du premier au dernier jour visible.
-  const bars = todos
-    .filter(t => !t.done && !t.recurrence?.enabled && t.dateDebut && t.dateFin && t.dateFin >= start && t.dateDebut <= end)
-    .map(t => ({ t, a: Math.max(0, days.findIndex(ds => ds >= t.dateDebut)), z: (() => { let z = 6; while (z > 0 && days[z] > t.dateFin) z--; return z; })() }))
-    .sort((x, y) => x.a - y.a || y.z - x.z)
-    .slice(0, 4);
-  // Tâches d'un jour (mémos, check, inbox datées). Les récurrentes ont leur propre visuel.
-  const byDay = Object.fromEntries(days.map(ds => [ds, []]));
-  todos.forEach(t => {
-    if (t.done || (t.dateDebut && t.dateFin) || t.gtd === "projet" || t.recurrence?.enabled) return;
-    if (t.dateAssignee && byDay[t.dateAssignee]) byDay[t.dateAssignee].push(t);
-  });
-  // Récurrentes : occurrences de la semaine (faites = gardées dans l'historique).
-  const recurByDay = Object.fromEntries(days.map(ds => [ds, []]));
-  const seen = new Set();
-  const doneBy = {};
-  todos.forEach(t => { if (t.done && t.recurrence?.enabled && t.dateAssignee) (doneBy[t.name] = doneBy[t.name] || new Set()).add(t.dateAssignee); });
-  todos.filter(t => t.recurrence?.enabled && !t.done && t.dateAssignee).forEach(a => {
-    if (seen.has(a.name)) return;
-    seen.add(a.name);
-    const occ = new Set(getRecurOccurrences(a, start, end));
-    const dn = doneBy[a.name] || new Set();
-    days.forEach(ds => { if (occ.has(ds) || dn.has(ds)) recurByDay[ds].push({ a, done: dn.has(ds), canDo: ds === a.dateAssignee && !dn.has(ds) }); });
-  });
-  // Clôtures d'objectifs (mois, trimestre, année) tombant cette semaine.
-  const goalsLS = getLS("lp_goals", {});
-  const clotByDay = {};
-  [["annuel", "Clôture année", "🏁"], ["trimestriel", "Clôture trimestre", "🎯"], ["mensuel", "Clôture mois", "🗻"]].forEach(([lvl, label, ic]) => {
-    (goalsLS[lvl] || []).forEach(o => {
-      if (o.archived) return;
-      const date = o.dateCloture || computeCloture(o.periode);
-      if (!date || !(date in byDay)) return;
-      const cur = clotByDay[date];
-      if (!cur) clotByDay[date] = { label, ic, lvl, n: 1 };
-      else { cur.n += 1; if (lvl === "annuel" || (lvl === "trimestriel" && cur.lvl === "mensuel")) Object.assign(cur, { label, ic, lvl }); }
-    });
-  });
-
-  return (
-    <div className="hm-week">
-      <div className="hm-week-nav">
-        <button onClick={() => setOffset(o => o - 1)} className="hm-icon-btn" aria-label="Semaine précédente">‹</button>
-        <span>{label}</span>
-        <button onClick={() => setOffset(o => o + 1)} className="hm-icon-btn" aria-label="Semaine suivante">›</button>
-        {offset !== 0 && <button onClick={() => setOffset(0)} className="hm-link-btn is-muted">Aujourd'hui</button>}
-      </div>
-      <div className="hm-week-grid">
-        {days.map((ds, i) => (
-          <div key={ds} className={`hm-day-head${ds === today ? " is-today" : ""}`} style={{ gridColumn: i + 1 }}>
-            <span>{HM_DAYS[i]}</span><b>{Number(ds.slice(8))}</b>
-          </div>
-        ))}
-        {bars.map((b, k) => (
-          <button key={b.t.id} onClick={() => onOpen(b.t.id)} className="hm-bar-proj" title={b.t.name}
-            style={{ gridColumn: `${b.a + 1} / ${b.z + 2}`, gridRow: k + 2, borderColor: colorOf(b.t), background: `${colorOf(b.t)}22` }}>
-            <span className="hm-dot" style={{ background: colorOf(b.t) }} />{b.t.name}
-          </button>
-        ))}
-        {days.map((ds, i) => (
-          <div key={`c-${ds}`} className={`hm-day${ds === today ? " is-today" : ""}`} style={{ gridColumn: i + 1, gridRow: bars.length + 2 }}>
-            {clotByDay[ds] && (
-              <div className={`hm-clot is-${clotByDay[ds].lvl}`} title={`${clotByDay[ds].label} · ${clotByDay[ds].n} objectif${clotByDay[ds].n > 1 ? "s" : ""}`}>
-                <span aria-hidden="true">{clotByDay[ds].ic}</span>{clotByDay[ds].label}
-              </div>
-            )}
-            {recurByDay[ds].map(r => (
-              <div key={`r-${r.a.id}`} className={`hm-recur${r.done ? " is-done" : ""}`}>
-                {r.canDo
-                  ? <button onClick={() => onDone(r.a.id)} className="hm-box is-mini is-recur" aria-label={`Marquer fait : ${r.a.name}`} />
-                  : <span className={`hm-recur-mark${r.done ? " is-done" : ""}`} aria-hidden="true">{r.done ? "✓" : ""}</span>}
-                <button onClick={() => onOpen(r.a.id)} className="hm-day-name" title={`${r.a.name} (récurrente)`}>
-                  <span aria-hidden="true" className="hm-recur-ic">↻</span>{r.a.name}
-                </button>
-              </div>
-            ))}
-            {byDay[ds].map(t => (
-              <div key={t.id} className="hm-day-task">
-                <button onClick={() => onDone(t.id)} className="hm-box is-mini" aria-label={`Marquer fait : ${t.name}`} />
-                <button onClick={() => onOpen(t.id)} className="hm-day-name" title={t.name}>
-                  <span className="hm-dot" style={{ background: colorOf(t) }} />{t.name}
-                </button>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // Rythme du mois : temps écoulé du mois face à l'avancement de l'objectif choisi.
 function HomePace({ today, col }) {
@@ -1692,7 +1593,7 @@ function HomePace({ today, col }) {
   );
 }
 
-function HomeSteps({ today, col, todos, colorOf, onDone, onOpen, onAdd }) {
+function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
   const [all, setAll] = useState(false);
   const [view, setView] = useState(() => { try { return localStorage.getItem(HM_VIEW_KEY) || "steps"; } catch { return "steps"; } });
   const pickView = v => { setView(v); try { localStorage.setItem(HM_VIEW_KEY, v); } catch {} };
@@ -1740,7 +1641,7 @@ function HomeSteps({ today, col, todos, colorOf, onDone, onOpen, onAdd }) {
 
         <div key={view} className="hm-view">
           {isWeek ? (
-            <HomeWeek today={today} todos={todos} colorOf={colorOf} onOpen={onOpen} onDone={onDone} />
+            <div className="dash-cal hm-week-full"><WeeklyCalendar /></div>
           ) : (<>
             {list.length === 0 && (
               <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
@@ -1928,7 +1829,6 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
             today={t} col={col} todos={todos}
-            colorOf={x => cap.cols.find(c => c.m.id === todoGoalId(x))?.color || "#6f6894"}
             onDone={toggleDone}
             onOpen={setEditId}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}
