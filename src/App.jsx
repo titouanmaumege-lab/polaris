@@ -1552,10 +1552,104 @@ function HomeCap({ cap, sel, onSelect }) {
   );
 }
 
-// Prochaines étapes de l'objectif choisi ; à droite, l'échelle se termine par « TO-DO ».
+// Sous le cap : double vue, « Étapes » (tâches de l'objectif choisi) ou « Semaine »
+// (calendrier épuré, en lecture : pas de glisser-déposer). À gauche, « TO-DO ».
 const HM_STEPS_MAX = 4;
-function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
+const HM_VIEW_KEY = "lp_home_view";   // préférence d'affichage locale, non synchronisée
+const HM_DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+function HomeWeek({ today, todos, colorOf, onOpen, onDone }) {
+  const [offset, setOffset] = useState(0);
+  const d0 = new Date(today + "T12:00:00");
+  const monday = addDaysISO(today, -((d0.getDay() + 6) % 7) + offset * 7);
+  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+  const start = days[0], end = days[6];
+  const fmt = ds => new Date(ds + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  const label = offset === 0 ? "Cette semaine" : offset === 1 ? "Semaine prochaine" : offset === -1 ? "Semaine passée" : `${fmt(start)} – ${fmt(end)}`;
+
+  // Projets (et tâches étirées) : une barre fine du premier au dernier jour visible.
+  const bars = todos
+    .filter(t => !t.done && !t.recurrence?.enabled && t.dateDebut && t.dateFin && t.dateFin >= start && t.dateDebut <= end)
+    .map(t => ({ t, a: Math.max(0, days.findIndex(ds => ds >= t.dateDebut)), z: (() => { let z = 6; while (z > 0 && days[z] > t.dateFin) z--; return z; })() }))
+    .sort((x, y) => x.a - y.a || y.z - x.z)
+    .slice(0, 4);
+  // Tâches d'un jour (mémos, check, inbox datées) et occurrence des récurrentes.
+  const byDay = Object.fromEntries(days.map(ds => [ds, []]));
+  todos.forEach(t => {
+    if (t.done || (t.dateDebut && t.dateFin) || t.gtd === "projet") return;
+    if (t.dateAssignee && byDay[t.dateAssignee]) byDay[t.dateAssignee].push(t);
+  });
+
+  return (
+    <div className="hm-week">
+      <div className="hm-week-nav">
+        <button onClick={() => setOffset(o => o - 1)} className="hm-icon-btn" aria-label="Semaine précédente">‹</button>
+        <span>{label}</span>
+        <button onClick={() => setOffset(o => o + 1)} className="hm-icon-btn" aria-label="Semaine suivante">›</button>
+        {offset !== 0 && <button onClick={() => setOffset(0)} className="hm-link-btn is-muted">Aujourd'hui</button>}
+      </div>
+      <div className="hm-week-grid">
+        {days.map((ds, i) => (
+          <div key={ds} className={`hm-day-head${ds === today ? " is-today" : ""}`} style={{ gridColumn: i + 1 }}>
+            <span>{HM_DAYS[i]}</span><b>{Number(ds.slice(8))}</b>
+          </div>
+        ))}
+        {bars.map((b, k) => (
+          <button key={b.t.id} onClick={() => onOpen(b.t.id)} className="hm-bar-proj" title={b.t.name}
+            style={{ gridColumn: `${b.a + 1} / ${b.z + 2}`, gridRow: k + 2, borderColor: colorOf(b.t), background: `${colorOf(b.t)}22` }}>
+            <span className="hm-dot" style={{ background: colorOf(b.t) }} />{b.t.name}
+          </button>
+        ))}
+        {days.map((ds, i) => (
+          <div key={`c-${ds}`} className={`hm-day${ds === today ? " is-today" : ""}`} style={{ gridColumn: i + 1, gridRow: bars.length + 2 }}>
+            {byDay[ds].map(t => (
+              <div key={t.id} className="hm-day-task">
+                <button onClick={() => onDone(t.id)} className="hm-box is-mini" aria-label={`Marquer fait : ${t.name}`} />
+                <button onClick={() => onOpen(t.id)} className="hm-day-name" title={t.name}>
+                  <span className="hm-dot" style={{ background: colorOf(t) }} />{t.name}
+                </button>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Rythme du mois : temps écoulé du mois face à l'avancement de l'objectif choisi.
+function HomePace({ today, col }) {
+  const d = new Date(today + "T12:00:00");
+  const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  const left = dim - d.getDate();
+  const elapsed = Math.round(d.getDate() / dim * 100);
+  const done = col.total ? Math.round(col.done / col.total * 100) : 0;
+  const late = done < elapsed - 5;
+  const fill = late ? "#f59e0b" : col.color;
+  return (
+    <div className="hm-pace" title="Temps écoulé du mois face à l'avancement de l'objectif choisi">
+      <div className="hm-pace-j"><b>J-{left}</b><small>{left > 1 ? "jours restants" : "jour restant"}</small></div>
+      <div className="hm-pace-bars">
+        <div className="hm-pace-col">
+          <div className="hm-pace-track"><span style={{ height: `${elapsed}%`, background: "rgba(255,255,255,0.35)" }} /></div>
+          <b>{elapsed}%</b><small>temps</small>
+        </div>
+        <div className="hm-pace-col">
+          <div className="hm-pace-track"><span style={{ height: `${done}%`, background: fill, boxShadow: `0 0 10px ${fill}66` }} /></div>
+          <b style={{ color: fill }}>{done}%</b><small>fait</small>
+        </div>
+      </div>
+      <div className={`hm-pace-st${late ? " is-late" : ""}`}>
+        <span className="hm-dot" style={{ background: late ? "#f59e0b" : "#2ee59d" }} />{late ? "en retard" : "à l'heure"}
+      </div>
+    </div>
+  );
+}
+
+function HomeSteps({ today, col, todos, colorOf, onDone, onOpen, onAdd }) {
   const [all, setAll] = useState(false);
+  const [view, setView] = useState(() => { try { return localStorage.getItem(HM_VIEW_KEY) || "steps"; } catch { return "steps"; } });
+  const pickView = v => { setView(v); try { localStorage.setItem(HM_VIEW_KEY, v); } catch {} };
   useEffect(() => { setAll(false); }, [col?.m?.id]);
   const tomorrow = addDaysISO(today, 1);
   const dateOf = t => t.dateAssignee || t.dateFin || t.dateDebut || "";
@@ -1573,38 +1667,51 @@ function HomeSteps({ today, col, todos, onDone, onOpen, onAdd }) {
   list.sort((a, b) => (dateOf(a) || "9999").localeCompare(dateOf(b) || "9999"));
   const shown = all ? list : list.slice(0, HM_STEPS_MAX);
   const color = col?.color || "#a78bfa";
+  const isWeek = view === "week";
 
   return (
     <section className="hm-steps-wrap">
-      <div className="hm-scale hm-scale-todo" aria-hidden="true">
-        <span className="hm-scale-v">TO-DO</span>
+      <div className="hm-scale hm-scale-todo">
+        <span className="hm-todo-tag" aria-hidden="true"><span className="hm-todo-ic">☑️</span><span className="hm-scale-v">TO-DO</span></span>
+        {col && <HomePace today={today} col={col} />}
       </div>
       <div className="hm-steps">
         <div className="hm-steps-head">
-          <h2 className="hm-h">Prochaines étapes</h2>
-          {col && <><span className="hm-dot" style={{ background: color }} /><span className="hm-steps-goal">{col.m.titre}</span></>}
+          <div className="hm-seg" role="tablist" aria-label="Vue">
+            <button role="tab" aria-selected={!isWeek} onClick={() => pickView("steps")} className={!isWeek ? "is-on" : ""}>Étapes</button>
+            <button role="tab" aria-selected={isWeek} onClick={() => pickView("week")} className={isWeek ? "is-on" : ""}>Semaine</button>
+            <span className="hm-seg-thumb" style={{ transform: isWeek ? "translateX(100%)" : "none" }} aria-hidden="true" />
+          </div>
+          {!isWeek && col && <><span className="hm-dot" style={{ background: color }} /><span className="hm-steps-goal">{col.m.titre}</span></>}
           <span style={{ flex: 1 }} />
-          {list.length > HM_STEPS_MAX && (
+          {!isWeek && list.length > HM_STEPS_MAX && (
             <button onClick={() => setAll(v => !v)} className="hm-link-btn">
               {all ? "Replier" : `+ ${list.length - HM_STEPS_MAX} autre${list.length - HM_STEPS_MAX > 1 ? "s" : ""}`}
             </button>
           )}
           <button onClick={onAdd} className="hm-link-btn is-muted">+ Ajouter</button>
         </div>
-        {list.length === 0 && (
-          <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
-        )}
-        {shown.map(t => {
-          const w = whenOf(t);
-          return (
-            <div key={t.id} className="hm-row">
-              <span className="hm-dot" style={{ background: color }} />
-              <button onClick={() => onOpen(t.id)} className="hm-row-name">{t.name}</button>
-              {w && <span className={`hm-when${w === "À reprendre" ? " is-late" : ""}`}>{w}</span>}
-              <button onClick={() => onDone(t.id)} className="hm-box" aria-label={`Marquer fait : ${t.name}`} />
-            </div>
-          );
-        })}
+
+        <div key={view} className="hm-view">
+          {isWeek ? (
+            <HomeWeek today={today} todos={todos} colorOf={colorOf} onOpen={onOpen} onDone={onDone} />
+          ) : (<>
+            {list.length === 0 && (
+              <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
+            )}
+            {shown.map(t => {
+              const w = whenOf(t);
+              return (
+                <div key={t.id} className="hm-row">
+                  <span className="hm-dot" style={{ background: color }} />
+                  <button onClick={() => onOpen(t.id)} className="hm-row-name">{t.name}</button>
+                  {w && <span className={`hm-when${w === "À reprendre" ? " is-late" : ""}`}>{w}</span>}
+                  <button onClick={() => onDone(t.id)} className="hm-box" aria-label={`Marquer fait : ${t.name}`} />
+                </div>
+              );
+            })}
+          </>)}
+        </div>
       </div>
     </section>
   );
@@ -1775,6 +1882,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
             today={t} col={col} todos={todos}
+            colorOf={x => cap.cols.find(c => c.m.id === todoGoalId(x))?.color || "#6f6894"}
             onDone={toggleDone}
             onOpen={setEditId}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}

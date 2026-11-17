@@ -653,7 +653,7 @@ button:active {
 .hm-empty { margin: 14px 4px 0; font-size: 14px; color: #8a82b0; }
 
 .hm-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 320px; padding-bottom: 48px; }
-.hm-left { min-height: 0; min-width: 0; overflow-y: auto; scrollbar-width: none; padding: 26px 32px 24px; display: flex; flex-direction: column; gap: 26px; }
+.hm-left { min-height: 0; min-width: 0; overflow: hidden; padding: 26px 32px 20px; display: flex; flex-direction: column; gap: 22px; }
 .hm-left::-webkit-scrollbar { display: none; }
 
 /* Cap : arbre vision → année → trimestre → mois, échelle de temps à droite. */
@@ -852,7 +852,7 @@ button:active {
 
 /* Home v4 : TO-DO dans l'échelle de droite, arbre plus visuel. */
 .hm-steps-wrap { display: grid; grid-template-columns: 128px minmax(0, 1fr); column-gap: 16px; }
-.hm-scale-todo { align-self: stretch; align-items: flex-start; justify-content: flex-end; padding-top: 2px; }
+.hm-scale-todo { align-self: stretch; align-items: stretch; justify-content: flex-start; gap: 10px; padding-top: 2px; }
 .hm-scale-v {
   writing-mode: vertical-rl; transform: rotate(180deg);
   font-size: 12px; font-weight: 700; letter-spacing: 0.32em; color: #d6d0f0;
@@ -868,3 +868,95 @@ button:active {
   .hm-steps-wrap { grid-template-columns: minmax(0, 1fr); }
   .hm-scale-todo { display: none; }
 }
+
+/* Home v6 : double vue Étapes / Semaine sous le cap. */
+.hm-seg { position: relative; display: inline-grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 9px; border: 1px solid rgba(255, 255, 255, 0.10); flex-shrink: 0; }
+.hm-seg button {
+  position: relative; z-index: 1; height: 28px; padding: 0 14px; border: none; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 12.5px; font-weight: 600; color: #8a82b0; transition: color .2s;
+}
+.hm-seg button.is-on { color: #f4f2ff; }
+.hm-seg-thumb {
+  position: absolute; top: 3px; left: 3px; width: calc(50% - 3px); height: 28px; border-radius: 7px;
+  background: rgba(176, 102, 255, 0.22); border: 1px solid rgba(176, 102, 255, 0.55); box-sizing: border-box;
+  transition: transform .28s cubic-bezier(.4, 0, .2, 1);
+}
+.hm-view { animation: hmFade .3s ease; }
+@keyframes hmFade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hm-view { animation: none; } .hm-seg-thumb { transition: none; } }
+
+.hm-week-nav { display: flex; align-items: center; gap: 6px; padding: 8px 0 6px; font-size: 13px; color: #d6d0f0; }
+.hm-week-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); row-gap: 6px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-day-head {
+  display: flex; align-items: center; gap: 7px; padding: 10px 8px 4px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #8a82b0;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+}
+.hm-day-head:first-child { border-left: none; }
+.hm-day-head b { font-size: 14px; font-weight: 600; letter-spacing: 0; color: #e4def8; min-width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; }
+.hm-day-head.is-today b { color: #fff; background: #b066ff; box-shadow: 0 0 12px rgba(176, 102, 255, 0.55); }
+.hm-bar-proj {
+  display: flex; align-items: center; gap: 7px; min-width: 0; height: 26px; margin: 0 3px; padding: 0 9px; box-sizing: border-box;
+  border: 1px solid; border-radius: 6px; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 12px; font-weight: 500; color: #f4f2ff; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.hm-day { min-height: 120px; padding: 2px 6px 8px; border-left: 1px solid rgba(255, 255, 255, 0.05); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hm-day.is-today { background: rgba(176, 102, 255, 0.05); }
+.hm-day-task { display: flex; align-items: center; gap: 6px; min-height: 28px; min-width: 0; }
+.hm-box.is-mini { width: 14px; height: 14px; border-radius: 4px; }
+.hm-day-name {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+  font-family: inherit; font-size: 12.5px; color: #d6d0f0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.hm-day-name:hover { color: #fff; }
+@media (max-width: 760px) {
+  .hm-week { overflow-x: auto; }
+  .hm-week-grid { min-width: 640px; }
+}
+
+/* Rythme du mois, dans la colonne TO-DO. */
+.hm-pace { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-top: 2px; }
+.hm-pace-j { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+.hm-pace-j b { font-family: var(--font-display); font-size: 24px; font-weight: 700; color: #f4f2ff; letter-spacing: -0.02em; }
+.hm-pace-j small { font-size: 10.5px; color: #8a82b0; }
+.hm-pace-bars { display: flex; gap: 14px; }
+.hm-pace-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.hm-pace-track { position: relative; width: 8px; height: 96px; border-radius: 999px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.hm-pace-track span { position: absolute; left: 0; right: 0; bottom: 0; border-radius: 999px; transition: height .6s cubic-bezier(.4, 0, .2, 1); }
+.hm-pace-col b { font-size: 12px; font-weight: 700; color: #d6d0f0; }
+.hm-pace-col small { font-size: 10px; color: #6b6390; }
+.hm-pace-st { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: #2ee59d; }
+.hm-pace-st.is-late { color: #f59e0b; }
+
+/* PC : volets figés. Le cap, l'échelle, l'en-tête de la to-do et la colonne de
+   droite restent en place ; seul le contenu Étapes / Semaine défile. */
+.hm-cap { flex: none; }
+.hm-steps-wrap { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.hm-steps { min-height: 0; }
+.hm-steps-head { flex: none; }
+.hm-view { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(176, 102, 255, 0.35) transparent; }
+.hm-scale-v { align-self: flex-start; }
+
+/* Rythme du mois : toute la largeur de la colonne, jauges larges. */
+.hm-pace { align-self: stretch; align-items: stretch; padding-bottom: 4px; }
+.hm-pace-bars { flex: 1; min-height: 0; max-height: 230px; gap: 10px; }
+.hm-pace-col { flex: 1; min-width: 0; min-height: 0; }
+.hm-pace-track { width: 100%; height: auto; flex: 1; min-height: 70px; border-radius: 8px; }
+.hm-pace-track span { border-radius: 8px; }
+.hm-pace-st { justify-content: center; }
+
+@media (max-width: 760px) {
+  .hm-left { overflow: visible; }
+  .hm-steps-wrap { flex: none; grid-template-rows: none; }
+  .hm-view { overflow: visible; }
+}
+
+/* Vue Semaine : la navigation et les en-têtes de jours restent figés en haut. */
+.hm-week-nav { position: sticky; top: 0; z-index: 2; height: 36px; box-sizing: border-box; background: #0d0a19; }
+.hm-day-head { position: sticky; top: 36px; z-index: 2; background: #0d0a19; }
+@media (max-width: 760px) { .hm-week-nav, .hm-day-head { position: static; } }
+
+/* Étiquette TO-DO : emoji case à cocher + texte vertical, centrés dans la colonne. */
+.hm-todo-tag { align-self: center; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.hm-todo-tag .hm-scale-v { align-self: auto; }
+.hm-todo-ic { font-size: 15px; line-height: 1; }
