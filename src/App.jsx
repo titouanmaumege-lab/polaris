@@ -1404,17 +1404,8 @@ const HM_COLORS = ["#b066ff", "#ff4fa3", "#2ee59d", "#1fd5f0", "#ffc53d", "#4f9d
 const HM_GREY = "#7d7896";   // tâche sans objectif du mois
 const HM_MONTHS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 
-// Une ligne de résultat clé courte : « 0 / 10 clients actifs ».
-const hmKr = g => {
-  const kr = (g?.krs || [])[0];
-  if (!kr) return "";
-  const cur = kr.actuelle ?? kr.depart ?? 0;
-  const word = String(kr.nom || "").trim().split(/\s+/)[0] || "";
-  return `${cur} / ${kr.cible ?? 0} ${word.toLowerCase()}`.trim();
-};
-
-// Progression du premier résultat clé (null s'il n'y en a pas).
-const hmPct = g => { const kr = (g?.krs || [])[0]; return kr ? krPct(kr) : null; };
+// % d'atteinte d'un objectif : progression de ses KR (null s'il n'en a pas).
+const hmPct = g => ((g?.krs || []).length ? krsProgress(g.krs) : null);
 
 // Colonnes = objectifs du mois en cours, rangés pour que chaque parent couvre
 // des colonnes voisines ; chaque niveau devient des « travées » (a → z).
@@ -1437,7 +1428,9 @@ function buildCap(goals, todos, today) {
   ).map((c, i) => {
     const linked = todos.filter(t => todoGoalId(t) === c.m.id);
     const done = linked.filter(t => t.done).length;
-    return { ...c, color: HM_COLORS[i % HM_COLORS.length], done, total: linked.length };
+    const total = linked.length;
+    const pct = hmPct(c.m) ?? (total ? Math.round(done / total * 100) : 0);
+    return { ...c, color: HM_COLORS[i % HM_COLORS.length], done, total, pct };
   });
   const spans = key => {
     const out = [];
@@ -1487,8 +1480,8 @@ function HomeCap({ cap, sel, onSelect }) {
             </svg>
           )}
           <span className="hm-node-t">{s.goal.titre}</span>
-          {row.key !== "lt" && hmKr(s.goal) && <span className="hm-node-k">{hmKr(s.goal)}</span>}
-          {row.key !== "lt" && hmPct(s.goal) !== null && (
+          {row.key === "tri" && hmPct(s.goal) !== null && <span className="hm-node-k">{hmPct(s.goal)} %</span>}
+          {row.key === "tri" && hmPct(s.goal) !== null && (
             <span className="hm-node-bar"><span style={{ width: `${hmPct(s.goal)}%`, background: on ? col : "rgba(255,255,255,0.18)" }} /></span>
           )}
         </div>
@@ -1514,7 +1507,7 @@ function HomeCap({ cap, sel, onSelect }) {
   const mRow = cap.rows.length * 2 + 1;
   cap.cols.forEach((c, i) => {
     const on = i === sel;
-    const p = c.total ? Math.round(c.done / c.total * 100) : 0;
+    const p = c.pct;
     items.push(
       <button key={`m-${c.m.id}`} onClick={() => onSelect(i)} className={`hm-month${on ? " is-on" : ""}`}
         style={{ gridColumn: i + 2, gridRow: mRow, ...(on ? { borderColor: c.color, background: `${c.color}2b`, boxShadow: `0 0 20px ${c.color}38` } : {}) }}>
@@ -1527,7 +1520,6 @@ function HomeCap({ cap, sel, onSelect }) {
           <span>{p}</span>
         </span>
         <span className="hm-month-t">{c.m.titre}</span>
-        <span className="hm-month-n">{c.total ? `${c.done} / ${c.total}` : "0"}</span>
       </button>
     );
   });
@@ -1832,7 +1824,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
 
   // Résultats du mois : moyenne de l'avancement des objectifs du mois (KR, sinon étapes).
   const results = cap.cols.length
-    ? Math.round(cap.cols.reduce((a, c) => a + ((c.m.krs || []).length ? krsProgress(c.m.krs) : (c.total ? c.done / c.total * 100 : 0)), 0) / cap.cols.length)
+    ? Math.round(cap.cols.reduce((a, c) => a + c.pct, 0) / cap.cols.length)
     : 0;
   // Heures travaillées par jour de la semaine en cours (lundi → dimanche).
   const monday = addDaysISO(t, -((new Date(t + "T12:00:00").getDay() + 6) % 7));
