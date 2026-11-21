@@ -1933,6 +1933,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
 // ─────────────────────────────────────────────────────────────────────────────
 function KRCard({ kr, onUpdate, onDelete }) {
   const [editing, setEditing] = useState(false);
+  const [nom, setNom] = useState(kr.nom || "");
   const [d, setD] = useState({ depart: String(kr.depart ?? 0), actuelle: String(kr.actuelle ?? kr.depart ?? 0), cible: String(kr.cible ?? 0) });
   const num = v => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
   // % live : pendant l'édition depuis les champs, sinon depuis le KR enregistré
@@ -1940,8 +1941,8 @@ function KRCard({ kr, onUpdate, onDelete }) {
     ? pct(num(d.depart), num(d.actuelle), num(d.cible))
     : krPct(kr);
   const lc = p >= 100 ? C.green : p >= 60 ? C.accent : p >= 30 ? C.amber : C.red;
-  const startEdit = () => { setD({ depart: String(kr.depart ?? 0), actuelle: String(kr.actuelle ?? kr.depart ?? 0), cible: String(kr.cible ?? 0) }); setEditing(true); };
-  const save = () => { onUpdate({ ...kr, depart: num(d.depart), actuelle: num(d.actuelle), cible: num(d.cible) }); setEditing(false); };
+  const startEdit = () => { setNom(kr.nom || ""); setD({ depart: String(kr.depart ?? 0), actuelle: String(kr.actuelle ?? kr.depart ?? 0), cible: String(kr.cible ?? 0) }); setEditing(true); };
+  const save = () => { onUpdate({ ...kr, nom: nom.trim() || kr.nom, depart: num(d.depart), actuelle: num(d.actuelle), cible: num(d.cible) }); setEditing(false); };
   return (
     <div style={{ background: C.surface3, borderRadius: 12, padding: "12px 14px", marginBottom: 8, border: `1px solid ${editing ? lc + "66" : C.border}` }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
@@ -1955,7 +1956,12 @@ function KRCard({ kr, onUpdate, onDelete }) {
       <ProgressBar value={p} color={lc} height={5} />
       {editing ? (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 10 }}>
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 10, color: C.muted, marginBottom: 3 }}>Nom</div>
+            <input type="text" value={nom} onChange={e => setNom(e.target.value)} onKeyDown={e => e.key === "Enter" && save()}
+              style={{ width: "100%", boxSizing: "border-box", background: C.surface2, border: `1px solid ${C.borderMid}`, color: C.text, padding: "6px 8px", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 8 }}>
             {[["depart", "Départ"], ["actuelle", "Actuelle"], ["cible", "Cible"]].map(([k, l]) => (
               <div key={k}>
                 <div style={{ fontSize: 10, color: C.muted, marginBottom: 3 }}>{l}</div>
