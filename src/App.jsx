@@ -7,6 +7,7 @@ import { exportAllData, deleteAccount } from "./state/account";
 import { supabase, syncToSupabase } from "./supabase";
 import { pullApiOps, listApiKeys, createApiKey, revokeApiKey } from "./state/apiAccess";
 import PolarisLogo from "./PolarisLogo";
+import { PlanDuJour, BilanPlan, slotsOf } from "./components/timebox/PlanDuJour";
 import {
   pad, todayStr, weekDates, weekStart, weekEnd, isWeekLocked, isReviewLocked,
   DAY_LABELS, MONTH_FR, MONTHS_FR, QUARTERS_FR, monthDates, fmtDate,
@@ -1684,7 +1685,7 @@ function HomeSteps({ today, col, todos, results, week, onDone, onOpen, onAdd }) 
 }
 
 // Colonne Aujourd'hui : temps de travail (système Work existant), habitudes, clôture.
-function HomeToday({ minutes, goalMin, onSetGoal, sessionsToday, active, onPause, onResume, onStop, onLive, onLog, habits, today, animating, onToggleHabit, onOpenHabit, onClose }) {
+function HomeToday({ plan, onPlan, onBilan, onStartBlock, minutes, goalMin, onSetGoal, sessionsToday, active, onPause, onResume, onStop, onLive, onLog, habits, today, animating, onToggleHabit, onOpenHabit, onClose }) {
   const [editGoal, setEditGoal] = useState(false);
   const [goalH, setGoalH] = useState(String(goalMin / 60));
   const elapsed = useElapsedWithPause(active);
@@ -1737,6 +1738,21 @@ function HomeToday({ minutes, goalMin, onSetGoal, sessionsToday, active, onPause
         )}
       </section>
 
+      <section className="hm-plan">
+        <div className="hm-habits-head"><h2 className="hm-h">Plan du jour</h2>
+          <button onClick={onPlan} className="hm-link-btn">{plan.length ? "Modifier" : "Planifier ma journée"}</button></div>
+        {plan.length === 0 && <p className="hm-empty">Rien de planifié. 15 min le matin pour poser tes tâches.</p>}
+        {plan.map(t => (
+          <div key={t.id} className="hm-plan-row">
+            <span className="hm-plan-t">{String(Math.floor(t.slotStart / 60))}h{String(t.slotStart % 60).padStart(2, "0")}</span>
+            <span className="hm-plan-n">{t.name}</span>
+            <span className="hm-plan-d">{fmtMin(t.slotMin)}</span>
+            <button onClick={() => onStartBlock(t)} className="hm-live-btn" aria-label={`Démarrer : ${t.name}`}>▶</button>
+          </div>
+        ))}
+        {plan.length > 0 && <button onClick={onBilan} className="hm-link-btn is-muted">Bilan du plan</button>}
+      </section>
+
       <section className="hm-habits">
         <div className="hm-habits-head"><h2 className="hm-h">Habitudes</h2><span>{doneH} / {habits.length}</span></div>
         {habits.length === 0 && <p className="hm-empty">Aucune habitude. Crée-les dans l'onglet Habits.</p>}
@@ -1779,6 +1795,8 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
   const [animating, setAnimating] = useState(new Set());
   const [dailyTick, setDailyTick] = useState(0);
   const [selId, setSelId]         = useState(null);
+  const [showPlan, setShowPlan]   = useState(false);
+  const [showBilan, setShowBilan] = useState(false);
   const appName = (() => { const v = getLS("lp_app_name", "POLARIS"); return (v === "LE PLAN" || v === "Le Plan") ? "POLARIS" : v; })();
   const goals = getLS("lp_goals", {});
   const saveHabits = d => { setHabits(d); setLS("lp_habits", d); };
@@ -1850,6 +1868,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
             <span className="hm-am-v">{ameliorer}</span>
           </button>
         )}
+        <button onClick={() => setShowPlan(true)} className="hm-ameliorer" title="Planifier ta journée (time boxing)"><span className="hm-am-k">📅 Plan du jour</span></button>
         <button onClick={onOpenMenu} className="hm-menu" aria-label="Ouvrir Le Poste" title="Le Poste">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
         </button>
@@ -1867,6 +1886,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         </main>
 
         <HomeToday
+          plan={slotsOf(todos, t)} onPlan={() => setShowPlan(true)} onBilan={() => setShowBilan(true)} onStartBlock={b => onStartLive?.(b.name)}
           minutes={workMin} goalMin={goalMin} onSetGoal={setWorkGoal} sessionsToday={sessionsToday}
           active={activeSession} onPause={onPauseSession} onResume={onResumeSession} onStop={onStopSession}
           onLive={() => onStartLive?.(sessionName)} onLog={() => onLogSession?.(sessionName)}
@@ -1875,6 +1895,8 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         />
       </div>
 
+      {showPlan && <PlanDuJour today={t} todos={todos} updateTodo={updateTodo} cap={cap} onClose={() => setShowPlan(false)} />}
+      {showBilan && <BilanPlan today={t} todos={todos} updateTodo={updateTodo} toggleDone={toggleDone} sessions={getLS("lp_workperf", [])} onClose={() => setShowBilan(false)} />}
       {(creating || creatingFor) && (
         <TaskCaptureModal
           onCreate={o => { addTodo(creatingFor ? { ...o, objectifId: creatingFor } : o); setCreating(false); setCreatingFor(null); }}
