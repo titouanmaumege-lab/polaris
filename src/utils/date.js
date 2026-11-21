@@ -5,7 +5,7 @@
 export const pad = (n) => String(n).padStart(2, "0");
 
 // Date du jour au format 'YYYY-MM-DD' (locale-safe via ISO).
-export const todayStr = () => new Date().toISOString().split("T")[0];
+export const todayStr = () => { const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 
 // Clé de mois 'YYYY-MM'. Défaut = mois courant.
 export const monthKey = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;

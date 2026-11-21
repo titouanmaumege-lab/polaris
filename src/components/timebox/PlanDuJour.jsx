@@ -398,6 +398,8 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
     if (d.kind === "move") {
       const a = Math.max(START_H * 60, Math.min(END_H * 60 - d.dur, snap(loc.min - d.grab)));
       d.ghost = { ds: loc.ds, a, b: a + d.dur };
+    } else if (d.kind === "resizeTop") {
+      d.ghost = { ds: d.item.ds, a: Math.max(START_H * 60, Math.min(d.item.b - 15, snap(loc.min))), b: d.item.b };
     } else if (d.kind === "resize") {
       d.ghost = { ds: d.item.ds, a: d.item.a, b: Math.min(END_H * 60, Math.max(d.item.a + 15, snap(loc.min))) };
     } else {
@@ -416,14 +418,14 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
       return;
     }
     if (!d.moved || d.noDrag || !g) {
-      if (d.kind === "resize") return;
+      if (d.kind === "resize" || d.kind === "resizeTop") return;
       if (it.kind === "g") openEvent(it.e); else { setBlockSel(b => b === it.t.id ? null : it.t.id); setPicked(null); patchUi({ dur: it.t.slotMin }); }
       return;
     }
     if (it.kind === "g") {
       if (g.ds === it.ds && g.a === it.a && g.b === it.b) return;
       commitGoogle(it.e, g.ds, g.a, g.b);
-    } else if (d.kind === "move") place(it.t.id, g.ds, g.a, g.b - g.a);
+    } else if (d.kind === "move" || d.kind === "resizeTop") place(it.t.id, g.ds, g.a, g.b - g.a);
     else setDurOnBlock(it.t, g.b - g.a);
   };
   useEffect(() => {
@@ -528,6 +530,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
           {h >= 64 && isG && !link && it.e.loc && <div className="tb-card-loc"><Ic n="pin" s={11} /><span>{it.e.loc}</span></div>}
         </div>
         {sel && <button className="tb-x" onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); unplan(it.t); }} aria-label="Retirer du plan">×</button>}
+        {draggable && h >= 28 && <span className="tb-rt" onMouseDown={e => beginDrag(e, "resizeTop", item)} />}
         {draggable && h >= 28 && <span className="tb-rs" onMouseDown={e => beginDrag(e, "resize", item)} />}
       </div>
     );
