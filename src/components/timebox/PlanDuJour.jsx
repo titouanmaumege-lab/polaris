@@ -276,7 +276,7 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
 
       {showConnect && (
         <div className="tb-modal" onClick={() => setShowConnect(false)}>
-          <div onClick={e => e.stopPropagation()}>
+          <div className="tb-gcw" onClick={e => e.stopPropagation()}>
             <GoogleConnect onClose={() => setShowConnect(false)} onDone={() => { setShowConnect(false); setGState(isLinked() ? (hasToken() ? "ok" : "expired") : "off"); }} />
           </div>
         </div>
