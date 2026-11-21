@@ -84,16 +84,20 @@ function GoogleConnect({ onDone, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
   const [date, setDate] = useState(today);
+  const [view, setView] = useState(() => { try { const v = Number(localStorage.getItem("polaris_plan_view")); return [1, 3, 7].includes(v) ? v : 1; } catch { return 1; } });
   const [dur, setDur] = useState(45);
   const [picked, setPicked] = useState(null);   // tâche sélectionnée (clic) ou glissée
   const [blockSel, setBlockSel] = useState(null);
-  const [events, setEvents] = useState([]);
+  const [events, setEvents] = useState({});     // { "YYYY-MM-DD": [événements Google] }
   const [gState, setGState] = useState(isLinked() ? (hasToken() ? "ok" : "expired") : "off");
   const [gErr, setGErr] = useState("");
   const [showConnect, setShowConnect] = useState(false);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
-  const gridRef = useRef(null);
+
+  const pickView = v => { setView(v); try { localStorage.setItem("polaris_plan_view", String(v)); } catch {} };
+  const days = useMemo(() => Array.from({ length: view }, (_, i) => addDays(date, i)), [date, view]);
+  const daysKey = days.join(",");
 
   const colorOf = useMemo(() => {
     const m = {};
@@ -103,17 +107,19 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
   const info = t => colorOf[todoGoalId(t)] || { color: GREY, label: "Sans objectif du mois" };
 
   const loadEvents = useCallback(async () => {
-    if (!isLinked()) { setEvents([]); return; }
+    if (!isLinked()) { setEvents({}); return; }
     try {
       if (!hasToken()) { setGState("expired"); return; }
       const ids = getPrefs().calIds || [];
-      setEvents(await fetchDayEvents(date, ids));
+      const out = {};
+      for (const d of daysKey.split(",")) out[d] = await fetchDayEvents(d, ids);
+      setEvents(out);
       setGState("ok"); setGErr("");
     } catch (e) {
       if (e.message === "EXPIRED") setGState("expired");
       else { setGErr(e.message); setGState("error"); }
     }
-  }, [date]);
+  }, [daysKey]);
   useEffect(() => { loadEvents(); }, [loadEvents, showConnect]);
 
   const reconnect = async () => {
@@ -121,11 +127,12 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
     catch (e) { setGErr(e.message); setGState("error"); }
   };
 
-  // ── Données du jour
-  const planned = slotsOf(todos, date);
-  const fixed = events.filter(e => !e.allDay).map(e => ({ a: e.start, b: e.end }));
+  // ── Données des jours affichés
+  const plannedOf = ds => slotsOf(todos, ds);
+  const fixedOf = ds => (events[ds] || []).filter(e => !e.allDay).map(e => ({ a: e.start, b: e.end }));
+  const plannedAll = days.flatMap(plannedOf);
   const backlog = todos
-    .filter(t => !t.done && t.gtd !== "projet" && !t.recurrence?.enabled && !(t.slotDate === date && t.slotMin))
+    .filter(t => !t.done && t.gtd !== "projet" && !t.recurrence?.enabled && !(t.slotMin && days.includes(t.slotDate)))
     .sort((a, b) => {
       const ga = todoGoalId(a) ? 0 : 1, gb = todoGoalId(b) ? 0 : 1;
       const ia = info(a).label, ib = info(b).label;
@@ -140,46 +147,45 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
     g.items.push(t);
   });
 
-  const plannedMin = planned.reduce((a, t) => a + t.slotMin, 0);
-  const dayMin = (END_H - START_H) * 60;
-  const fixedMin = fixed.reduce((a, f) => a + Math.max(0, Math.min(f.b, END_H * 60) - Math.max(f.a, START_H * 60)), 0);
+  const plannedMin = plannedAll.reduce((a, t) => a + t.slotMin, 0);
+  const dayMin = (END_H - START_H) * 60 * days.length;
+  const fixedMin = days.reduce((tot, ds) => tot + fixedOf(ds).reduce((a, f) => a + Math.max(0, Math.min(f.b, END_H * 60) - Math.max(f.a, START_H * 60)), 0), 0);
   const freeMin = Math.max(0, dayMin - fixedMin - plannedMin);
 
-  const clash = (start, min, ignoreId) => {
+  const clash = (ds, start, min, ignoreId) => {
     const end = start + min;
     if (start < START_H * 60 || end > END_H * 60) return "Hors de la grille 7 h – 22 h";
-    if (fixed.some(f => start < f.b && end > f.a)) return "Créneau pris par un événement Google";
-    if (planned.some(t => t.id !== ignoreId && start < t.slotStart + t.slotMin && end > t.slotStart)) return "Créneau déjà planifié";
+    if (fixedOf(ds).some(f => start < f.b && end > f.a)) return "Créneau pris par un événement Google";
+    if (plannedOf(ds).some(t => t.id !== ignoreId && start < t.slotStart + t.slotMin && end > t.slotStart)) return "Créneau déjà planifié";
     return "";
   };
-  const place = (id, start, min) => {
-    const err = clash(start, min, id);
+  const place = (id, ds, start, min) => {
+    const err = clash(ds, start, min, id);
     if (err) { setMsg(err); return false; }
     setMsg("");
-    updateTodo(id, { slotDate: date, slotStart: start, slotMin: min });
+    updateTodo(id, { slotDate: ds, slotStart: start, slotMin: min });
     return true;
   };
-  const minuteAt = e => {
-    const r = gridRef.current.getBoundingClientRect();
-    const y = e.clientY - r.top + gridRef.current.scrollTop;
-    return Math.round(((y / PX) * 60 + START_H * 60) / 15) * 15 - 0;
+  const minuteAt = (e, el) => {
+    const r = el.getBoundingClientRect();
+    return Math.round((((e.clientY - r.top) / PX) * 60 + START_H * 60) / 15) * 15;
   };
-  const onGridClick = e => {
+  const onColClick = (e, ds) => {
     if (e.target.closest(".tb-block")) return;
     if (!picked) { setMsg("Choisis d'abord une tâche à gauche."); return; }
-    if (place(picked, minuteAt(e), dur)) setPicked(null);
+    if (place(picked, ds, minuteAt(e, e.currentTarget), dur)) setPicked(null);
   };
-  const onDrop = e => {
+  const onColDrop = (e, ds) => {
     e.preventDefault();
     const id = e.dataTransfer.getData("text/plain") || picked;
     if (!id) return;
     const t = todos.find(x => x.id === id);
-    const min = t?.slotDate === date && t.slotMin ? t.slotMin : dur;
-    if (place(id, minuteAt(e), min)) setPicked(null);
+    const min = t?.slotMin && t.slotDate ? t.slotMin : dur;
+    if (place(id, ds, minuteAt(e, e.currentTarget), min)) setPicked(null);
   };
   const unplan = t => { updateTodo(t.id, { slotDate: undefined, slotStart: undefined, slotMin: undefined }); setBlockSel(null); };
-  const setDurOnBlock = (t, m) => { if (!clash(t.slotStart, m, t.id)) updateTodo(t.id, { slotMin: m }); else setMsg(clash(t.slotStart, m, t.id)); };
-  const pickDur = m => { setDur(m); const b = planned.find(t => t.id === blockSel); if (b) setDurOnBlock(b, m); };
+  const setDurOnBlock = (t, m) => { const er = clash(t.slotDate, t.slotStart, m, t.id); if (!er) updateTodo(t.id, { slotMin: m }); else setMsg(er); };
+  const pickDur = m => { setDur(m); const b = plannedAll.find(t => t.id === blockSel); if (b) setDurOnBlock(b, m); };
 
   // ── Valider : blocs → calendrier « Polaris »
   const validate = async () => {
@@ -188,10 +194,10 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
     try {
       if (!hasToken()) await requestToken(true);
       const removed = todos.filter(t => t.slotEventId && (!t.slotDate || t.done));
-      const { ids, gone } = await pushBlocks(planned, removed);
+      const { ids, gone } = await pushBlocks(plannedAll, removed);
       Object.entries(ids).forEach(([id, ev]) => updateTodo(id, { slotEventId: ev }));
       gone.forEach(id => updateTodo(id, { slotEventId: undefined }));
-      setMsg(`✓ ${planned.length} bloc${planned.length > 1 ? "s" : ""} envoyé${planned.length > 1 ? "s" : ""} dans ton calendrier Polaris`);
+      setMsg(`✓ ${plannedAll.length} bloc${plannedAll.length > 1 ? "s" : ""} envoyé${plannedAll.length > 1 ? "s" : ""} dans ton calendrier Polaris`);
       setGState("ok");
     } catch (e) { setMsg("Envoi impossible : " + (e.message === "EXPIRED" ? "reconnecte Google" : e.message)); }
     setBusy(false);
@@ -200,20 +206,26 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
   const topOf = m => (m - START_H * 60) / 60 * PX;
   const clipPct = (a, b) => ({ top: topOf(Math.max(a, START_H * 60)), height: Math.max(14, (Math.min(b, END_H * 60) - Math.max(a, START_H * 60)) / 60 * PX - 2) });
   const now = new Date(); const nowMin = now.getHours() * 60 + now.getMinutes();
+  const dayLabel = ds => new Date(ds + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" });
+  const title = view === 1 ? longDate(date) : `${dayLabel(days[0])} → ${dayLabel(days[view - 1])}`;
 
   return createPortal(
     <div className="tb-root" role="dialog" aria-label="Plan du jour">
       <header className="tb-head">
         <span className="tb-word">Plan du jour</span>
-        <button className="tb-nav" onClick={() => setDate(addDays(date, -1))} aria-label="Jour précédent">‹</button>
-        <span className="tb-date">{longDate(date)}</span>
-        <button className="tb-nav" onClick={() => setDate(addDays(date, 1))} aria-label="Jour suivant">›</button>
+        <button className="tb-nav" onClick={() => setDate(addDays(date, -view))} aria-label="Avant">‹</button>
+        <span className="tb-date">{title}</span>
+        <button className="tb-nav" onClick={() => setDate(addDays(date, view))} aria-label="Après">›</button>
+        {date !== today && <button className="tb-pill" onClick={() => setDate(today)}>Aujourd'hui</button>}
+        <span className="tb-seg" role="tablist" aria-label="Vue">
+          {[1, 3, 7].map(v => <button key={v} role="tab" aria-selected={view === v} className={view === v ? "is-on" : ""} onClick={() => pickView(v)}>{v}J</button>)}
+        </span>
         <span style={{ flex: 1 }} />
         {gState === "ok" && <button className="tb-pill tb-pill-ok" onClick={() => setShowConnect(true)}>● Google Agenda connecté</button>}
         {gState === "expired" && <button className="tb-pill tb-pill-warn" onClick={reconnect}>Reconnecter Google</button>}
         {gState === "off" && <button className="tb-pill" onClick={() => setShowConnect(true)}>Connecter Google Agenda</button>}
         {gState === "error" && <button className="tb-pill tb-pill-warn" onClick={reconnect} title={gErr}>Google : erreur, réessayer</button>}
-        <button className="tb-btn tb-primary" onClick={validate} disabled={busy || !planned.length}>{busy ? "Envoi…" : "Valider mon plan"}</button>
+        <button className="tb-btn tb-primary" onClick={validate} disabled={busy || !plannedAll.length}>{busy ? "Envoi…" : "Valider mon plan"}</button>
         <button className="tb-btn" onClick={onClose} aria-label="Fermer">✕</button>
       </header>
 
@@ -246,28 +258,36 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
             <span className="tb-durl">Durée :</span>
             {DURS.map(([m, l]) => <button key={m} className={"tb-chip" + (dur === m ? " is-on" : "")} onClick={() => pickDur(m)}>{l}</button>)}
           </div>
-          <div className="tb-hint">{msg || (picked ? "Clique ou dépose sur un créneau libre de la journée." : "Clique une tâche (ou glisse-la) puis un créneau. Clique un bloc pour changer sa durée.")}</div>
-          <div className="tb-grid" ref={gridRef} onClick={onGridClick} onDragOver={e => e.preventDefault()} onDrop={onDrop}>
-            <div style={{ height: (END_H - START_H) * PX, position: "relative" }}>
-              {Array.from({ length: END_H - START_H }, (_, i) => (
-                <div key={i} className="tb-hour" style={{ top: i * PX }}><span>{START_H + i}h</span></div>
+          <div className="tb-hint">{msg || (picked ? "Clique ou dépose sur un créneau libre." : "Clique une tâche (ou glisse-la) puis un créneau. Clique un bloc pour changer sa durée.")}</div>
+          <div className="tb-grid">
+            <div className="tb-cols" style={{ gridTemplateColumns: `44px repeat(${days.length}, minmax(${view === 7 ? 110 : 0}px, 1fr))` }}>
+              <div className="tb-corner" />
+              {days.map(ds => <div key={ds} className={"tb-dh" + (ds === today ? " is-today" : "")}>{dayLabel(ds)}</div>)}
+              <div className="tb-gutter" style={{ height: (END_H - START_H) * PX }}>
+                {Array.from({ length: END_H - START_H }, (_, i) => <span key={i} style={{ top: i * PX - 8 }}>{START_H + i}h</span>)}
+              </div>
+              {days.map(ds => (
+                <div key={ds} className="tb-col" style={{ height: (END_H - START_H) * PX }}
+                  onClick={e => onColClick(e, ds)} onDragOver={e => e.preventDefault()} onDrop={e => onColDrop(e, ds)}>
+                  {Array.from({ length: END_H - START_H }, (_, i) => <div key={i} className="tb-hour" style={{ top: i * PX }} />)}
+                  {(events[ds] || []).map(e => e.allDay
+                    ? null
+                    : <div key={e.id} className="tb-ev" style={clipPct(e.start, e.end)}><b>{e.title}</b>{view === 1 && <small>{hhmm(e.start)} – {hhmm(e.end)} · Google Agenda</small>}</div>)}
+                  {plannedOf(ds).map(t => {
+                    const i = info(t);
+                    return (
+                      <div key={t.id} className={"tb-block" + (blockSel === t.id ? " is-sel" : "")}
+                        draggable onDragStart={e => { e.dataTransfer.setData("text/plain", t.id); setPicked(t.id); }}
+                        onClick={() => { setBlockSel(b => b === t.id ? null : t.id); setPicked(null); setDur(t.slotMin); }}
+                        style={{ ...clipPct(t.slotStart, t.slotStart + t.slotMin), borderColor: i.color, background: i.color + "26", borderLeftColor: i.color }}>
+                        <b>{t.name}</b>{view < 7 && <small>{hhmm(t.slotStart)} – {hhmm(t.slotStart + t.slotMin)} · {fmtMin(t.slotMin)}</small>}
+                        <button className="tb-x" onClick={e => { e.stopPropagation(); unplan(t); }} aria-label="Retirer du plan">×</button>
+                      </div>
+                    );
+                  })}
+                  {ds === today && nowMin >= START_H * 60 && nowMin < END_H * 60 && <div className="tb-now" style={{ top: topOf(nowMin) }} />}
+                </div>
               ))}
-              {events.map(e => e.allDay
-                ? null
-                : <div key={e.id} className="tb-ev" style={clipPct(e.start, e.end)}><b>{e.title}</b><small>{hhmm(e.start)} – {hhmm(e.end)} · Google Agenda</small></div>)}
-              {planned.map(t => {
-                const i = info(t);
-                return (
-                  <div key={t.id} className={"tb-block" + (blockSel === t.id ? " is-sel" : "")}
-                    draggable onDragStart={e => { e.dataTransfer.setData("text/plain", t.id); setPicked(t.id); }}
-                    onClick={() => { setBlockSel(b => b === t.id ? null : t.id); setPicked(null); setDur(t.slotMin); }}
-                    style={{ ...clipPct(t.slotStart, t.slotStart + t.slotMin), borderColor: i.color, background: i.color + "26", borderLeftColor: i.color }}>
-                    <b>{t.name}</b><small>{hhmm(t.slotStart)} – {hhmm(t.slotStart + t.slotMin)} · {fmtMin(t.slotMin)}</small>
-                    <button className="tb-x" onClick={e => { e.stopPropagation(); unplan(t); }} aria-label="Retirer du plan">×</button>
-                  </div>
-                );
-              })}
-              {date === today && nowMin >= START_H * 60 && nowMin < END_H * 60 && <div className="tb-now" style={{ top: topOf(nowMin) }} />}
             </div>
           </div>
           <div className="tb-legend"><span>▨ gris : Google Agenda</span><span>▮ couleur : objectif du mois</span></div>
@@ -285,6 +305,7 @@ export function PlanDuJour({ today, todos, updateTodo, cap, onClose }) {
     document.body
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bilan du soir : cocher le fait, le reste retourne au backlog, prévu vs réel.
