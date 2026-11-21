@@ -1895,7 +1895,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         />
       </div>
 
-      {showPlan && <PlanDuJour today={t} todos={todos} updateTodo={updateTodo} cap={cap} onClose={() => setShowPlan(false)} />}
+      {showPlan && <PlanDuJour today={t} todos={todos} updateTodo={updateTodo} toggleDone={toggleDone} cap={cap} onClose={() => setShowPlan(false)} />}
       {showBilan && <BilanPlan today={t} todos={todos} updateTodo={updateTodo} toggleDone={toggleDone} sessions={getLS("lp_workperf", [])} onClose={() => setShowBilan(false)} />}
       {(creating || creatingFor) && (
         <TaskCaptureModal
