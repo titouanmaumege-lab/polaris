@@ -1875,7 +1875,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
             today={t} col={col} todos={todos} results={results} week={week}
-            cal={{ updateTodo, addTodo, batchTodos, toggleDone, cap }}
+            cal={{ updateTodo, addTodo, batchTodos, toggleDone, cap, focusGoalId: col?.m.id }}
             onDone={toggleDone}
             onOpen={setEditId}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}

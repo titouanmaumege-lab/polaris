@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { todoGoalId } from "../../utils/goalLinks";
 import { fmtMin } from "../../utils/date";
 import {
-  isLinked, hasToken, canEdit, requestToken, disconnect, getPrefs, setPrefs, localDS, eventColor, EVENT_COLORS,
+  isLinked, hasToken, ensureToken, canEdit, requestToken, disconnect, getPrefs, setPrefs, localDS, eventColor, EVENT_COLORS,
   listCalendars, fetchRange, createEvent, patchEvent, deleteEvent, addMeet, pushBlocks,
 } from "./google";
 import EventPanel, { TaskPanel } from "./EventPanel";
@@ -73,7 +73,7 @@ function GoogleConnect({ onDone, onClose }) {
     setCals(list);
     setSel(prefs.calIds?.length ? prefs.calIds : list.filter(c => c.primary).map(c => c.id));
   };
-  useEffect(() => { if (isLinked() && hasToken()) loadCals().catch(() => {}); }, []);
+  useEffect(() => { if (isLinked()) ensureToken().then(t => { if (t) loadCals().catch(() => {}); }); }, []);
 
   const connect = async () => {
     setBusy(true); setErr("");
@@ -152,7 +152,7 @@ function MiniMonth({ date, today, ws, days, onPick, onMonth }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Calendrier + Plan du jour : le rituel du matin et l'organisation de la semaine.
 // ─────────────────────────────────────────────────────────────────────────────
-export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, toggleDone, cap, onClose, embedded = false }) {
+export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, toggleDone, cap, focusGoalId, onClose, embedded = false }) {
   const uiKey = embedded ? UI_KEY + "_home" : UI_KEY;
   const [ui, setUi] = useState(() => loadUi(uiKey, embedded ? { view: "3" } : {}));
   const patchUi = p => setUi(u => { const n = { ...u, ...p }; try { localStorage.setItem(uiKey, JSON.stringify(n)); } catch {} return n; });
@@ -164,7 +164,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
   const [calColors, setCalColors] = useState(() => getPrefs().calColors || {});
   const [shown, setShown] = useState(() => getPrefs().calIds || null);
   const [colorFor, setColorFor] = useState(null);
-  const [gState, setGState] = useState(isLinked() ? (hasToken() ? "ok" : "expired") : "off");
+  const [gState, setGState] = useState(isLinked() ? "ok" : "off");
   const [gErr, setGErr] = useState("");
   const [showConnect, setShowConnect] = useState(false);
   const [showSet, setShowSet] = useState(false);
@@ -214,7 +214,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     if (!isLinked()) { setEvents([]); return; }
     const my = ++reqId.current;
     try {
-      if (!hasToken()) { setGState("expired"); return; }
+      if (!(await ensureToken())) { setGState("expired"); return; }
       let list = cals;
       if (!list.length) { list = await listCalendars(); if (my !== reqId.current) return; setCals(list); }
       const ids = shown?.length ? shown : list.filter(c => c.primary).map(c => c.id);
@@ -251,10 +251,12 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
   const backlog = todos
     .filter(t => !t.done && !t.blockOf && !t.recurrence?.enabled && t.gtd !== "someday" && t.gtd !== "waiting" && !(t.gtd !== "projet" && t.slotMin && t.slotDate >= today))
     .sort((a, b) => {
-      const ga = todoGoalId(a) ? 0 : 1, gb = todoGoalId(b) ? 0 : 1;
+      // L’objectif cliqué dans Home passe en premier, puis les autres objectifs, puis sans objectif.
+      const rank = t => { const g = todoGoalId(t); return g && g === focusGoalId ? -1 : g ? 0 : 1; };
+      const ga = rank(a), gb = rank(b);
       const ia = info(a).label, ib = info(b).label;
       const da = a.dateAssignee || a.dateFin || a.dateDebut || "9999", db = b.dateAssignee || b.dateFin || b.dateDebut || "9999";
-      return ga - gb || ia.localeCompare(ib) || da.localeCompare(db);
+      return ga - gb || (ga === 0 && ia.localeCompare(ib)) || da.localeCompare(db);
     });
   const keyTasks = backlog.filter(t => t.gtd !== "check");
   const checks = todos.filter(t => t.gtd === "check" && !t.done && !t.blockOf && !t.recurrence?.enabled).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
@@ -330,7 +332,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
   const syncing = useRef(false);
   act.current.batch = batchTodos;
   const runSync = async () => {
-    if (syncing.current || !isLinked() || !hasToken() || !canEdit()) return;
+    if (syncing.current || !isLinked() || !canEdit() || !(await ensureToken())) return;
     if (synced.current === null) { synced.current = {}; todos.forEach(t => { if (t.slotEventId && t.slotDate && !t.done) synced.current[t.id] = sigOf(t); }); }
     const planned = todos.filter(t => t.slotDate && t.slotMin && !t.done);
     const todo = planned.filter(t => !t.slotEventId || synced.current[t.id] !== sigOf(t));

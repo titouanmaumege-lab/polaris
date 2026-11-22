@@ -52,15 +52,38 @@ export const isLinked = () => !!getPrefs().linked;
 // Vrai seulement si Google a accordé la modification des événements (connexion récente).
 export const canEdit = () => !!getPrefs().canEdit;
 
+// Le jeton (1 h) est gardé aussi en localStorage : il survit à la fermeture de l’onglet.
+// Quand il expire, on en redemande un en silence (sans fenêtre) tant que Google reste connecté.
 function getToken() {
-  try {
-    const t = JSON.parse(sessionStorage.getItem(TOKEN_KEY));
-    if (t && t.exp > Date.now() + 30000) return t.value;
-  } catch {}
+  for (const store of [sessionStorage, localStorage]) {
+    try {
+      const t = JSON.parse(store.getItem(TOKEN_KEY));
+      if (t && t.exp > Date.now() + 30000) return t.value;
+    } catch {}
+  }
   return null;
 }
 function saveToken(value, expiresInSec) {
-  try { sessionStorage.setItem(TOKEN_KEY, JSON.stringify({ value, exp: Date.now() + expiresInSec * 1000 })); } catch {}
+  const v = JSON.stringify({ value, exp: Date.now() + expiresInSec * 1000 });
+  try { sessionStorage.setItem(TOKEN_KEY, v); } catch {}
+  try { localStorage.setItem(TOKEN_KEY, v); } catch {}
+}
+function dropToken() {
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
+  try { localStorage.removeItem(TOKEN_KEY); } catch {}
+}
+// Jeton valide, sinon renouvellement silencieux ; null si Google demande une vraie reconnexion.
+let _silent = null;
+export function ensureToken() {
+  const t = getToken();
+  if (t) return Promise.resolve(t);
+  if (!isLinked()) return Promise.resolve(null);
+  if (!_silent) {
+    _silent = Promise.race([requestToken(false), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))])
+      .catch(() => null)
+      .finally(() => { _silent = null; });
+  }
+  return _silent;
 }
 export const hasToken = () => !!getToken();
 
@@ -88,18 +111,19 @@ export async function requestToken(interactive) {
 export function disconnect() {
   const t = getToken();
   try { if (t && window.google?.accounts?.oauth2) window.google.accounts.oauth2.revoke(t, () => {}); } catch {}
-  try { sessionStorage.removeItem(TOKEN_KEY); localStorage.removeItem(PREF_KEY); } catch {}
+  dropToken();
+  try { localStorage.removeItem(PREF_KEY); } catch {}
 }
 
 async function api(path, { method = "GET", body } = {}) {
-  const token = getToken();
+  const token = await ensureToken();
   if (!token) throw new Error("EXPIRED");
   const r = await fetch(API + path, {
     method,
     headers: { Authorization: "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (r.status === 401) { try { sessionStorage.removeItem(TOKEN_KEY); } catch {} throw new Error("EXPIRED"); }
+  if (r.status === 401) { dropToken(); throw new Error("EXPIRED"); }
   if (r.status === 204) return null;
   const j = await r.json().catch(() => ({}));
   if (r.status === 403) throw new Error("Droits insuffisants : déconnecte puis reconnecte Google pour autoriser la modification.");
