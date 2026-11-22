@@ -4765,12 +4765,38 @@ function HabitudesModule() {
         {/* MANAGE */}
         {view==="manage" && (
           <div>
+            {/* Alerte : un objectif long terme qu'aucune habitude ne nourrit */}
+            {(() => {
+              const orphans = ltGoals.filter(g => !habits.some(h => h.goalId === g.id));
+              if (!orphans.length) return null;
+              return (
+                <div style={{marginBottom:14,padding:"12px 14px",borderRadius:14,background:C.amberBg,border:`1px solid ${C.amber}44`}}>
+                  {orphans.map(g => (
+                    <div key={g.id} onClick={()=>setNewGoalId(g.id)} title="Créer une habitude pour cet objectif"
+                      style={{fontSize:12.5,color:C.text,lineHeight:1.5,cursor:"pointer",minHeight:32,display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{flexShrink:0}}>⚠️</span>
+                      <span>Aucune habitude ne nourrit : <b style={{color:C.amber}}>{g.titre}</b></span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
             <div style={{display:"flex",gap:8,marginBottom:8}}>
               <input value={newEmoji} onChange={e=>setNewEmoji(e.target.value)}
                 style={{width:54,textAlign:"center",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:"10px 4px",borderRadius:12,fontSize:20,fontFamily:"inherit",outline:"none"}} />
               <Input value={newName} onChange={setNewName} onKeyDown={e=>e.key==="Enter"&&!newMultiple&&add()} placeholder="Nom de l'habitude..." />
               {!newMultiple && <Btn onClick={add} variant="accent" style={{whiteSpace:"nowrap"}}>+</Btn>}
             </div>
+            {ltGoals.length>0 && (
+              <div style={{marginBottom:10}}>
+                <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Objectif lié</div>
+                <select value={newGoalId} onChange={e=>setNewGoalId(e.target.value)}
+                  style={{width:"100%",minHeight:44,background:C.surface2,border:`1px solid ${newGoalId?C.accent:C.border}`,color:newGoalId?C.text:C.muted,padding:"10px 12px",borderRadius:12,fontSize:13,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                  <option value="">Aucun</option>
+                  {ltGoals.map(g=><option key={g.id} value={g.id}>{g.titre}</option>)}
+                </select>
+              </div>
+            )}
             <div onClick={()=>setNewMultiple(v=>!v)} style={{display:"flex",alignItems:"center",gap:7,marginBottom:newMultiple?10:16,cursor:"pointer",userSelect:"none"}}>
               <div style={{
                 width:18,height:18,borderRadius:4,flexShrink:0,
@@ -4834,6 +4860,14 @@ function HabitudesModule() {
                   <div style={{background:C.surface3,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"12px 16px"}}>
                     {/* ── La Cible : une habitude sert un objectif trimestriel, avec une fréquence cible ── */}
                     <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Objectif trimestriel servi {!h.okrId && <span style={{color:C.amber}}>· à choisir</span>}</div>
+                      <select value={h.okrId||""} onChange={e=>update(h.id,{okrId:e.target.value||undefined})}
+                        style={{width:"100%",minHeight:40,background:C.surface2,border:`1px solid ${h.okrId?C.border:C.amber}`,color:h.okrId?C.text:C.muted,padding:"9px 12px",borderRadius:10,fontSize:12.5,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                        <option value="">Aucun</option>
+                        {triGoals.map(g=><option key={g.id} value={g.id}>{g.titre}</option>)}
+                      </select>
+                    </div>
+                    <div style={{marginBottom:10}}>
                       <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Fréquence cible (jours par semaine)</div>
                       <div style={{display:"flex",gap:6}}>
                         {[1,2,3,4,5,6,7].map(n=>(
@@ -4843,6 +4877,16 @@ function HabitudesModule() {
                       </div>
                     </div>
                     {/* ── Effet cumulé : objectif, pourquoi, type, unité ── */}
+                    {ltGoals.length>0 && (
+                      <div style={{marginBottom:10}}>
+                        <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Objectif lié</div>
+                        <select value={h.goalId||""} onChange={e=>update(h.id,{goalId:e.target.value||undefined})}
+                          style={{width:"100%",minHeight:40,background:C.surface2,border:`1px solid ${C.border}`,color:h.goalId?C.text:C.muted,padding:"9px 12px",borderRadius:10,fontSize:12.5,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                          <option value="">Aucun</option>
+                          {ltGoals.map(g=><option key={g.id} value={g.id}>{g.titre}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <div style={{marginBottom:10}}>
                       <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Pourquoi (1 phrase)</div>
                       <input value={h.pourquoi||""} maxLength={120} onChange={e=>update(h.id,{pourquoi:e.target.value})}
@@ -6757,6 +6801,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                         <tr key={h.id} style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>
                             <span style={{marginRight:6}}>{h.emoji||"•"}</span>{h.name}
+                            {!h.okrId && <span title="Pas reliée à un objectif trimestriel" style={{marginLeft:6,fontSize:9.5,color:C.amber,border:`1px solid ${C.amber}`,borderRadius:999,padding:"1px 6px"}}>sans objectif</span>}
                             {h.freq ? <span style={{marginLeft:6,fontSize:10,color:total>=h.freq?C.green:C.faint}}>{total}/{h.freq} j</span> : null}
                           </td>
                           {weekDays.map(d=>{
