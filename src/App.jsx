@@ -4546,6 +4546,11 @@ function HabitudesModule() {
   };
   const del    = id => save(habits.filter(h=>h.id!==id));
   const update = (id,patch) => save(habits.map(h=>h.id===id?{...h,...patch}:h));
+  const move = (id,dir) => {
+    const i = habits.findIndex(h=>h.id===id), j = i+dir;
+    if (i<0 || j<0 || j>=habits.length) return;
+    const a = [...habits]; [a[i],a[j]] = [a[j],a[i]]; save(a);
+  };
   const streak = h => {
     let n=0; const d=new Date();
     if(!habitValidated(h,todayStr())) d.setDate(d.getDate()-1);
@@ -4826,7 +4831,7 @@ function HabitudesModule() {
               </div>
             )}
             {habits.length===0&&<div style={{fontSize:13,color:C.muted,textAlign:"center",padding:"48px 0"}}>Aucune habitude définie.</div>}
-            {habits.map(h => {
+            {habits.map((h, hi) => {
               const isEditing = editHabitId === h.id;
               return (
               <div key={h.id} style={{marginBottom:8}}>
@@ -4849,6 +4854,10 @@ function HabitudesModule() {
                       </div>
                     )}
                     <div style={{fontSize:11,color:C.muted,marginTop:3}}>{cumulTotal(h,t)} {habitUnit(h)} cumulés · {streak(h)} j. série</div>
+                  </div>
+                  <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                    <button onClick={()=>move(h.id,-1)} disabled={hi===0} aria-label="Monter" style={{width:30,height:24,borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:hi===0?C.faint:C.text,cursor:hi===0?"default":"pointer",fontSize:12,lineHeight:1}}>▲</button>
+                    <button onClick={()=>move(h.id,1)} disabled={hi===habits.length-1} aria-label="Descendre" style={{width:30,height:24,borderRadius:6,border:`1px solid ${C.border}`,background:"transparent",color:hi===habits.length-1?C.faint:C.text,cursor:hi===habits.length-1?"default":"pointer",fontSize:12,lineHeight:1}}>▼</button>
                   </div>
                   <Btn onClick={()=>del(h.id)} variant="ghost" style={{fontSize:12,color:C.red,borderColor:C.red+"40",padding:"6px 14px"}}>Suppr.</Btn>
                 </div>
