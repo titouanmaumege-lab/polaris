@@ -119,3 +119,45 @@ export default function EventPanel({ ev, cals, editable, busy, err, onSave, onDe
     </div>
   );
 }
+
+// Panneau d'une tâche Polaris posée dans le calendrier : renommer, déplacer, durée, terminer, retirer.
+export function TaskPanel({ t, label, color, error, onSave, onDone, onUnplan, onClose }) {
+  const [f, setF] = useState(() => ({ name: t.name || "", ds: t.slotDate, start: t.slotStart, end: t.slotStart + t.slotMin }));
+  const set = (k, v) => setF(s => ({ ...s, [k]: v }));
+  const save = () => onSave({ name: f.name.trim() || t.name, slotDate: f.ds, slotStart: f.start, slotMin: Math.max(5, f.end - f.start) });
+  const onKey = e => {
+    if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); save(); }
+  };
+  return (
+    <div className="tb-ep" role="dialog" aria-label="Tâche" onKeyDown={onKey} onClick={e => e.stopPropagation()}>
+      <div className="tb-ep-bar" style={{ background: color }} />
+      <div className="tb-ep-body">
+        <div className="tb-ep-row">
+          <span className="tb-ep-dot" style={{ background: color }} />
+          <input className="tb-ep-title" value={f.name} onChange={e => set("name", e.target.value)} placeholder="Nom de la tâche" />
+          <button className="tb-ep-x" onClick={onClose} aria-label="Fermer"><Ic n="close" s={15} /></button>
+        </div>
+        <div className="tb-ep-row tb-ep-flex">
+          <span className="tb-ep-ic"><Ic n="clock" s={15} /></span>
+          <input type="date" className="tb-ep-in" value={f.ds} onChange={e => e.target.value && set("ds", e.target.value)} />
+          <input type="time" step="900" className="tb-ep-in" value={hm(f.start)} onChange={e => { const d = f.end - f.start; const s = toMin(e.target.value); setF(x => ({ ...x, start: s, end: Math.min(s + d, 24 * 60 - 1) })); }} />
+          <span className="tb-ep-arrow">→</span>
+          <input type="time" step="900" className="tb-ep-in" value={hm(f.end)} onChange={e => set("end", toMin(e.target.value))} />
+        </div>
+        <label className="tb-ep-sub" style={{ textTransform: "capitalize" }}>{longDate(f.ds)} · {Math.max(5, f.end - f.start)} min</label>
+        <div className="tb-ep-row">
+          <span className="tb-ep-ic"><Ic n="check" s={15} /></span>
+          <span className="tb-ep-field tb-ep-fake">Tâche Polaris · {label}</span>
+        </div>
+        {error && <p className="tb-err">{error}</p>}
+      </div>
+      <div className="tb-ep-foot">
+        <button className="tb-ep-del" onClick={onUnplan}><Ic n="trash" s={14} /> Retirer du calendrier</button>
+        <button className="tb-btn" onClick={onDone}>Terminé</button>
+        <span className="tb-ep-hint">Échap ferme</span>
+        <button className="tb-btn tb-primary" onClick={save}>Enregistrer</button>
+      </div>
+    </div>
+  );
+}

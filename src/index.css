@@ -973,3 +973,33 @@ button:active {
 .hm-mw-stats div { display: flex; flex-direction: column; gap: 1px; }
 .hm-mw-stats span { font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #6b6390; }
 .hm-mw-stats b { font-size: 12.5px; font-weight: 600; color: #e4def8; }
+
+.hm-steps-wrap, .hm-steps-wrap { grid-template-columns: minmax(0, 1fr); }
+
+/* Colonne de droite : bloc « semaine » aligné sur Temps de travail. */
+.hm-week { padding: 18px 24px 22px; border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+.hm-week .hm-h { display: flex; justify-content: space-between; align-items: baseline; }
+.hm-week .hm-h b { color: #f4f2ff; letter-spacing: 0; font-size: 13px; font-weight: 700; }
+.hm-week .hm-mw-chart { flex: none; height: 96px; min-height: 0; max-height: none; margin: 14px 0 20px 22px; gap: 6px; }
+.hm-week .hm-mw-bar { border-radius: 5px 5px 2px 2px; }
+.hm-week .hm-mw-col small { bottom: -17px; }
+.hm-habits { padding-top: 20px; }
+.hm-habits .hm-habit, .hm-habits-list > div { border-radius: 10px; }
+
+/* Bouton Ajouter (inbox) dans la barre du haut ; plus de ligne au-dessus du calendrier */
+.hm-add { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 16px 0 12px; border: none; border-radius: 999px; cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #b066ff, #7c3aed); box-shadow: 0 4px 16px rgba(176, 102, 255, .35); transition: transform .15s, box-shadow .15s; flex-shrink: 0; }
+.hm-add span { font-size: 18px; line-height: 1; margin-top: -1px; }
+.hm-add:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(176, 102, 255, .5); }
+.hm-add:active { transform: scale(.97); }
+.hm-steps-head:has(+ .hm-view.is-week) { border-bottom: 0; padding-bottom: 12px; }
+
+/* En-tête Plan / Calendrier : centré, avec Ajouter dans le même bloc */
+.hm-steps-head { justify-content: center; gap: 12px; padding-bottom: 14px; }
+.hm-seg button { white-space: nowrap; padding-left: 16px; padding-right: 16px; }
+.hm-seg button span { margin-right: 4px; }
+.hm-add { height: 34px; }
+.hm-seg button { height: 32px; font-size: 13px; }
+.hm-seg-thumb { height: 32px; }
+.hm-steps-head { position: relative; }
+.hm-steps-head > .hm-dot { position: absolute; left: 2px; top: 13px; }
+.hm-steps-head > .hm-steps-goal { position: absolute; left: 18px; top: 8px; max-width: calc(50% - 190px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

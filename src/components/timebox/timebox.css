@@ -44,6 +44,7 @@
 .tb-gl i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .tb-item { display: flex; align-items: center; gap: 9px; padding: 9px 11px; margin-bottom: 6px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.07); border-left: 3px solid #7d7896; background: #100d1f; cursor: grab; font-size: 13px; }
 .tb-item.is-picked { background: #1a1530; box-shadow: 0 0 0 1px var(--acc), 0 8px 22px rgba(0,0,0,0.5); }
+.tb-proj { display: block; font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--acc); margin-top: 1px; }
 .tb-grip { color: #5a5480; font-size: 12px; }
 .tb-name { flex: 1; min-width: 0; font-weight: 500; }
 .tb-when { font-size: 11px; color: #8a82b0; white-space: nowrap; }
@@ -127,7 +128,7 @@
 .tb-card-loc span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tb-chk { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; padding: 0; flex-shrink: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; color: #0b0916; }
 .tb-x { position: absolute; top: 3px; right: 5px; width: 18px; height: 18px; border-radius: 50%; border: none; background: rgba(0,0,0,0.45); color: #fff; cursor: pointer; line-height: 1; z-index: 4; }
-.tb-rs, .tb-rt { position: absolute; left: 0; right: 0; height: 10px; cursor: ns-resize; z-index: 3; }
+.tb-rs, .tb-rt { position: absolute; left: 0; right: 0; height: min(10px, 30%); cursor: ns-resize; z-index: 3; }
 .tb-rs { bottom: 0; }
 .tb-rt { top: 0; }
 .tb-rt::after { content: ""; position: absolute; left: 50%; top: 2px; width: 22px; height: 3px; margin-left: -11px; border-radius: 2px; background: var(--c); opacity: 0; }
@@ -153,8 +154,9 @@
 .tb-mc-more { font-size: 10.5px; color: #8a82b0; padding-left: 4px; }
 
 /* Panneau d'événement */
-.tb-ep-wrap { position: fixed; inset: 0; z-index: 940; }
-.tb-ep { position: fixed; top: 76px; right: 28px; width: 430px; max-width: calc(100vw - 24px); max-height: calc(100vh - 100px); display: flex; flex-direction: column; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12); background: #14102a; box-shadow: 0 24px 60px rgba(0,0,0,0.65); overflow: hidden; color: #f4f2ff; }
+.tb-ep-wrap { position: fixed; inset: 0; z-index: 940; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(5,3,12,0.72); backdrop-filter: blur(2px); font-family: var(--font-body, "Space Grotesk", system-ui, sans-serif); }
+.tb-ep-wrap button, .tb-ep-wrap input, .tb-ep-wrap select, .tb-ep-wrap textarea { font-family: inherit; }
+.tb-ep { position: relative; width: 520px; max-width: calc(100vw - 24px); max-height: calc(100vh - 40px); display: flex; flex-direction: column; border-radius: 16px; border: 1px solid rgba(255,255,255,0.12); background: #14102a; box-shadow: 0 24px 60px rgba(0,0,0,0.65); overflow: hidden; color: #f4f2ff; }
 .tb-ep-bar { height: 4px; flex-shrink: 0; }
 .tb-ep-body { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
 .tb-ep-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -225,7 +227,8 @@
   .tb-day { padding: 8px 8px 8px; }
   .tb-legend { display: none; }
   .tb-new { padding: 8px 10px; }
-  .tb-ep { top: auto; bottom: 0; right: 0; left: 0; width: auto; max-width: none; max-height: 88vh; border-radius: 16px 16px 0 0; }
+  .tb-ep-wrap { align-items: flex-end; padding: 0; }
+  .tb-ep { width: 100%; max-width: none; max-height: 88vh; border-radius: 16px 16px 0 0; }
   .tb-ep-hint { display: none; }
   .tb-mc-p { font-size: 10px; }
   .tb-mc-t { display: none; }
@@ -237,3 +240,60 @@
 .hm-plan-t { font-weight: 700; color: #b066ff; min-width: 46px; font-size: 12px; }
 .hm-plan-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hm-plan-d { font-size: 11px; color: #8a82b0; }
+
+/* Mode intégré (onglet Semaine de la Home) : dans la page, tiroir « À planifier » replié. */
+.tb-root.tb-embed { position: relative; inset: auto; z-index: 1; height: 100%; min-height: 460px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; }
+.tb-embed .tb-head { padding: 8px 10px; gap: 6px; }
+.tb-embed .tb-menu { display: inline-flex; }
+.tb-embed .tb-legend { display: none; }
+.tb-embed .tb-date { font-size: 13px; }
+.tb-embed .tb-seg button { padding: 6px 9px; }
+.tb-embed .tb-new, .tb-embed .tb-validate { padding: 8px 10px; font-size: 12px; }
+.tb-embed .tb-body { grid-template-columns: minmax(0, 1fr); position: relative; }
+.tb-embed .tb-back { position: absolute; z-index: 30; top: 0; bottom: 0; left: 0; width: 280px; max-width: 86%; background: #0f0c20; border-right: 1px solid rgba(255,255,255,0.12); transform: translateX(-102%); transition: transform .2s; }
+.tb-embed .tb-body.is-side .tb-back { transform: none; box-shadow: 12px 0 40px rgba(0,0,0,0.6); }
+.tb-embed .tb-day { padding: 8px; }
+.tb-embed .tb-set { top: 48px; right: 8px; }
+.tb-embed .tb-hint, .tb-embed .tb-durl, .tb-embed .tb-chip { display: none; }
+.tb-embed .tb-bar { padding-top: 0; padding-bottom: 4px; }
+.tb-embed .tb-head { flex-wrap: wrap; row-gap: 4px; }
+/* Home : en-tête minimal (naviguer, vue, + événement). Le reste = plein écran « Plan du jour ». */
+
+/* Grand écran : « À planifier » visible sur le côté, comme dans le Plan du jour plein écran. */
+@media (min-width: 1100px) {
+  .tb-embed .tb-body { grid-template-columns: 420px minmax(0, 1fr); }
+  .tb-embed .tb-back { position: static; transform: none; width: auto; max-width: none; z-index: auto; box-shadow: none; background: transparent; border-right: 1px solid rgba(255,255,255,0.07); }
+  .tb-embed .tb-menu { display: none; }
+  .tb-embed .tb-bar { display: flex; }
+  .tb-embed .tb-hint { display: block; }
+  .tb-embed .tb-chip, .tb-embed .tb-durl { display: inline-flex; }
+}
+/* Mini-calendrier compact dans la vue latérale de Home. */
+.tb-embed .tb-mini-d { aspect-ratio: auto; height: 22px; font-size: 11px; }
+.tb-embed .tb-mini-h { margin-bottom: 4px; font-size: 12.5px; }
+.tb-embed .tb-mini-h button { width: 20px; height: 20px; }
+.tb-embed .tb-mini-g { gap: 1px; }
+
+@media (min-width: 1100px) {
+  .tb-embed .tb-head { padding: 10px 16px; gap: 8px; }
+  .tb-embed .tb-word { display: none; }
+  .tb-embed .tb-search input { width: 90px; }
+  .tb-embed .tb-head button, .tb-embed .tb-date, .tb-embed .tb-seg { white-space: nowrap; }
+  .tb-embed .tb-new, .tb-embed .tb-validate { padding: 8px 14px; font-size: 13px; }
+  .tb-embed .tb-date { font-size: 15px; }
+}
+
+/* Pendant un glissement : l'original s'efface, l'aperçu pointillé porte le titre et l'heure. */
+.tb-card.is-lifted { opacity: 0.22; }
+.tb-card.is-lifted .tb-card-in, .tb-card.is-lifted .tb-rs, .tb-card.is-lifted .tb-rt { visibility: hidden; }
+.tb-ghost { display: flex; flex-direction: column; gap: 1px; overflow: hidden; background: color-mix(in srgb, var(--c, var(--acc)) 34%, #0b0916); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+.tb-ghost b { font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-ghost span { font-size: 11px; color: #e4def8; white-space: nowrap; }
+
+/* Notification flottante (remplace la ligne jaune) */
+.tb-toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 60; display: flex; align-items: center; gap: 8px; max-width: min(90%, 460px); padding: 9px 16px; border-radius: 999px; font-size: 13px; font-weight: 600; color: #fff; background: rgba(20, 16, 36, .92); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 10px 30px rgba(0,0,0,.45); backdrop-filter: blur(8px); pointer-events: none; animation: tb-toast-in .28s cubic-bezier(.2,.9,.3,1.2) both; }
+.tb-toast.is-undo { padding: 8px 16px 8px 10px; animation: tb-toast-in .28s cubic-bezier(.2,.9,.3,1.2) both, tb-toast-out .3s ease 1.1s both; }
+.tb-toast-ic { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--acc, #b066ff); color: #0b0916; font-size: 15px; line-height: 1; animation: tb-undo-spin .5s ease both; }
+@keyframes tb-toast-in { from { opacity: 0; transform: translate(-50%, 14px) scale(.92); } to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+@keyframes tb-toast-out { to { opacity: 0; transform: translate(-50%, 8px) scale(.96); } }
+@keyframes tb-undo-spin { from { transform: rotate(60deg) scale(.5); } to { transform: rotate(0) scale(1); } }

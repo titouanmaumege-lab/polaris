@@ -577,7 +577,7 @@ function WeeklyCalendar() {
   });
 
   // ── Check tasks (panneau de gauche, à cocher) — les récurrentes ont leur propre bandeau
-  const checkTasks = todos.filter(t => t.gtd === "check" && !t.done && !t.recurrence?.enabled)
+  const checkTasks = todos.filter(t => t.gtd === "check" && !t.done && !t.blockOf && !t.recurrence?.enabled)
     .sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 
   // ── Récurrentes : une série = la tâche ouverte (prochaine occurrence) + l'historique des occurrences faites
@@ -1562,38 +1562,11 @@ const HM_VIEW_KEY = "lp_home_view";   // préférence d'affichage locale, non sy
 // Colonne de gauche : le mois en deux anneaux (temps écoulé / résultats des
 // objectifs du mois, J-X au centre) et les heures travaillées de la semaine.
 const HM_WEEK_DAYS = ["L", "M", "M", "J", "V", "S", "D"];
-function HomeMonthWeek({ today, results, week }) {
-  const d = new Date(today + "T12:00:00");
-  const dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-  const left = dim - d.getDate();
-  const elapsed = Math.round(d.getDate() / dim * 100);
-  const late = results < elapsed - 5;
-  const rc = late ? "#f59e0b" : "#b066ff";
-  const C1 = 2 * Math.PI * 50, C2 = 2 * Math.PI * 38;
+function HomeMonthWeek({ today, week }) {
   const total = week.reduce((a, x) => a + x.min, 0);
-  const passed = week.filter(x => x.ds <= today).length || 1;
-  const avg = Math.round(total / passed);
-  const best = week.reduce((b, x, i) => (x.min > b.min ? { min: x.min, i } : b), { min: 0, i: -1 });
-  const DAY_FULL = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
   return (
-    <div className="hm-mw" title="Temps écoulé du mois face aux résultats de tes objectifs du mois">
-      <span className="hm-mw-k">Le mois</span>
-      <div className="hm-mw-ring">
-        <svg width="112" height="112" viewBox="0 0 112 112" aria-hidden="true">
-          <circle cx="56" cy="56" r="50" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
-          <circle cx="56" cy="56" r="50" fill="none" stroke="rgba(255,255,255,0.45)" strokeWidth="7" strokeLinecap="round"
-            strokeDasharray={`${(C1 * elapsed / 100).toFixed(1)} ${C1.toFixed(1)}`} transform="rotate(-90 56 56)" />
-          <circle cx="56" cy="56" r="38" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="7" />
-          <circle cx="56" cy="56" r="38" fill="none" stroke={rc} strokeWidth="7" strokeLinecap="round"
-            strokeDasharray={`${(C2 * Math.max(results, 0.5) / 100).toFixed(1)} ${C2.toFixed(1)}`} transform="rotate(-90 56 56)"
-            style={{ filter: `drop-shadow(0 0 4px ${rc}88)` }} />
-        </svg>
-        <span><b>J-{left}</b><small>{left > 1 ? "restants" : "restant"}</small></span>
-      </div>
-      <div className="hm-mw-leg"><span><i style={{ background: "rgba(255,255,255,0.45)" }} />temps</span><b>{elapsed} %</b></div>
-      <div className="hm-mw-leg"><span><i style={{ background: rc }} />résultats</span><b style={{ color: rc }}>{results} %</b></div>
-      <span className="hm-mw-sep" />
-      <span className="hm-mw-k">Semaine · <b>{total ? fmtMin(total) : "0 min"}</b></span>
+    <div className="hm-mw">
+      <h2 className="hm-h"><span>Cette semaine</span><b>{total ? fmtMin(total) : "0 min"}</b></h2>
       <div className="hm-mw-chart">
         {[8, 6, 4, 2].map(h => (
           <span key={h} className="hm-mw-grid" style={{ bottom: `${h / 8 * 100}%` }}><em>{h}h</em></span>
@@ -1606,15 +1579,11 @@ function HomeMonthWeek({ today, results, week }) {
           </div>
         ))}
       </div>
-      <div className="hm-mw-stats">
-        <div><span>moyenne / jour</span><b>{avg ? fmtMin(avg) : "—"}</b></div>
-        <div><span>meilleur jour</span><b>{best.i >= 0 ? `${DAY_FULL[best.i]} · ${fmtMin(best.min)}` : "—"}</b></div>
-      </div>
     </div>
   );
 }
 
-function HomeSteps({ today, col, todos, results, week, onDone, onOpen, onAdd }) {
+function HomeSteps({ today, col, todos, results, week, cal, onDone, onOpen, onAdd }) {
   const [all, setAll] = useState(false);
   const [view, setView] = useState(() => { try { return localStorage.getItem(HM_VIEW_KEY) || "steps"; } catch { return "steps"; } });
   const pickView = v => { setView(v); try { localStorage.setItem(HM_VIEW_KEY, v); } catch {} };
@@ -1639,29 +1608,25 @@ function HomeSteps({ today, col, todos, results, week, onDone, onOpen, onAdd }) 
 
   return (
     <section className="hm-steps-wrap">
-      <div className="hm-side">
-        <HomeMonthWeek today={today} results={results} week={week} />
-      </div>
       <div className="hm-steps">
         <div className="hm-steps-head">
           <div className="hm-seg" role="tablist" aria-label="Vue">
-            <button role="tab" aria-selected={!isWeek} onClick={() => pickView("steps")} className={!isWeek ? "is-on" : ""}>Étapes</button>
-            <button role="tab" aria-selected={isWeek} onClick={() => pickView("week")} className={isWeek ? "is-on" : ""}>Semaine</button>
+            <button role="tab" aria-selected={!isWeek} onClick={() => pickView("steps")} className={!isWeek ? "is-on" : ""}><span aria-hidden="true">👁️</span> Plan</button>
+            <button role="tab" aria-selected={isWeek} onClick={() => pickView("week")} className={isWeek ? "is-on" : ""}><span aria-hidden="true">📅</span> Calendrier</button>
             <span className="hm-seg-thumb" style={{ transform: isWeek ? "translateX(100%)" : "none" }} aria-hidden="true" />
           </div>
+          <button onClick={onAdd} className="hm-add" title="Ajouter une tâche à l’inbox"><span aria-hidden="true">+</span> Ajouter</button>
           {!isWeek && col && <><span className="hm-dot" style={{ background: color }} /><span className="hm-steps-goal">{col.m.titre}</span></>}
-          <span style={{ flex: 1 }} />
           {!isWeek && list.length > HM_STEPS_MAX && (
             <button onClick={() => setAll(v => !v)} className="hm-link-btn">
               {all ? "Replier" : `+ ${list.length - HM_STEPS_MAX} autre${list.length - HM_STEPS_MAX > 1 ? "s" : ""}`}
             </button>
           )}
-          <button onClick={onAdd} className="hm-link-btn is-muted">+ Ajouter</button>
         </div>
 
         <div key={view} className={`hm-view${isWeek ? " is-week" : ""}`}>
           {isWeek ? (
-            <div className="dash-cal hm-week-full"><WeeklyCalendar /></div>
+            <div className="hm-week-full"><PlanDuJour embedded today={today} todos={todos} {...cal} /></div>
           ) : (<>
             {list.length === 0 && (
               <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
@@ -1685,7 +1650,7 @@ function HomeSteps({ today, col, todos, results, week, onDone, onOpen, onAdd }) 
 }
 
 // Colonne Aujourd'hui : temps de travail (système Work existant), habitudes, clôture.
-function HomeToday({ plan, onPlan, onBilan, onStartBlock, minutes, goalMin, onSetGoal, sessionsToday, active, onPause, onResume, onStop, onLive, onLog, habits, today, animating, onToggleHabit, onOpenHabit, onClose }) {
+function HomeToday({ week, plan, onPlan, onBilan, onStartBlock, minutes, goalMin, onSetGoal, sessionsToday, active, onPause, onResume, onStop, onLive, onLog, habits, today, animating, onToggleHabit, onOpenHabit, onClose }) {
   const [editGoal, setEditGoal] = useState(false);
   const [goalH, setGoalH] = useState(String(goalMin / 60));
   const elapsed = useElapsedWithPause(active);
@@ -1738,20 +1703,7 @@ function HomeToday({ plan, onPlan, onBilan, onStartBlock, minutes, goalMin, onSe
         )}
       </section>
 
-      <section className="hm-plan">
-        <div className="hm-habits-head"><h2 className="hm-h">Plan du jour</h2>
-          <button onClick={onPlan} className="hm-link-btn">{plan.length ? "Modifier" : "Planifier ma journée"}</button></div>
-        {plan.length === 0 && <p className="hm-empty">Rien de planifié. 15 min le matin pour poser tes tâches.</p>}
-        {plan.map(t => (
-          <div key={t.id} className="hm-plan-row">
-            <span className="hm-plan-t">{String(Math.floor(t.slotStart / 60))}h{String(t.slotStart % 60).padStart(2, "0")}</span>
-            <span className="hm-plan-n">{t.name}</span>
-            <span className="hm-plan-d">{fmtMin(t.slotMin)}</span>
-            <button onClick={() => onStartBlock(t)} className="hm-live-btn" aria-label={`Démarrer : ${t.name}`}>▶</button>
-          </div>
-        ))}
-        {plan.length > 0 && <button onClick={onBilan} className="hm-link-btn is-muted">Bilan du plan</button>}
-      </section>
+      <section className="hm-week"><HomeMonthWeek today={today} week={week} /></section>
 
       <section className="hm-habits">
         <div className="hm-habits-head"><h2 className="hm-h">Habitudes</h2><span>{doneH} / {habits.length}</span></div>
@@ -1786,7 +1738,7 @@ function HomeToday({ plan, onPlan, onBilan, onStartBlock, minutes, goalMin, onSe
 
 function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSession, onPauseSession, onResumeSession, onStopSession }) {
   const t = todayStr();
-  const { todos, addTodo, updateTodo, deleteTodo, toggleDone } = useTodos();
+  const { todos, addTodo, updateTodo, deleteTodo, batchTodos, toggleDone } = useTodos();
   const [creating, setCreating]   = useState(false);
   const [creatingFor, setCreatingFor] = useState(null);
   const [editId, setEditId]       = useState(null);
@@ -1795,7 +1747,6 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
   const [animating, setAnimating] = useState(new Set());
   const [dailyTick, setDailyTick] = useState(0);
   const [selId, setSelId]         = useState(null);
-  const [showPlan, setShowPlan]   = useState(false);
   const [showBilan, setShowBilan] = useState(false);
   const appName = (() => { const v = getLS("lp_app_name", "POLARIS"); return (v === "LE PLAN" || v === "Le Plan") ? "POLARIS" : v; })();
   const goals = getLS("lp_goals", {});
@@ -1868,7 +1819,6 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
             <span className="hm-am-v">{ameliorer}</span>
           </button>
         )}
-        <button onClick={() => setShowPlan(true)} className="hm-ameliorer" title="Planifier ta journée (time boxing)"><span className="hm-am-k">📅 Plan du jour</span></button>
         <button onClick={onOpenMenu} className="hm-menu" aria-label="Ouvrir Le Poste" title="Le Poste">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#c084fc" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10" /></svg>
         </button>
@@ -1879,14 +1829,15 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
             today={t} col={col} todos={todos} results={results} week={week}
+            cal={{ updateTodo, addTodo, batchTodos, toggleDone, cap }}
             onDone={toggleDone}
             onOpen={setEditId}
             onAdd={() => (col ? setCreatingFor(col.m.id) : setCreating(true))}
           />
         </main>
 
-        <HomeToday
-          plan={slotsOf(todos, t)} onPlan={() => setShowPlan(true)} onBilan={() => setShowBilan(true)} onStartBlock={b => onStartLive?.(b.name)}
+        <HomeToday week={week}
+          plan={slotsOf(todos, t)} onBilan={() => setShowBilan(true)} onStartBlock={b => onStartLive?.(b.name)}
           minutes={workMin} goalMin={goalMin} onSetGoal={setWorkGoal} sessionsToday={sessionsToday}
           active={activeSession} onPause={onPauseSession} onResume={onResumeSession} onStop={onStopSession}
           onLive={() => onStartLive?.(sessionName)} onLog={() => onLogSession?.(sessionName)}
@@ -1895,8 +1846,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
         />
       </div>
 
-      {showPlan && <PlanDuJour today={t} todos={todos} updateTodo={updateTodo} toggleDone={toggleDone} cap={cap} onClose={() => setShowPlan(false)} />}
-      {showBilan && <BilanPlan today={t} todos={todos} updateTodo={updateTodo} toggleDone={toggleDone} sessions={getLS("lp_workperf", [])} onClose={() => setShowBilan(false)} />}
+      {showBilan && <BilanPlan today={t} todos={todos} batchTodos={batchTodos} toggleDone={toggleDone} sessions={getLS("lp_workperf", [])} onClose={() => setShowBilan(false)} />}
       {(creating || creatingFor) && (
         <TaskCaptureModal
           onCreate={o => { addTodo(creatingFor ? { ...o, objectifId: creatingFor } : o); setCreating(false); setCreatingFor(null); }}
@@ -2825,6 +2775,8 @@ function useTodos() {
   const addTodo      = o => { const t={id:uid(),name:"",gtd:"inbox",done:false,createdAt:new Date().toISOString(),...o}; save([...todos,t]); return t; };
   const updateTodo   = (id,p) => save(todos.map(t=>t.id===id?{...t,...p}:t));
   const deleteTodo   = id => save(todos.filter(t=>t.id!==id));
+  // Plusieurs changements d'un coup (des appels updateTodo en boucle s'écrasent entre eux).
+  const batchTodos   = (patches={}, removeIds=[]) => save(todos.filter(t=>!removeIds.includes(t.id)).map(t=>patches[t.id]?{...t,...patches[t.id]}:t));
   const toggleDone = id => save(toggleDoneIn(todos, id, uid));
   const restoreTodo  = id => save(todos.map(t=>t.id===id?{...t,done:false,doneAt:undefined}:t));
   const classifyInbox= (id,p) => updateTodo(id,p);
@@ -2856,7 +2808,7 @@ function useTodos() {
     return s<=new Date(year,month+1,0) && e>=new Date(year,month,1);
   });
   const getMemosForDate = date => todos.filter(t=>t.gtd==="memo"&&t.dateAssignee===date&&!t.done&&!t.recurrence?.enabled);
-  return {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,addSousTache,toggleSousTache,getByGTD,getByMatrice,getBySphere,getDoneItems,getProjectsForCalendar,getMemosForDate};
+  return {todos,addTodo,updateTodo,deleteTodo,batchTodos,toggleDone,restoreTodo,classifyInbox,addSousTache,toggleSousTache,getByGTD,getByMatrice,getBySphere,getDoneItems,getProjectsForCalendar,getMemosForDate};
 }
 
 // Opérations de l'API externe (src/state/apiAccess.js) : appliquées sur l'état

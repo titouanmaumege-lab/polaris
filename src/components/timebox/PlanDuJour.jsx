@@ -6,7 +6,7 @@ import {
   isLinked, hasToken, canEdit, requestToken, disconnect, getPrefs, setPrefs, localDS, eventColor, EVENT_COLORS,
   listCalendars, fetchRange, createEvent, patchEvent, deleteEvent, addMeet, pushBlocks,
 } from "./google";
-import EventPanel from "./EventPanel";
+import EventPanel, { TaskPanel } from "./EventPanel";
 import { Ic } from "./icons";
 import "./timebox.css";
 
@@ -32,10 +32,10 @@ const isoWeek = ds => {
 export const slotsOf = (todos, ds) => todos.filter(t => !t.done && t.slotDate === ds && t.slotMin).sort((a, b) => a.slotStart - b.slotStart);
 
 const DEF_UI = { view: "7", startH: 7, endH: 22, compact: false, dur: 30, ws: 1, gray: true, accent: "#b066ff", tab: "plan" };
-function loadUi() {
+function loadUi(key = UI_KEY, def = {}) {
   let u = {};
-  try { u = JSON.parse(localStorage.getItem(UI_KEY)) || {}; } catch {}
-  const out = { ...DEF_UI, ...u };
+  try { u = JSON.parse(localStorage.getItem(key)) || {}; } catch {}
+  const out = { ...DEF_UI, ...def, ...u };
   if (!u.view && typeof window !== "undefined" && window.innerWidth < 760) out.view = "1";
   return out;
 }
@@ -152,9 +152,10 @@ function MiniMonth({ date, today, ws, days, onPick, onMonth }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Calendrier + Plan du jour : le rituel du matin et l'organisation de la semaine.
 // ─────────────────────────────────────────────────────────────────────────────
-export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose }) {
-  const [ui, setUi] = useState(loadUi);
-  const patchUi = p => setUi(u => { const n = { ...u, ...p }; try { localStorage.setItem(UI_KEY, JSON.stringify(n)); } catch {} return n; });
+export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, toggleDone, cap, onClose, embedded = false }) {
+  const uiKey = embedded ? UI_KEY + "_home" : UI_KEY;
+  const [ui, setUi] = useState(() => loadUi(uiKey, embedded ? { view: "3" } : {}));
+  const patchUi = p => setUi(u => { const n = { ...u, ...p }; try { localStorage.setItem(uiKey, JSON.stringify(n)); } catch {} return n; });
   const [date, setDate] = useState(today);
   const [picked, setPicked] = useState(null);       // tâche sélectionnée dans la liste
   const [blockSel, setBlockSel] = useState(null);   // bloc de tâche sélectionné
@@ -169,9 +170,14 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
   const [showSet, setShowSet] = useState(false);
   const [sideOpen, setSideOpen] = useState(false);
   const [panel, setPanel] = useState(null);
+  const [taskPanel, setTaskPanel] = useState(null);
+  const [tErr, setTErr] = useState("");
   const [pBusy, setPBusy] = useState(false);
   const [pErr, setPErr] = useState("");
-  const [msg, setMsg] = useState("");
+  const [msg, setMsg0] = useState("");
+  const [msgN, setMsgN] = useState(0);
+  const setMsg = m => { setMsg0(m); if (m) setMsgN(n => n + 1); };
+  useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg0(""), msg === "Annulé" ? 1400 : 3200); return () => clearTimeout(t); }, [msg, msgN]);
   const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [ghost, setGhost] = useState(null);
@@ -244,7 +250,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
   const match = s => !q.trim() || (s || "").toLowerCase().includes(q.trim().toLowerCase());
 
   const backlog = todos
-    .filter(t => !t.done && t.gtd !== "projet" && !t.recurrence?.enabled && !(t.slotMin && days.includes(t.slotDate)))
+    .filter(t => !t.done && !t.blockOf && !t.recurrence?.enabled && t.gtd !== "someday" && t.gtd !== "waiting" && !(t.gtd !== "projet" && t.slotMin && t.slotDate >= today))
     .sort((a, b) => {
       const ga = todoGoalId(a) ? 0 : 1, gb = todoGoalId(b) ? 0 : 1;
       const ia = info(a).label, ib = info(b).label;
@@ -258,6 +264,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
     if (!g) { g = { label: i.label, color: i.color, items: [] }; groups.push(g); }
     g.items.push(t);
   });
+  const projMin = id => todos.filter(b => b.blockOf === id && b.slotMin && b.slotDate).reduce((a, b) => a + b.slotMin, 0);
   const objHours = useMemo(() => {
     const m = {};
     plannedAll.forEach(t => { const i = info(t); m[i.label] = m[i.label] || { color: i.color, min: 0 }; m[i.label].min += t.slotMin; });
@@ -277,15 +284,41 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
     if (slotsOf(todos, ds).some(t => t.id !== ignoreId && start < t.slotStart + t.slotMin && end > t.slotStart)) return "Créneau déjà planifié";
     return "";
   };
+  // Annuler (Ctrl/Cmd+Z) : une seule action, la dernière.
+  const undoRef = useRef(null);
+  const setUndo = u => { undoRef.current = u; };
+  const doUndo = async () => {
+    const u = undoRef.current; if (!u) { setMsg("Rien à annuler"); return; }
+    undoRef.current = null;
+    if (u.gop) {
+      try { await u.gop(); await loadEvents(); setMsg("Annulé"); }
+      catch (er) { setMsg("Annulation impossible : " + er.message); }
+    } else if (u.restore) { addTodo(u.restore); setMsg("Annulé"); }
+    else { batchTodos(u.patches || {}, u.remove || []); setMsg("Annulé"); }
+  };
   const place = (id, ds, start, min) => {
     const err = clash(ds, start, min, id);
     if (err) { setMsg(err); return false; }
     setMsg("");
+    const src = todos.find(x => x.id === id);
+    if (src?.gtd === "projet") {
+      // Un projet se découpe en plusieurs blocs de travail : chaque bloc est une vraie tâche liée au projet.
+      const nb = addTodo({ name: src.name, gtd: "check", sphere: src.sphere, objectifId: todoGoalId(src) || undefined, blockOf: src.id, slotDate: ds, slotStart: start, slotMin: min });
+      setUndo({ remove: [nb.id] });
+      setMsg(`Bloc ajouté à « ${src.name} ». Pose-en d'autres si besoin.`);
+      return true;
+    }
+    if (src) setUndo({ patches: { [id]: { slotDate: src.slotDate, slotStart: src.slotStart, slotMin: src.slotMin } } });
     updateTodo(id, { slotDate: ds, slotStart: start, slotMin: min });
     return true;
   };
-  const unplan = t => { updateTodo(t.id, { slotDate: undefined, slotStart: undefined, slotMin: undefined }); setBlockSel(null); };
-  const setDurOnBlock = (t, m) => { const er = clash(t.slotDate, t.slotStart, m, t.id); if (!er) updateTodo(t.id, { slotMin: m }); else setMsg(er); };
+  const unplan = t => {
+    // Un bloc de projet sans événement Google disparaît ; avec un événement, on le garde caché jusqu'à la validation.
+    if (t.blockOf && !t.slotEventId) { setUndo({ restore: t }); batchTodos({}, [t.id]); }
+    else { setUndo({ patches: { [t.id]: { slotDate: t.slotDate, slotStart: t.slotStart, slotMin: t.slotMin } } }); updateTodo(t.id, { slotDate: undefined, slotStart: undefined, slotMin: undefined }); }
+    setBlockSel(null);
+  };
+  const setDurOnBlock = (t, m) => { const er = clash(t.slotDate, t.slotStart, m, t.id); if (!er) { setUndo({ patches: { [t.id]: { slotMin: t.slotMin } } }); updateTodo(t.id, { slotMin: m }); } else setMsg(er); };
   const pickDur = m => { patchUi({ dur: m }); const b = plannedAll.find(t => t.id === blockSel); if (b) setDurOnBlock(b, m); };
 
   const validate = async () => {
@@ -295,8 +328,10 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
       if (!hasToken()) await requestToken(true);
       const removed = todos.filter(t => t.slotEventId && (!t.slotDate || t.done));
       const { ids, gone } = await pushBlocks(plannedAll, removed);
-      Object.entries(ids).forEach(([id, ev]) => updateTodo(id, { slotEventId: ev }));
-      gone.forEach(id => updateTodo(id, { slotEventId: undefined }));
+      const patches = {}, drop = [];
+      Object.entries(ids).forEach(([id, ev]) => { patches[id] = { slotEventId: ev }; });
+      gone.forEach(id => { if (todos.find(x => x.id === id)?.blockOf) drop.push(id); else patches[id] = { slotEventId: undefined }; });
+      batchTodos(patches, drop);
       setMsg(`✓ ${plannedAll.length} bloc${plannedAll.length > 1 ? "s" : ""} envoyé${plannedAll.length > 1 ? "s" : ""} dans ton calendrier Polaris`);
       setGState("ok");
     } catch (e) { setMsg("Envoi impossible : " + (e.message === "EXPIRED" ? "reconnecte Google" : e.message)); }
@@ -327,8 +362,12 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
   const savePanel = async (p, calId) => {
     setPBusy(true); setPErr("");
     try {
-      if (panel.isNew) { await createEvent(calId, p); setPrefs({ lastCalId: calId }); }
-      else await patchEvent(panel.calId, panel.id, p);
+      if (panel.isNew) { const j = await createEvent(calId, p); setPrefs({ lastCalId: calId }); if (j?.id) setUndo({ gop: () => deleteEvent(calId, j.id) }); }
+      else {
+        const pv = panel, back = { title: pv.title, ds: pv.ds, start: pv.start, end: pv.end, allDay: !!pv.allDay, loc: pv.loc || "", desc: pv.desc || "", colorId: pv.colorId || null, link: pv.source || "", reminder: pv.reminder ?? "default" };
+        await patchEvent(panel.calId, panel.id, p);
+        setUndo({ gop: () => patchEvent(pv.calId, pv.id, back) });
+      }
       setPanel(null); await loadEvents();
     } catch (e) { setPErr(e.message === "EXPIRED" ? "Session Google expirée : reconnecte Google." : e.message); if (e.message === "EXPIRED") setGState("expired"); }
     setPBusy(false);
@@ -336,14 +375,18 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
   const removePanel = async () => {
     if (!window.confirm(`Supprimer « ${panel.title} » de Google Agenda ?`)) return;
     setPBusy(true); setPErr("");
-    try { await deleteEvent(panel.calId, panel.id); setPanel(null); await loadEvents(); }
+    try {
+      const pv = panel;
+      await deleteEvent(panel.calId, panel.id);
+      setUndo({ gop: () => createEvent(pv.calId, { title: pv.title, ds: pv.ds, start: pv.start, end: pv.end, allDay: pv.allDay, loc: pv.loc, desc: pv.desc, colorId: pv.colorId, link: pv.source, reminder: pv.reminder }) });
+      setPanel(null); await loadEvents(); }
     catch (e) { setPErr(e.message); }
     setPBusy(false);
   };
   const dupPanel = async () => {
     setPBusy(true); setPErr("");
     try {
-      await createEvent(panel.calId, { title: panel.title + " (copie)", ds: panel.ds, start: panel.start, end: panel.end, allDay: panel.allDay, loc: panel.loc, desc: panel.desc, colorId: panel.colorId, link: panel.source, reminder: panel.reminder });
+      await createEvent(panel.calId, { title: panel.title, ds: panel.ds, start: panel.start, end: panel.end, allDay: panel.allDay, loc: panel.loc, desc: panel.desc, colorId: panel.colorId, link: panel.source, reminder: panel.reminder });
       setPanel(null); await loadEvents();
     } catch (e) { setPErr(e.message); }
     setPBusy(false);
@@ -360,6 +403,8 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
   // Déplacer / étirer un événement à la souris : on met à jour tout de suite, Google ensuite.
   const commitGoogle = async (e, ds, a, b) => {
     const prev = events;
+    const back = { ds: e.ds, start: e.start, end: e.end, allDay: false };
+    setUndo({ gop: () => patchEvent(e.calId, e.id, back) });
     setEvents(evs => evs.map(x => x.key === e.key ? { ...x, ds, start: a, end: b, key: e.id + "@" + ds } : x));
     try { await patchEvent(e.calId, e.id, { ds, start: a, end: b, allDay: false }); loadEvents(); }
     catch (er) { setEvents(prev); setMsg(er.message === "EXPIRED" ? "Session Google expirée : reconnecte Google." : er.message); if (er.message === "EXPIRED") setGState("expired"); }
@@ -406,7 +451,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
       const f = floor15(loc.min), an = floor15(d.anchor);
       d.ghost = { ds: d.ds, a: Math.min(an, f), b: Math.max(an, f) + 15 };
     }
-    setGhost({ ...d.ghost, kind: d.kind, color: d.item.color || null });
+    { const it = d.item; const isG = it.kind === "g"; setGhost({ ...d.ghost, kind: d.kind, key: it.key, title: d.kind === "create" ? "" : (isG ? it.e.title : it.t.name), color: d.kind === "create" ? null : (isG ? evColor(it.e) : info(it.t).color) }); }
   };
   act.current.up = () => {
     const d = dragRef.current; dragRef.current = null; setGhost(null);
@@ -419,7 +464,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
     }
     if (!d.moved || d.noDrag || !g) {
       if (d.kind === "resize" || d.kind === "resizeTop") return;
-      if (it.kind === "g") openEvent(it.e); else { setBlockSel(b => b === it.t.id ? null : it.t.id); setPicked(null); patchUi({ dur: it.t.slotMin }); }
+      if (it.kind === "g") openEvent(it.e); else { setBlockSel(it.t.id); setPicked(null); patchUi({ dur: it.t.slotMin }); setTErr(""); setTaskPanel(it.t.id); }
       return;
     }
     if (it.kind === "g") {
@@ -452,12 +497,13 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
   const step = dir => setDate(d => view === "m" ? addMonths(d, dir) : addDays(d, dir * (view === "7" ? 7 : Number(view))));
   const goDay = ds => { setDate(ds); };
   act.current.key = e => {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && !e.target.closest?.("input, textarea, select, [contenteditable]") && !panel && !taskPanel && !showConnect) { e.preventDefault(); doUndo(); return; }
     if (e.target.closest?.("input, textarea, select, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) {
       if (e.key === "Escape" && e.target.closest?.("input")) e.target.blur();
       return;
     }
-    if (e.key === "Escape") { if (panel) setPanel(null); else if (showSet) setShowSet(false); else if (!showConnect) onClose(); return; }
-    if (panel || showConnect) return;
+    if (e.key === "Escape") { if (taskPanel) setTaskPanel(null); else if (panel) setPanel(null); else if (showSet) setShowSet(false); else if (!showConnect && !embedded) onClose(); return; }
+    if (panel || taskPanel || showConnect) return;
     const k = e.key.toLowerCase();
     if (k === "arrowleft") step(-1);
     else if (k === "arrowright") step(1);
@@ -514,7 +560,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
     const t = it.kind === "g" ? it.e.title : it.t.name;
     const link = isG ? it.e.link : null;
     return (
-      <div key={it.key} data-item className={"tb-card" + (isG ? " is-g" : " is-t") + (past ? " is-past" : "") + (done ? " is-done" : "") + (sel ? " is-sel" : "") + (draggable ? " is-drag" : "")} style={style}
+      <div key={it.key} data-item className={"tb-card" + (isG ? " is-g" : " is-t") + (past ? " is-past" : "") + (done ? " is-done" : "") + (sel ? " is-sel" : "") + (draggable ? " is-drag" : "") + (ghost && ghost.key === it.key && ghost.kind !== "create" ? " is-lifted" : "")} style={style}
         onMouseDown={e => beginDrag(e, "move", item)}>
         <div className={"tb-card-in" + (small ? " is-small" : "")}>
           <div className="tb-card-t">
@@ -530,8 +576,8 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
           {h >= 64 && isG && !link && it.e.loc && <div className="tb-card-loc"><Ic n="pin" s={11} /><span>{it.e.loc}</span></div>}
         </div>
         {sel && <button className="tb-x" onMouseDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); unplan(it.t); }} aria-label="Retirer du plan">×</button>}
-        {draggable && h >= 28 && <span className="tb-rt" onMouseDown={e => beginDrag(e, "resizeTop", item)} />}
-        {draggable && h >= 28 && <span className="tb-rs" onMouseDown={e => beginDrag(e, "resize", item)} />}
+        {draggable && h >= 16 && <span className="tb-rt" onMouseDown={e => beginDrag(e, "resizeTop", item)} />}
+        {draggable && h >= 16 && <span className="tb-rs" onMouseDown={e => beginDrag(e, "resize", item)} />}
       </div>
     );
   };
@@ -571,7 +617,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
               onMouseDown={e => beginCreate(e, ds)} onClick={e => onColClick(e, ds)} onDragOver={e => e.preventDefault()} onDrop={e => onColDrop(e, ds)}>
               {Array.from({ length: END_H - START_H }, (_, i) => <div key={i} className="tb-hour" style={{ top: i * PX }} />)}
               {layout(items).map(it => renderItem(it, ds))}
-              {g && <div className={"tb-ghost" + (g.kind === "create" ? " is-new" : "")} style={{ top: topOf(g.a), height: Math.max(8, (g.b - g.a) / 60 * PX), borderColor: g.color || "var(--acc)" }}><span>{hhmm(g.a)} – {hhmm(g.b)}</span></div>}
+              {g && <div className={"tb-ghost" + (g.kind === "create" ? " is-new" : "")} style={{ top: topOf(g.a), height: Math.max(8, (g.b - g.a) / 60 * PX), borderColor: g.color || "var(--acc)", "--c": g.color || "var(--acc)" }}>{g.title && <b>{g.title}</b>}<span>{hhmm(g.a)} – {hhmm(g.b)}</span></div>}
               {ds === today && nowMin >= START_H * 60 && nowMin < END_H * 60 && <div className="tb-now" style={{ top: topOf(nowMin) }} />}
             </div>
           );
@@ -601,8 +647,8 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
     </div>
   );
 
-  return createPortal(
-    <div className="tb-root" role="dialog" aria-label="Calendrier" style={{ "--acc": ui.accent }}>
+  const root = (
+    <div className={"tb-root" + (embedded ? " tb-embed" : "")} role={embedded ? "region" : "dialog"} aria-label="Calendrier" style={{ "--acc": ui.accent }}>
       <header className="tb-head">
         <button className="tb-nav tb-menu" onClick={() => setSideOpen(s => !s)} aria-label="Menu"><Ic n="menu" s={17} /></button>
         <span className="tb-word">Calendrier</span>
@@ -632,7 +678,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
         <button className="tb-nav" onClick={() => setShowSet(s => !s)} aria-label="Personnaliser" title="Personnaliser"><Ic n="sliders" s={16} /></button>
         <button className="tb-btn tb-primary tb-new" onClick={newNow}><Ic n="plus" s={15} w={2.4} />Événement</button>
         <button className="tb-btn tb-primary tb-validate" onClick={validate} disabled={busy || !plannedAll.length}>{busy ? "Envoi…" : "Valider mon plan"}</button>
-        <button className="tb-btn" onClick={onClose} aria-label="Fermer"><Ic n="close" s={15} /></button>
+        {!embedded && <button className="tb-btn" onClick={onClose} aria-label="Fermer"><Ic n="close" s={15} /></button>}
       </header>
 
       {showSet && (
@@ -667,7 +713,7 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
                     onClick={() => { setPicked(p => p === t.id ? null : t.id); setBlockSel(null); setSideOpen(false); }}
                     className={"tb-item" + (picked === t.id ? " is-picked" : "")} style={{ borderLeftColor: g.color }}>
                     <span className="tb-grip">⋮⋮</span>
-                    <span className="tb-name">{t.name}</span>
+                    <span className="tb-name">{t.name}{t.gtd === "projet" && <em className="tb-proj">projet{projMin(t.id) ? ` · ${fmtMin(projMin(t.id))} posées` : ""}</em>}</span>
                     <span className="tb-when">{(t.dateAssignee || t.dateFin) ? parse(t.dateAssignee || t.dateFin).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : ""}</span>
                   </div>
                 ))}
@@ -705,19 +751,31 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
               {DURS.map(([m, l]) => <button key={m} className={"tb-chip" + (ui.dur === m ? " is-on" : "")} onClick={() => pickDur(m)}>{l}</button>)}
             </div>
           )}
-          <div className="tb-hint">{msg || (picked ? "Clique ou dépose sur un créneau libre." : view === "m" ? "Clique un jour pour voir la semaine." : "Glisse sur du vide pour créer · glisse un événement pour le déplacer · tire le bas pour la durée · clique pour modifier.")}</div>
+          {msg && <div key={msgN} className={"tb-toast" + (msg === "Annulé" ? " is-undo" : "")} role="status">{msg === "Annulé" && <span className="tb-toast-ic">↶</span>}{msg}</div>}
           {view === "m" ? monthView : timeView}
           <div className="tb-legend"><span><i className="tb-lg-t" />Tâche Polaris (couleur = objectif)</span><span><i className="tb-lg-g" />Événement Google (couleur = calendrier ou choisie)</span></div>
         </section>
       </div>
 
-      {panel && (
-        <div className="tb-ep-wrap" onClick={() => setPanel(null)}>
+      {panel && createPortal(
+        <div className="tb-ep-wrap" style={{ "--acc": ui.accent }} onClick={() => setPanel(null)}>
           <EventPanel key={panel.key || "new" + panel.ds + panel.start} ev={panel} cals={writable.length ? writable : cals} editable={panel.isNew || editable(panel)}
             busy={pBusy} err={pErr} onSave={savePanel} onDelete={removePanel} onDuplicate={dupPanel} onMeet={meetPanel}
             onReconnect={() => { setPanel(null); disconnect(); setShowConnect(true); setGState("off"); }} onClose={() => setPanel(null)} />
-        </div>
-      )}
+        </div>, document.body)}
+      {taskPanel && (() => {
+        const tk = todos.find(x => x.id === taskPanel);
+        if (!tk || !tk.slotMin) return null;
+        const inf = info(tk);
+        return createPortal(
+          <div className="tb-ep-wrap" style={{ "--acc": ui.accent }} onClick={() => setTaskPanel(null)}>
+            <TaskPanel key={tk.id} t={tk} label={inf.label} color={inf.color} error={tErr}
+              onSave={p => { const er = clash(p.slotDate, p.slotStart, p.slotMin, tk.id); if (er) { setTErr(er); return; } setUndo({ patches: { [tk.id]: { name: tk.name, slotDate: tk.slotDate, slotStart: tk.slotStart, slotMin: tk.slotMin } } }); updateTodo(tk.id, p); setTaskPanel(null); }}
+              onDone={() => { toggleDone(tk.id); setTaskPanel(null); }}
+              onUnplan={() => { unplan(tk); setTaskPanel(null); }}
+              onClose={() => setTaskPanel(null)} />
+          </div>, document.body);
+      })()}
 
       {showConnect && (
         <div className="tb-modal" onClick={() => setShowConnect(false)}>
@@ -726,21 +784,23 @@ export function PlanDuJour({ today, todos, updateTodo, toggleDone, cap, onClose 
           </div>
         </div>
       )}
-    </div>,
-    document.body
+    </div>
   );
+  return embedded ? root : createPortal(root, document.body);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bilan du soir : cocher le fait, le reste retourne au backlog, prévu vs réel.
 // ─────────────────────────────────────────────────────────────────────────────
-export function BilanPlan({ today, todos, updateTodo, toggleDone, sessions, onClose }) {
+export function BilanPlan({ today, todos, batchTodos, toggleDone, sessions, onClose }) {
   const blocks = slotsOf(todos, today).concat(todos.filter(t => t.done && t.slotDate === today && t.slotMin)).sort((a, b) => a.slotStart - b.slotStart);
   const realOf = t => sessions.filter(s => s.date === today && (s.tache || "").trim().toLowerCase() === (t.name || "").trim().toLowerCase()).reduce((a, s) => a + (s.temps || 0), 0);
   const prevu = blocks.reduce((a, t) => a + t.slotMin, 0);
   const reel = blocks.reduce((a, t) => a + realOf(t), 0);
   const close = () => {
-    blocks.filter(t => !t.done).forEach(t => updateTodo(t.id, { slotDate: undefined, slotStart: undefined, slotMin: undefined }));
+    const patches = {}, drop = [];
+    blocks.filter(t => !t.done).forEach(t => { if (t.blockOf && !t.slotEventId) drop.push(t.id); else patches[t.id] = { slotDate: undefined, slotStart: undefined, slotMin: undefined }; });
+    batchTodos(patches, drop);
     onClose();
   };
   return createPortal(
