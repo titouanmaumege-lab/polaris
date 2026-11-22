@@ -29,6 +29,7 @@ import {
   heatmapData, heatmapWeeks, rollingRateSeries, rate28WithDelta, weakestWeekday, topLinks,
 } from "./utils/cumul";
 import { P, applyPerso } from "./state/perso";
+import { PictoPicker, pictoOf } from "./components/timebox/pictos";
 import {
   C, GRAD, GLOW, GLOW_SM, TR, SPACES, STATUTS, OBJ_STATUSES, OBJ_CLOSED,
   isObjClosed, isObjAchieved, STATUS_MIGRATE, normObjStatus,
@@ -7623,11 +7624,12 @@ function PersonalisationModal({ onClose, onSave }) {
   const [wpTypes,  setWpTypes]  = useState([...WP_TYPES]);
   const [djTypes,  setDjTypes]  = useState([...DJ_TYPES]);
   const [sphereList, setSphereList] = useState(
-    Object.entries(SPHERES).map(([k,v])=>({key:k,label:v.label,c:v.c}))
+    Object.entries(SPHERES).map(([k,v])=>({key:k,label:v.label,c:v.c,i:pictoOf(k,v)||""}))
   );
   const [newStr, setNewStr]             = useState("");
   const [newSphLabel, setNewSphLabel]   = useState("");
   const [newSphColor, setNewSphColor]   = useState("#8b5cf6");
+  const [newSphIcon, setNewSphIcon]     = useState("");
 
   const getList = () => tab==="domaines"?domaines:tab==="wpTypes"?wpTypes:djTypes;
   const setList = fn => { if(tab==="domaines")setDomaines(fn); else if(tab==="wpTypes")setWpTypes(fn); else setDjTypes(fn); };
@@ -7640,12 +7642,12 @@ function PersonalisationModal({ onClose, onSave }) {
     if(!newSphLabel.trim())return;
     const base = newSphLabel.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"_").replace(/_+/g,"_").slice(0,20);
     const key = sphereList.find(s=>s.key===base) ? base+"_"+Date.now().toString(36) : base;
-    setSphereList(l=>[...l,{key,label:newSphLabel.trim(),c:newSphColor}]);
-    setNewSphLabel(""); setNewSphColor("#8b5cf6");
+    setSphereList(l=>[...l,{key,label:newSphLabel.trim(),c:newSphColor,i:newSphIcon}]);
+    setNewSphLabel(""); setNewSphColor("#8b5cf6"); setNewSphIcon("");
   };
 
   const save = () => {
-    const spheresObj = Object.fromEntries(sphereList.map(s=>[s.key,{label:s.label,c:s.c}]));
+    const spheresObj = Object.fromEntries(sphereList.map(s=>[s.key,{label:s.label,c:s.c,...(s.i?{i:s.i}:{})}]));
     onSave({ domaines, wpTypes, djTypes, spheres: spheresObj });
   };
 
@@ -7690,6 +7692,7 @@ function PersonalisationModal({ onClose, onSave }) {
                 <div key={s.key} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:`1px solid rgba(139,92,246,0.07)`}}>
                   <input type="color" value={s.c} onChange={e=>setSphereList(l=>l.map((x,j)=>j===i?{...x,c:e.target.value}:x))}
                     style={{width:28,height:28,border:"none",borderRadius:6,cursor:"pointer",padding:0,background:"none",flexShrink:0}} />
+                  <PictoPicker value={s.i} color={s.c} onChange={v=>setSphereList(l=>l.map((x,j)=>j===i?{...x,i:v}:x))} />
                   <input value={s.label} onChange={e=>setSphereList(l=>l.map((x,j)=>j===i?{...x,label:e.target.value}:x))}
                     style={{flex:1,background:"transparent",border:"none",borderBottom:`1px solid ${C.border}`,color:C.text,fontSize:14,fontFamily:"inherit",outline:"none",padding:"2px 0"}} />
                   <button onClick={()=>setSphereList(l=>l.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:C.red,cursor:"pointer",fontSize:16,padding:"0 2px"}}>×</button>
@@ -7698,6 +7701,7 @@ function PersonalisationModal({ onClose, onSave }) {
               <div style={{display:"flex",gap:8,marginTop:10,alignItems:"center"}}>
                 <input type="color" value={newSphColor} onChange={e=>setNewSphColor(e.target.value)}
                   style={{width:34,height:34,border:"none",borderRadius:8,cursor:"pointer",padding:0,background:"none",flexShrink:0}} />
+                <PictoPicker value={newSphIcon} color={newSphColor} onChange={setNewSphIcon} size={34} />
                 <Input value={newSphLabel} onChange={setNewSphLabel} onKeyDown={e=>e.key==="Enter"&&addSphere()} placeholder="Nouvelle sphère (ex: 💸 Finance)..." />
                 <Btn onClick={addSphere} variant="ghost">+</Btn>
               </div>

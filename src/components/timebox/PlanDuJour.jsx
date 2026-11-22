@@ -10,6 +10,7 @@ import {
 } from "./google";
 import EventPanel, { TaskPanel } from "./EventPanel";
 import { Ic } from "./icons";
+import { Picto, PictoPicker, pictoOf } from "./pictos";
 import "./timebox.css";
 
 const GREY = "#7d7896";
@@ -213,6 +214,12 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
     const sp = P.spheres[k]; if (!sp) return;
     sp.c = hex.toLowerCase();
+    setLS("lp_personalization", { ...getLS("lp_personalization", {}), spheres: P.spheres });
+    bumpCat(n => n + 1);
+  };
+  const setSphereIcon = (k, i) => {
+    const sp = P.spheres[k]; if (!sp) return;
+    sp.i = i || undefined;
     setLS("lp_personalization", { ...getLS("lp_personalization", {}), spheres: P.spheres });
     bumpCat(n => n + 1);
   };
@@ -589,7 +596,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
       top: topOf(a) + 1, height: h, left: `calc(${it.lane * 100 / it.lanes}% + 2px)`, width: `calc(${100 / it.lanes}% - 4px)`,
       background: isG ? col + (sph ? "cc" : "33") : col + "30", borderColor: isG ? col + "aa" : col + "cc", borderLeftColor: col, borderStyle: isG ? "solid" : "dashed", "--c": col,
     };
-    const wm = isG ? (sph ? sph.label.split(" ")[0] : "") : "★";
+    const pk = isG ? (sph ? pictoOf(it.e.sphere, sph) : null) : "star";
     const item = { ...it, ds, noDrag: !draggable };
     const small = h < 40;
     const t = it.kind === "g" ? it.e.title : it.t.name;
@@ -597,7 +604,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     return (
       <div key={it.key} data-item className={"tb-card" + (isG ? " is-g" : " is-t") + (past ? " is-past" : "") + (done ? " is-done" : "") + (sel ? " is-sel" : "") + (draggable ? " is-drag" : "") + (ghost && ghost.key === it.key && ghost.kind !== "create" ? " is-lifted" : "")} style={style}
         onMouseDown={e => beginDrag(e, "move", item)}>
-        {wm && <span className="tb-wm" aria-hidden style={!isG ? { color: col } : undefined}>{wm}</span>}
+        {(pk || sph) && <span className="tb-wm" aria-hidden style={{ color: isG ? "#fff" : col }}>{pk ? <Picto k={pk} size={44} fill={!isG} /> : sph.label.split(" ")[0]}</span>}
         <div className={"tb-card-in" + (small ? " is-small" : "")}>
           <div className="tb-card-t">
             {!isG && (
@@ -731,6 +738,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
             {Object.entries(P.spheres).map(([k, v]) => (
               <div key={k} className="tb-catc">
                 <input type="color" value={v.c} onChange={e => setSphereColor(k, e.target.value)} aria-label={"Couleur " + v.label} />
+                <PictoPicker value={pictoOf(k, v)} onChange={i => setSphereIcon(k, i)} color={v.c} size={26} />
                 <span>{v.label}</span>
                 <input className="tb-catc-hex" defaultValue={v.c} key={v.c} maxLength={7} spellCheck={false}
                   onBlur={e => { const x = e.target.value.trim(); setSphereColor(k, x.startsWith("#") ? x : "#" + x); }}
