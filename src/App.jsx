@@ -1599,8 +1599,8 @@ function HomeSteps({ today, col, todos, results, week, cal, onDone, onOpen, onAd
     return new Date(d + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
   };
   const list = col
-    ? todos.filter(t => !t.done && todoGoalId(t) === col.m.id)
-    : todos.filter(t => !t.done && t.gtd !== "projet" && !t.recurrence?.enabled && dateOf(t) && dateOf(t) <= today);
+    ? todos.filter(t => !t.done && !t.blockOf && todoGoalId(t) === col.m.id) // les blocs d’un projet restent dans le calendrier, pas en double ici
+    : todos.filter(t => !t.done && !t.blockOf && t.gtd !== "projet" && !t.recurrence?.enabled && dateOf(t) && dateOf(t) <= today);
   list.sort((a, b) => (dateOf(a) || "9999").localeCompare(dateOf(b) || "9999"));
   const shown = all ? list : list.slice(0, HM_STEPS_MAX);
   const color = col?.color || "#a78bfa";

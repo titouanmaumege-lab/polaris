@@ -306,3 +306,13 @@
   .tb-embed .tb-search input { width: 100%; min-width: 0; }
   .tb-embed .tb-head > span:not([class]) { flex: 1 1 0; min-width: 0; }
 }
+
+/* Onglets Key Tasks / Check Tasks, tâches rapides, calendriers dans « Personnaliser » */
+.tb-tabs button span { margin-right: 3px; }
+.tb-quick input { width: 100%; box-sizing: border-box; margin: 4px 0 10px; padding: 9px 11px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12); background: #100d1f; color: inherit; font: inherit; font-size: 13px; outline: none; }
+.tb-quick input:focus { border-color: var(--acc); }
+.tb-ck { flex: none; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 5px; border: 1.5px solid rgba(255,255,255,0.3); background: transparent; color: transparent; cursor: pointer; padding: 0; transition: background .15s, color .15s, border-color .15s; }
+.tb-ck:hover { border-color: #2ee59d; color: #2ee59d; }
+.tb-check .tb-ck:active { background: #2ee59d; color: #0b0916; }
+.tb-set { max-height: calc(100vh * var(--zk) - 90px); overflow-y: auto; }
+.tb-set-sec { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }

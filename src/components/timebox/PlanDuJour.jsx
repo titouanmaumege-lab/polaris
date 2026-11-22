@@ -178,7 +178,6 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
   const [msgN, setMsgN] = useState(0);
   const setMsg = m => { setMsg0(m); if (m) setMsgN(n => n + 1); };
   useEffect(() => { if (!msg) return; const t = setTimeout(() => setMsg0(""), msg === "Annulé" ? 1400 : 3200); return () => clearTimeout(t); }, [msg, msgN]);
-  const [busy, setBusy] = useState(false);
   const [q, setQ] = useState("");
   const [ghost, setGhost] = useState(null);
   const gridRef = useRef(null);
@@ -257,8 +256,12 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
       const da = a.dateAssignee || a.dateFin || a.dateDebut || "9999", db = b.dateAssignee || b.dateFin || b.dateDebut || "9999";
       return ga - gb || ia.localeCompare(ib) || da.localeCompare(db);
     });
+  const keyTasks = backlog.filter(t => t.gtd !== "check");
+  const checks = todos.filter(t => t.gtd === "check" && !t.done && !t.blockOf && !t.recurrence?.enabled).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+  const [quick, setQuick] = useState("");
+  const addQuick = () => { const n = quick.trim(); if (!n) return; addTodo({ name: n, gtd: "check" }); setQuick(""); };
   const groups = [];
-  backlog.forEach(t => {
+  keyTasks.forEach(t => {
     const i = info(t);
     let g = groups.find(x => x.label === i.label);
     if (!g) { g = { label: i.label, color: i.color, items: [] }; groups.push(g); }
@@ -321,22 +324,35 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
   const setDurOnBlock = (t, m) => { const er = clash(t.slotDate, t.slotStart, m, t.id); if (!er) { setUndo({ patches: { [t.id]: { slotMin: t.slotMin } } }); updateTodo(t.id, { slotMin: m }); } else setMsg(er); };
   const pickDur = m => { patchUi({ dur: m }); const b = plannedAll.find(t => t.id === blockSel); if (b) setDurOnBlock(b, m); };
 
-  const validate = async () => {
-    if (!isLinked()) { setShowConnect(true); return; }
-    setBusy(true); setMsg("");
+  // Envoi automatique vers le calendrier Google « Polaris » : à chaque changement, sans bouton.
+  const sigOf = t => [t.slotDate, t.slotStart, t.slotMin, t.name, t.slotEventId || ""].join("|");
+  const synced = useRef(null);      // id → signature déjà envoyée
+  const syncing = useRef(false);
+  act.current.batch = batchTodos;
+  const runSync = async () => {
+    if (syncing.current || !isLinked() || !hasToken() || !canEdit()) return;
+    if (synced.current === null) { synced.current = {}; todos.forEach(t => { if (t.slotEventId && t.slotDate && !t.done) synced.current[t.id] = sigOf(t); }); }
+    const planned = todos.filter(t => t.slotDate && t.slotMin && !t.done);
+    const todo = planned.filter(t => !t.slotEventId || synced.current[t.id] !== sigOf(t));
+    const removed = todos.filter(t => t.slotEventId && (!t.slotDate || !t.slotMin || t.done));
+    if (!todo.length && !removed.length) return;
+    syncing.current = true;
     try {
-      if (!hasToken()) await requestToken(true);
-      const removed = todos.filter(t => t.slotEventId && (!t.slotDate || t.done));
-      const { ids, gone } = await pushBlocks(plannedAll, removed);
+      const { ids, gone } = await pushBlocks(todo, removed);
       const patches = {}, drop = [];
-      Object.entries(ids).forEach(([id, ev]) => { patches[id] = { slotEventId: ev }; });
-      gone.forEach(id => { if (todos.find(x => x.id === id)?.blockOf) drop.push(id); else patches[id] = { slotEventId: undefined }; });
-      batchTodos(patches, drop);
-      setMsg(`✓ ${plannedAll.length} bloc${plannedAll.length > 1 ? "s" : ""} envoyé${plannedAll.length > 1 ? "s" : ""} dans ton calendrier Polaris`);
+      Object.entries(ids).forEach(([id, ev]) => { patches[id] = { slotEventId: ev }; synced.current[id] = sigOf({ ...todos.find(x => x.id === id), slotEventId: ev }); });
+      gone.forEach(id => { delete synced.current[id]; if (todos.find(x => x.id === id)?.blockOf) drop.push(id); else patches[id] = { slotEventId: undefined }; });
+      act.current.batch(patches, drop);
       setGState("ok");
-    } catch (e) { setMsg("Envoi impossible : " + (e.message === "EXPIRED" ? "reconnecte Google" : e.message)); }
-    setBusy(false);
+    } catch (e) {
+      if (e.message === "EXPIRED") setGState("expired"); else setMsg("Envoi vers Google impossible : " + e.message);
+    }
+    syncing.current = false;
   };
+  useEffect(() => {
+    const id = setTimeout(runSync, 1200);
+    return () => clearTimeout(id);
+  }, [todos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Événements Google : ouvrir, créer, modifier, supprimer
   const editable = e => canEdit() && e.writable && !e.multi;
@@ -678,7 +694,6 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
         {gState === "error" && <button className="tb-pill tb-pill-warn" onClick={reconnect} title={gErr}>Google : erreur, réessayer</button>}
         <button className="tb-nav" onClick={() => setShowSet(s => !s)} aria-label="Personnaliser" title="Personnaliser"><Ic n="sliders" s={16} /></button>
         <button className="tb-btn tb-primary tb-new" onClick={newNow}><Ic n="plus" s={15} w={2.4} />Événement</button>
-        <button className="tb-btn tb-primary tb-validate" onClick={validate} disabled={busy || !plannedAll.length}>{busy ? "Envoi…" : "Valider mon plan"}</button>
         {!embedded && <button className="tb-btn" onClick={onClose} aria-label="Fermer"><Ic n="close" s={15} /></button>}
       </header>
 
@@ -692,35 +707,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
           <label className="tb-set-r"><span>Durée par défaut</span><select value={ui.dur} onChange={e => patchUi({ dur: Number(e.target.value) })}>{[15, 25, 30, 45, 60, 90].map(m => <option key={m} value={m}>{fmtMin(m)}</option>)}</select></label>
           <label className="tb-set-r"><span>Mode compact</span><input type="checkbox" checked={ui.compact} onChange={e => patchUi({ compact: e.target.checked })} /></label>
           <label className="tb-set-r"><span>Griser les événements passés</span><input type="checkbox" checked={ui.gray} onChange={e => patchUi({ gray: e.target.checked })} /></label>
-          <p className="tb-note">Raccourcis : ← → naviguer · T aujourd'hui · C créer · 1 2 3 4 vues · / chercher · Échap fermer.</p>
-        </div>
-      )}
-
-      <div className={"tb-body" + (sideOpen ? " is-side" : "")} onClick={() => { if (showSet) setShowSet(false); }}>
-        <aside className="tb-back">
-          <MiniMonth date={date} today={today} ws={ui.ws} days={view === "m" ? [] : days} onPick={ds => { setDate(ds); setSideOpen(false); }} onMonth={n => setDate(d => addMonths(d, n))} />
-          <div className="tb-tabs" role="tablist">
-            <button role="tab" aria-selected={ui.tab === "plan"} className={ui.tab === "plan" ? "is-on" : ""} onClick={() => patchUi({ tab: "plan" })}>À planifier{backlog.length ? ` (${backlog.length})` : ""}</button>
-            <button role="tab" aria-selected={ui.tab === "cal"} className={ui.tab === "cal" ? "is-on" : ""} onClick={() => patchUi({ tab: "cal" })}>Calendriers</button>
-          </div>
-          {ui.tab === "plan" ? (<>
-            {groups.length === 0 && <p className="tb-note">Plus rien à planifier.</p>}
-            {groups.map(g => (
-              <div key={g.label}>
-                <div className="tb-gl"><i style={{ background: g.color }} />{g.label}</div>
-                {g.items.map(t => (
-                  <div key={t.id} draggable
-                    onDragStart={e => { e.dataTransfer.setData("text/plain", t.id); setPicked(t.id); }}
-                    onClick={() => { setPicked(p => p === t.id ? null : t.id); setBlockSel(null); setSideOpen(false); }}
-                    className={"tb-item" + (picked === t.id ? " is-picked" : "")} style={{ borderLeftColor: g.color }}>
-                    <span className="tb-grip">⋮⋮</span>
-                    <span className="tb-name">{t.name}{t.gtd === "projet" && <em className="tb-proj">projet{projMin(t.id) ? ` · ${fmtMin(projMin(t.id))} posées` : ""}</em>}</span>
-                    <span className="tb-when">{(t.dateAssignee || t.dateFin) ? parse(t.dateAssignee || t.dateFin).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : ""}</span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </>) : (<>
+          <div className="tb-set-sec">
             <div className="tb-gl">Mes calendriers</div>
             {gState === "off" && <p className="tb-note">Connecte Google Agenda pour voir tes calendriers.</p>}
             {cals.filter(c => c.name !== "Polaris").map(c => {
@@ -738,6 +725,50 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
             {objHours.length === 0 && <p className="tb-note">Aucune tâche posée sur cette période.</p>}
             {objHours.map(([label, o]) => (
               <div key={label} className="tb-obj"><span><i style={{ background: o.color }} />{label}</span><b>{fmtMin(o.min)}</b></div>
+            ))}
+          </div>
+          <p className="tb-note">Raccourcis : ← → naviguer · T aujourd'hui · C créer · 1 2 3 4 vues · / chercher · Échap fermer.</p>
+        </div>
+      )}
+
+      <div className={"tb-body" + (sideOpen ? " is-side" : "")} onClick={() => { if (showSet) setShowSet(false); }}>
+        <aside className="tb-back">
+          <MiniMonth date={date} today={today} ws={ui.ws} days={view === "m" ? [] : days} onPick={ds => { setDate(ds); setSideOpen(false); }} onMonth={n => setDate(d => addMonths(d, n))} />
+          <div className="tb-tabs" role="tablist">
+            <button role="tab" aria-selected={ui.tab !== "check"} className={ui.tab !== "check" ? "is-on" : ""} onClick={() => patchUi({ tab: "plan" })}><span aria-hidden="true">🔑</span> Key Tasks{keyTasks.length ? ` (${keyTasks.length})` : ""}</button>
+            <button role="tab" aria-selected={ui.tab === "check"} className={ui.tab === "check" ? "is-on" : ""} onClick={() => patchUi({ tab: "check" })}><span aria-hidden="true">📋</span> Check Tasks{checks.length ? ` (${checks.length})` : ""}</button>
+          </div>
+          {ui.tab !== "check" ? (<>
+            {groups.length === 0 && <p className="tb-note">Plus rien à planifier.</p>}
+            {groups.map(g => (
+              <div key={g.label}>
+                <div className="tb-gl"><i style={{ background: g.color }} />{g.label}</div>
+                {g.items.map(t => (
+                  <div key={t.id} draggable
+                    onDragStart={e => { e.dataTransfer.setData("text/plain", t.id); setPicked(t.id); }}
+                    onClick={() => { setPicked(p => p === t.id ? null : t.id); setBlockSel(null); setSideOpen(false); }}
+                    className={"tb-item" + (picked === t.id ? " is-picked" : "")} style={{ borderLeftColor: g.color }}>
+                    <span className="tb-grip">⋮⋮</span>
+                    <span className="tb-name">{t.name}{t.gtd === "projet" && <em className="tb-proj">projet{projMin(t.id) ? ` · ${fmtMin(projMin(t.id))} posées` : ""}</em>}</span>
+                    <span className="tb-when">{(t.dateAssignee || t.dateFin) ? parse(t.dateAssignee || t.dateFin).toLocaleDateString("fr-FR", { day: "numeric", month: "short" }) : ""}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </>) : (<>
+            <form className="tb-quick" onSubmit={e => { e.preventDefault(); addQuick(); }}>
+              <input value={quick} onChange={e => setQuick(e.target.value)} placeholder="Tâche rapide… (Entrée)" />
+            </form>
+            {checks.length === 0 && <p className="tb-note">Aucune tâche rapide. Écris-en une ci-dessus.</p>}
+            {checks.map(t => (
+              <div key={t.id} draggable
+                onDragStart={e => { e.dataTransfer.setData("text/plain", t.id); setPicked(t.id); }}
+                onClick={() => { setPicked(p => p === t.id ? null : t.id); setBlockSel(null); setSideOpen(false); }}
+                className={"tb-item tb-check" + (picked === t.id ? " is-picked" : "")} style={{ borderLeftColor: info(t).color }}>
+                <button className="tb-ck" aria-label="Terminé" onClick={e => { e.stopPropagation(); toggleDone(t.id); }}><Ic n="check" s={11} w={3.2} /></button>
+                <span className="tb-name">{t.name}</span>
+                <span className="tb-when">{t.slotDate && t.slotMin ? `${parse(t.slotDate).toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ${hhmm(t.slotStart)}` : ""}</span>
+              </div>
             ))}
           </>)}
         </aside>
