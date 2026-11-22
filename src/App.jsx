@@ -4371,7 +4371,6 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
   const start = startDay(habit, t);
   const { rate, delta } = rate28WithDelta(habit, t);
   const weak  = weakestWeekday(habit, t);
-  const goal  = habit.goalId ? (goals?.lt || []).find(g => g.id === habit.goalId) : null;
 
   const Stat = ({ label, value, sub, badge }) => (
     <div style={{ flex:1, minWidth:0, textAlign:"center" }}>
@@ -4403,7 +4402,6 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
           <span style={{ fontSize:30, flexShrink:0, lineHeight:1.1 }}>{habit.emoji}</span>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontFamily:FONT_D, fontSize:19, fontWeight:800, color:C.text, lineHeight:1.2 }}>{habit.name}</div>
-            {goal && <div style={{ fontSize:12, color:C.accent, marginTop:5, overflow:"hidden", textOverflow:"ellipsis" }}>→ {goal.titre}</div>}
           </div>
           <button onClick={onClose} style={{ width:36, height:36, borderRadius:10, background:"transparent", border:"none", color:C.muted, fontSize:18, cursor:"pointer", fontFamily:"inherit", flexShrink:0 }}>✕</button>
         </div>
