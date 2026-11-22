@@ -6525,6 +6525,28 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const [saved, setSaved] = useState(false);
   const [sessFilter, setSessFilter] = useState(null); // {kind:'type'|'domaine', value, color}
 
+  // ── Review OKR (La Cible) : objectifs trimestriels en cours, KR à mettre à jour,
+  // 2 questions de suivi, objectifs de semaine reliés à un objectif trimestriel.
+  const [goalsLS, setGoalsLS] = useState(() => getLS("lp_goals", {}));
+  const [okrRev, setOkrRev] = useState(existing?.okrReview || { initiative: "", initiativeNote: "", direction: "", directionNote: "" });
+  const [newObjGoal, setNewObjGoal] = useState("");
+  const [curObjGoal, setCurObjGoal] = useState("");
+  const quarterOkrs = (goalsLS.trimestriel || []).filter(g => !g.archived && isGoalRunning(g, wkStart));
+  const saveGoalsLS = g => { setGoalsLS(g); setLS("lp_goals", g); };
+  const setKrActuelle = (gid, i, v) => saveGoalsLS({
+    ...goalsLS,
+    trimestriel: (goalsLS.trimestriel || []).map(g => g.id !== gid ? g : {
+      ...g, krs: (g.krs || []).map((k, j) => j === i ? { ...k, actuelle: v === "" ? 0 : Number(v) } : k),
+    }),
+  });
+  const goalPick = (value, onChange, disabled) => (
+    <select value={value || ""} onChange={e => onChange(e.target.value)} disabled={disabled}
+      style={{background:C.surface2,border:`1px solid ${C.border}`,color:value?C.text:C.muted,padding:'8px 10px',borderRadius:10,fontSize:12,fontFamily:'inherit',outline:'none',maxWidth:'100%'}}>
+      <option value="">Relié à : aucun objectif</option>
+      {quarterOkrs.map(g => <option key={g.id} value={g.id}>{g.titre}</option>)}
+    </select>
+  );
+
   const habits  = getLS("lp_habits", []);
   const todos   = getLS("leplan_todos", []);
   const sessions= getLS("lp_workperf", []);
@@ -6536,7 +6558,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const updateObjStatus = (id, patch) => saveObjs(weeklyObjs.map(o=>o.id===id?{...o,...patch}:o));
   const addNextObj = () => {
     if (!newObjInput.trim()) return;
-    saveObjs([...weeklyObjs, {id:uid(), weekId:targetWeekId, title:newObjInput.trim(), completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
+    saveObjs([...weeklyObjs, {id:uid(), weekId:targetWeekId, title:newObjInput.trim(), goalId:newObjGoal||undefined, completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
     setNewObjInput("");
   };
   // Sans ça, une semaine sans objectif n'offrait aucun moyen d'en ajouter :
@@ -6544,7 +6566,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const [curObjInput, setCurObjInput] = useState("");
   const addCurrentObj = () => {
     if (!curObjInput.trim()) return;
-    saveObjs([...weeklyObjs, {id:uid(), weekId:reviewedWeekId, title:curObjInput.trim(), completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
+    saveObjs([...weeklyObjs, {id:uid(), weekId:reviewedWeekId, title:curObjInput.trim(), goalId:curObjGoal||undefined, completed:false, missed:false, partial:false, note:'', createdAt:new Date().toISOString()}]);
     setCurObjInput("");
   };
   const deleteObj = id => saveObjs(weeklyObjs.filter(o=>o.id!==id));
@@ -6596,7 +6618,8 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   const { ai, aiLoading, aiError, regenerate } = useWeeklyAI(wkStart, buildDigest, hasWeekData);
 
   // Y a-t-il qqch à sauver ? (évite reviews vides)
-  const isDirty = !!(existing || note || wrWin || wrLoss || wrAmeliorer || wrHabitAdjust || wrCustomItems.length || Object.values(wrBlocks).some(Boolean));
+  const okrTouched = !!(okrRev.initiative || okrRev.initiativeNote || okrRev.direction || okrRev.directionNote);
+  const isDirty = !!(existing || okrTouched || note || wrWin || wrLoss || wrAmeliorer || wrHabitAdjust || wrCustomItems.length || Object.values(wrBlocks).some(Boolean));
 
   // Persistance LS seule (safe hors render / unmount)
   const persistReview = () => {
@@ -6606,6 +6629,8 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
       weekStart: wkStart, weekEnd: wkEnd,
       note, win: wrWin, loss: wrLoss, ameliorer: wrAmeliorer, customItems: wrCustomItems, blocks: wrBlocks,
       habitAdjust: wrHabitAdjust,
+      okrReview: okrRev,
+      okrSnapshot: quarterOkrs.map(g => ({ id: g.id, titre: g.titre, progress: krsProgress(g.krs || []) })),
       summary: { habitsDaysAll, habitsPct, sessionsMins, sessionsCount: sessionsWeek.length, todosCompleted: todosWeek.length, dailyCount, avgEnergy, avgFocus, avgStress, avgHappy },
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -6663,6 +6688,54 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
 
         {/* Scrollable content */}
         <div className="wr-body" style={{overflowY:"auto",padding:"24px 28px 28px",flex:1}}>
+
+          {/* ── REVIEW OKR (La Cible) : 10 min, objectifs du trimestre en premier ── */}
+          <WRSection title="REVIEW OKR · 10 MIN">
+            <div style={{fontSize:12,color:C.muted,lineHeight:1.6,marginBottom:14}}>
+              Mets à jour tes résultats clés, puis réponds aux 2 questions. Le reste de la review est facultatif.
+            </div>
+            {quarterOkrs.length === 0 && (
+              <div style={{fontSize:12.5,color:C.faint,marginBottom:12}}>Aucun objectif trimestriel en cours. Crée-en un dans Objectifs.</div>
+            )}
+            {quarterOkrs.map(g => {
+              const pr = krsProgress(g.krs || []) ?? 0;
+              return (
+                <div key={g.id} style={{background:C.surface2,border:`1px solid ${C.border}`,borderRadius:14,padding:16,marginBottom:12}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+                    <span style={{flex:1,fontSize:14,fontWeight:700,color:C.text,lineHeight:1.4}}>{g.titre}</span>
+                    <span style={{fontSize:12,fontWeight:700,color:C.accent}}>{pr}%</span>
+                  </div>
+                  {(g.krs || []).length === 0 && <div style={{fontSize:12,color:C.faint}}>Pas de résultat clé.</div>}
+                  {(g.krs || []).map((k, i) => (
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderTop:i?`1px solid ${C.border}`:'none'}}>
+                      <span style={{flex:1,fontSize:12.5,color:C.text,lineHeight:1.4}}>{k.nom}</span>
+                      <input type="number" value={k.actuelle ?? k.depart ?? 0} disabled={locked}
+                        onChange={e => setKrActuelle(g.id, i, e.target.value)}
+                        style={{width:78,background:C.surface,border:`1px solid ${C.border}`,color:C.text,padding:'6px 8px',borderRadius:8,fontSize:12.5,fontFamily:'inherit',outline:'none',textAlign:'right'}} />
+                      <span style={{fontSize:11.5,color:C.faint,whiteSpace:'nowrap'}}>/ {k.cible}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {[
+              {key:'initiative', note:'initiativeNote', q:"As-tu au moins une initiative qui te rapproche de ces résultats ?"},
+              {key:'direction',  note:'directionNote',  q:"Les initiatives que tu fais vont-elles te faire avancer vers ces résultats ?"},
+            ].map(({key, note: nk, q}) => (
+              <div key={key} style={{borderLeft:`4px solid ${C.accent}`,background:C.surface2,borderRadius:14,padding:16,marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:10,lineHeight:1.4}}>{q}</div>
+                <div style={{display:'flex',gap:6,marginBottom:10}}>
+                  {[['oui','✅ Oui',C.green],['non','❌ Non',C.red]].map(([v,l,col]) => (
+                    <button key={v} disabled={locked} onClick={() => setOkrRev(s => ({...s,[key]: s[key]===v ? '' : v}))}
+                      style={{flex:1,padding:'7px 4px',borderRadius:8,border:`1px solid ${okrRev[key]===v?col:C.border}`,background:okrRev[key]===v?col:'transparent',color:okrRev[key]===v?'#fff':C.muted,fontWeight:700,fontSize:12,cursor:locked?'default':'pointer'}}>{l}</button>
+                  ))}
+                </div>
+                <textarea value={okrRev[nk]} readOnly={locked} onChange={e => setOkrRev(s => ({...s,[nk]:e.target.value}))}
+                  placeholder={okrRev[key]==='non' ? "Que changes-tu cette semaine ?" : "Laquelle ? (facultatif)"} rows={2}
+                  style={{width:'100%',background:'transparent',border:`1px solid ${C.border}`,borderRadius:8,color:C.text,padding:'8px 10px',fontSize:12.5,fontFamily:'inherit',resize:'vertical',outline:'none',boxSizing:'border-box',lineHeight:1.5}} />
+              </div>
+            ))}
+          </WRSection>
 
           {/* ── STATS ── */}
           <div className="wr-stats" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:28}}>
@@ -6997,6 +7070,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                     <input value={curObjInput} onChange={e=>setCurObjInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addCurrentObj()}
                       placeholder="Objectif de cette semaine..."
                       style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'10px 14px',borderRadius:12,fontSize:13,fontFamily:'inherit',outline:'none'}} />
+                    {goalPick(curObjGoal, setCurObjGoal)}
                     <button onClick={addCurrentObj} style={{background:GRAD,color:'#fff',border:'none',borderRadius:12,padding:'10px 18px',fontWeight:700,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>+ Ajouter</button>
                   </div>
                 )}
@@ -7020,6 +7094,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                             <button onClick={()=>startEditObj(obj)} style={{background:'none',border:'none',color:C.faint,fontSize:12,cursor:'pointer',padding:'2px 4px',flexShrink:0}}>✏️</button>
                             {!locked && <span onClick={()=>deleteObj(obj.id)} title="Supprimer" style={{fontSize:14,color:C.faint,cursor:'pointer',flexShrink:0}}>×</span>}
                           </div>
+                          <div style={{marginBottom:8}}>{goalPick(obj.goalId, v=>updateObjStatus(obj.id,{goalId:v||undefined}), locked)}</div>
                           <div style={{display:'flex',gap:6,marginBottom:obj.completed||obj.missed||obj.partial?10:0}}>
                             <button onClick={()=>updateObjStatus(obj.id,{completed:!isDone,missed:false,partial:false})}
                               style={{flex:1,padding:'6px 4px',borderRadius:8,border:`1px solid ${isDone?C.green:'rgba(16,185,129,0.3)'}`,background:isDone?C.green:'rgba(16,185,129,0.1)',color:isDone?'#fff':'#10b981',fontWeight:700,fontSize:11,cursor:'pointer'}}>
@@ -7048,6 +7123,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
               <div style={{display:'flex',gap:8,marginBottom:12}}>
                 <input value={newObjInput} onChange={e=>setNewObjInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addNextObj()} placeholder="Nouvel objectif..."
                   style={{flex:1,background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:'10px 14px',borderRadius:12,fontSize:13,fontFamily:'inherit',outline:'none'}} />
+                {goalPick(newObjGoal, setNewObjGoal)}
                 <button onClick={addNextObj} style={{background:GRAD,color:'#fff',border:'none',borderRadius:12,padding:'10px 18px',fontWeight:700,fontSize:13,cursor:'pointer',whiteSpace:'nowrap'}}>+ Ajouter</button>
               </div>
               {nextObjs.map(obj=>(
@@ -7062,6 +7138,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                   ) : (
                     <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px'}}>
                       <span style={{flex:1,fontSize:13,color:C.text}}>{obj.title}</span>
+                      {goalPick(obj.goalId, v=>updateObjStatus(obj.id,{goalId:v||undefined}))}
                       <button onClick={()=>startEditObj(obj)} style={{background:'none',border:'none',color:C.muted,fontSize:13,cursor:'pointer',padding:'2px 4px',lineHeight:1}}>✏️</button>
                       <span onClick={()=>deleteObj(obj.id)} style={{fontSize:14,color:C.faint,cursor:'pointer'}}>×</span>
                     </div>
