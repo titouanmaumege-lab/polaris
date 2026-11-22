@@ -1045,3 +1045,22 @@ button:active {
 .hm-kr-bar { height: 5px; border-radius: 5px; background: rgba(255,255,255,.08); overflow: hidden; }
 .hm-kr-bar i { display: block; height: 100%; border-radius: 5px; }
 .hm-kr-pct { font-size: 12px; font-weight: 700; color: #d6d0f0; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Étoile Polaire : mission centrée en haut de la Home + fenêtre mantra */
+.hm-mission { margin: 0 0 14px; padding: 14px 18px; border-radius: 14px; border: 1px solid rgba(176,102,255,0.28); background: rgba(176,102,255,0.07); cursor: pointer; text-align: center; }
+.hm-mission-k { font-size: 11px; letter-spacing: .12em; color: #c084fc; }
+.hm-mission-t { margin: 4px auto 0; max-width: 640px; font-size: 17px; line-height: 1.4; color: #f1ecff; font-weight: 500; }
+.hm-mp-bg { position: fixed; inset: 0; z-index: 100000; background: rgba(5,3,15,0.78); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.hm-mp { position: relative; width: min(560px, 100%); max-height: 88vh; overflow-y: auto; box-sizing: border-box; padding: 28px 24px 22px; border-radius: 18px; background: #15112b; border: 1px solid rgba(176,102,255,0.35); color: #f1ecff; text-align: center; display: flex; flex-direction: column; gap: 10px; align-items: stretch; }
+.hm-mp-x { position: absolute; top: 8px; right: 12px; background: none; border: none; color: #9a95b8; font-size: 26px; cursor: pointer; line-height: 1; }
+.hm-mp-m { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 500; }
+.hm-mp-t { margin: 4px 0 0; font-size: 16px; line-height: 1.65; color: #e3dcff; white-space: pre-wrap; }
+.hm-mp-img { max-width: 100%; max-height: 52vh; object-fit: contain; border-radius: 12px; margin: 0 auto; }
+.hm-mp-empty { color: #7d7896; font-style: italic; font-size: 13px; margin: 0; }
+.hm-mp-err { color: #ff8a8a; font-size: 12px; margin: 0; }
+.hm-mp-edit, .hm-mission-btns button, .hm-mp-file { align-self: center; padding: 7px 16px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.06); color: #f1ecff; cursor: pointer; font-size: 13px; }
+.hm-mission-btns button.is-main { background: #7c3aed; border-color: #7c3aed; }
+.hm-mp label:not(.hm-mp-file) { font-size: 12px; color: #c084fc; text-align: left; }
+.hm-mp label small { color: #7d7896; }
+.hm-mp textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.05); color: #f1ecff; font: inherit; font-size: 14px; resize: vertical; }
+.hm-mission-btns { display: flex; gap: 8px; justify-content: center; margin-top: 2px; }

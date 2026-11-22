@@ -37,6 +37,7 @@ export async function syncToSupabase(userId) {
     weekly_objectives: JSON.parse(localStorage.getItem("lp_weekly_objectives") || "[]"),
     monthly_reviews: JSON.parse(localStorage.getItem("lp_monthly_reviews")  || "[]"),
     custom_items:    JSON.parse(localStorage.getItem("lp_custom_items")     || "[]"),
+    mission:         JSON.parse(localStorage.getItem("lp_mission")          || "{}"),
     view_mode:      localStorage.getItem("lp_view_mode") || "pc",
     updated_at:      new Date().toISOString(),
   };
@@ -45,7 +46,7 @@ export async function syncToSupabase(userId) {
   // et on synchronise le reste plutôt que de bloquer toute la sauvegarde.
   // Les données restent en local et partiront une fois la colonne créée.
   const rest = { ...payload };
-  for (const col of ["monthly_reviews", "weekly_objectives", "custom_items"]) {
+  for (const col of ["monthly_reviews", "weekly_objectives", "custom_items", "mission"]) {
     if (!error || !new RegExp(col).test(error.message || "")) continue;
     delete rest[col];
     ({ error } = await supabase.from("user_data").upsert(rest));
@@ -76,6 +77,7 @@ export function hydrateLocalStorage(data) {
   if (hasContent(data.highlight))       localStorage.setItem("lp_highlight",       JSON.stringify(data.highlight));
   if (hasContent(data.weekly_reviews))  localStorage.setItem("lp_weekly_reviews",  JSON.stringify(data.weekly_reviews));
   if (hasContent(data.monthly_reviews)) localStorage.setItem("lp_monthly_reviews", JSON.stringify(data.monthly_reviews));
+  if (hasContent(data.mission))         localStorage.setItem("lp_mission",         JSON.stringify(data.mission));
   if (data.view_mode)                   localStorage.setItem("lp_view_mode",       data.view_mode);
   // Fusion par id plutôt qu'écrasement : avant la synchro, chaque appareil a pu
   // accumuler ses propres objectifs en local. Le serveur gagne en cas de conflit.

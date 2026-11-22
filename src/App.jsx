@@ -1456,6 +1456,96 @@ function buildCap(goals, todos, today) {
   };
 }
 
+// Étoile Polaire (La Cible) : mission centrée en haut de la Home. Clic = fenêtre avec
+// le mantra (texte) et/ou l'image ; on y modifie aussi le texte et l'image.
+const MISSION_DEFAULT = { mission: "Vivre une existence libérée, riche en bien-être, en relation et en transmission", vision: "", image: "" };
+// Réduit la photo (1000 px max, JPEG) pour qu'elle reste légère à synchroniser.
+const shrinkImage = file => new Promise((ok, ko) => {
+  const r = new FileReader();
+  r.onerror = ko;
+  r.onload = () => {
+    const im = new Image();
+    im.onerror = ko;
+    im.onload = () => {
+      const k = Math.min(1, 1000 / Math.max(im.width, im.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      ok(c.toDataURL("image/jpeg", 0.8));
+    };
+    im.src = r.result;
+  };
+  r.readAsDataURL(file);
+});
+function HomeMission() {
+  const [m, setM] = useState(() => ({ ...MISSION_DEFAULT, ...getLS("lp_mission", {}) }));
+  const [open, setOpen] = useState(false);
+  const [edit, setEdit] = useState(false);
+  const [draft, setDraft] = useState(m);
+  const [err, setErr] = useState("");
+  const close = () => { setOpen(false); setEdit(false); setErr(""); };
+  const save = () => {
+    const v = { mission: draft.mission.trim() || MISSION_DEFAULT.mission, vision: draft.vision.trim(), image: draft.image || "" };
+    setM(v); setLS("lp_mission", v); setEdit(false);
+  };
+  const pick = async e => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    if (!f) return;
+    try { const d = await shrinkImage(f); setDraft(x => ({ ...x, image: d })); setErr(""); } catch { setErr("Image illisible, essaie un autre fichier."); }
+  };
+  useEffect(() => {
+    if (!open) return;
+    const kd = e => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", kd);
+    return () => window.removeEventListener("keydown", kd);
+  }, [open]);
+  const hasContent = m.vision || m.image;
+  return (
+    <>
+      <section className="hm-mission" onClick={() => setOpen(true)} title="Ouvrir ma mission" role="button" tabIndex={0} onKeyDown={e => { if (e.key === "Enter") setOpen(true); }}>
+        <span className="hm-mission-k">✦ MISSION</span>
+        <p className="hm-mission-t">{m.mission}</p>
+      </section>
+      {open && createPortal(
+        <div className="hm-mp-bg" onClick={close}>
+          <div className="hm-mp" onClick={e => e.stopPropagation()} role="dialog" aria-label="Ma mission">
+            <button type="button" className="hm-mp-x" onClick={close} aria-label="Fermer">×</button>
+            {!edit ? (
+              <>
+                <span className="hm-mission-k">✦ MISSION</span>
+                <p className="hm-mp-m">{m.mission}</p>
+                {m.image && <img className="hm-mp-img" src={m.image} alt="Ma mission" />}
+                {m.vision && <p className="hm-mp-t">{m.vision}</p>}
+                {!hasContent && <p className="hm-mp-empty">Ajoute ton mantra (texte à te répéter chaque matin) ou une image.</p>}
+                <button type="button" className="hm-mp-edit" onClick={() => { setDraft(m); setEdit(true); }}>Modifier</button>
+              </>
+            ) : (
+              <>
+                <label>Mission <small>(une phrase, affichée sur la Home)</small></label>
+                <textarea rows={2} value={draft.mission} onChange={e => setDraft(d => ({ ...d, mission: e.target.value }))} />
+                <label>Mantra / texte <small>(à te répéter chaque matin)</small></label>
+                <textarea rows={6} value={draft.vision} onChange={e => setDraft(d => ({ ...d, vision: e.target.value }))} placeholder="Écris ici ton mantra, ta vision, ton héritage…" />
+                <label>Image <small>(optionnelle)</small></label>
+                {draft.image && <img className="hm-mp-img" src={draft.image} alt="" />}
+                <div className="hm-mission-btns">
+                  <label className="hm-mp-file">{draft.image ? "Changer l'image" : "Ajouter une image"}<input type="file" accept="image/*" onChange={pick} hidden /></label>
+                  {draft.image && <button type="button" onClick={() => setDraft(d => ({ ...d, image: "" }))}>Retirer l'image</button>}
+                </div>
+                {err && <p className="hm-mp-err">{err}</p>}
+                <div className="hm-mission-btns">
+                  <button type="button" className="is-main" onClick={save}>Enregistrer</button>
+                  <button type="button" onClick={() => setEdit(false)}>Annuler</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 function HomeCap({ cap, sel, onSelect }) {
   const n = cap.cols.length;
   if (n === 0) {
@@ -1873,6 +1963,7 @@ function Dashboard({ onNavigate, onOpenMenu, activeSession, onStartLive, onLogSe
 
       <div className="hm-grid">
         <main className="hm-left">
+          <HomeMission />
           <HomeCap cap={cap} sel={sel} onSelect={i => setSelId(cap.cols[i].m.id)} />
           <HomeSteps
             today={t} col={col} todos={todos} results={results} week={week}
@@ -2603,6 +2694,8 @@ function LifePlanTree({ goals, onOpenEdit }) {
 }
 
 const OBJ_MAX_PER_LEVEL = 6;
+// La Cible : 3 objectifs annuels maximum (priorisation).
+const OBJ_MAX = { annuel: 3 };
 // Instances montées qui tiennent une copie de lp_goals : les opérations de l'API
 // (applyApiOpsToStore) les rafraîchissent pour qu'elles n'écrasent pas le nouvel état.
 const _goalSubs = new Set();
@@ -2628,7 +2721,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
   const parentLevelId = LEVEL_PARENT[tab];
   const parentLevel   = LEVELS.find(l=>l.id===parentLevelId);
   const parentOptions = parentLevelId?(goals[parentLevelId]||[]).filter(o=>isGoalRunning(o,todayStr())):[];
-  const atMax = items.length >= OBJ_MAX_PER_LEVEL;
+  const atMax = items.length >= (OBJ_MAX[tab] || OBJ_MAX_PER_LEVEL);
   const add = () => {
     if(!newTitre.trim() || atMax) return;
     const obj={id:uid(),titre:newTitre.trim(),statut:"Ça arrive",spaces:newSpaces,krs:[],...(newParentId?{parentId:newParentId}:{})};
@@ -2684,11 +2777,11 @@ function ObjectifsModule({ initialTab = "lt" }) {
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
           <span style={{fontSize:14,fontWeight:700,color:level.c,display:"flex",alignItems:"center",gap:8}}>
             <span style={{fontSize:17,filter:`drop-shadow(0 0 5px ${level.c}aa)`}}>{level.icon}</span>{level.label}
-            <span style={{fontSize:10,fontWeight:700,color:atMax?C.amber:C.faint,fontVariantNumeric:"tabular-nums"}}>{items.length}/{OBJ_MAX_PER_LEVEL}</span>
+            <span style={{fontSize:10,fontWeight:700,color:atMax?C.amber:C.faint,fontVariantNumeric:"tabular-nums"}}>{items.length}/{(OBJ_MAX[tab] || OBJ_MAX_PER_LEVEL)}</span>
           </span>
-          <button className="tap44" aria-label="Ajouter un objectif" onClick={()=>{ if(!atMax) setShowAdd(s=>!s); }} title={atMax?`Maximum ${OBJ_MAX_PER_LEVEL} atteint`:"Ajouter un objectif"} style={{width:38,height:38,borderRadius:12,cursor:atMax?"not-allowed":"pointer",fontFamily:"inherit",fontSize:15,display:"inline-flex",alignItems:"center",justifyContent:"center",border:`1px solid ${showAdd?C.accent:C.borderMid}`,background:showAdd?GRAD:C.surface2,color:atMax?C.faint:showAdd?"#fff":C.accent,opacity:atMax?0.5:1,boxShadow:showAdd?GLOW_SM:"none"}}>{showAdd?"✕":"✏️"}</button>
+          <button className="tap44" aria-label="Ajouter un objectif" onClick={()=>{ if(!atMax) setShowAdd(s=>!s); }} title={atMax?`Maximum ${(OBJ_MAX[tab] || OBJ_MAX_PER_LEVEL)} atteint`:"Ajouter un objectif"} style={{width:38,height:38,borderRadius:12,cursor:atMax?"not-allowed":"pointer",fontFamily:"inherit",fontSize:15,display:"inline-flex",alignItems:"center",justifyContent:"center",border:`1px solid ${showAdd?C.accent:C.borderMid}`,background:showAdd?GRAD:C.surface2,color:atMax?C.faint:showAdd?"#fff":C.accent,opacity:atMax?0.5:1,boxShadow:showAdd?GLOW_SM:"none"}}>{showAdd?"✕":"✏️"}</button>
         </div>
-        {atMax&&<div style={{fontSize:12,color:C.amber,marginBottom:14}}>⚠️ Maximum {OBJ_MAX_PER_LEVEL} objectifs {level.label.toLowerCase()} par période. Clôture ou supprime-en un pour en ajouter.</div>}
+        {atMax&&<div style={{fontSize:12,color:C.amber,marginBottom:14}}>⚠️ Maximum {(OBJ_MAX[tab] || OBJ_MAX_PER_LEVEL)} objectifs {level.label.toLowerCase()} par période. Clôture ou supprime-en un pour en ajouter.</div>}
         {showAdd&&!atMax&&(
           <div className="slide-up" style={{background:C.surface2,border:`1px solid ${C.borderMid}`,borderRadius:18,padding:16,marginBottom:20}}>
           <div style={{display:"flex",flexDirection:"column",gap:10}}>
