@@ -29,7 +29,7 @@ export const LEGAL_ROUTES = {
 };
 
 const S = {
-  page: { minHeight: "100vh", background: C.bg, color: C.text, fontFamily: "var(--font-body)" },
+  page: { minHeight: "calc(100vh * var(--zk))", background: C.bg, color: C.text, fontFamily: "var(--font-body)" },
   wrap: { maxWidth: 780, margin: "0 auto", padding: "40px 20px 80px" },
   h1: { fontFamily: "var(--font-display)", fontSize: 30, fontWeight: 800, letterSpacing: "-0.01em", margin: "18px 0 6px" },
   updated: { color: C.faint, fontSize: 12, marginBottom: 28 },

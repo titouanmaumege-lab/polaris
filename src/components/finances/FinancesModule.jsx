@@ -118,7 +118,7 @@ function Modal({ open, onClose, title, children, wide }) {
   if (!open) return null;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,.72)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.borderMid}`, borderRadius: 20, padding: 28, width: "100%", maxWidth: wide ? 540 : 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,.6)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: C.surface, border: `1px solid ${C.borderMid}`, borderRadius: 20, padding: 28, width: "100%", maxWidth: wide ? 540 : 480, maxHeight: "calc(90vh * var(--zk))", overflowY: "auto", boxShadow: "0 24px 80px rgba(0,0,0,.6)" }}>
         <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, color: C.text }}>{title}</div>
         {children}
       </div>
@@ -654,9 +654,9 @@ export default function FinancesModule({ userId }) {
   ];
 
   return (
-    <div className="theme-light fin-root" style={{ display: "flex", minHeight: "100vh", color: C.text, fontFamily: "var(--font-body)" }}>
+    <div className="theme-light fin-root" style={{ display: "flex", minHeight: "calc(100vh * var(--zk))", color: C.text, fontFamily: "var(--font-body)" }}>
       {/* ── SIDEBAR (téléphone : en-tête + rangées défilantes, cf. index.css) ── */}
-      <nav className="fin-nav" style={{ width: 220, flexShrink: 0, background: "linear-gradient(to right, rgba(139,92,246,0.035), rgba(139,92,246,0))", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", paddingBottom: 90 }}>
+      <nav className="fin-nav" style={{ width: 220, flexShrink: 0, background: "linear-gradient(to right, rgba(139,92,246,0.035), rgba(139,92,246,0))", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "calc(100vh * var(--zk))", overflowY: "auto", paddingBottom: 90 }}>
         <div className="fin-brand" style={{ padding: "22px 18px 10px", display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 34, height: 34, background: C.accentBg, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17 }}>💼</div>
           <div style={{ fontSize: 16, fontWeight: 800 }}>Budget</div>

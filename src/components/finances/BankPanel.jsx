@@ -305,7 +305,7 @@ export default function BankPanel({ userId, getAcc, onSynced }) {
 
       {picking && (
         <div onClick={() => setPicking(false)} style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,.72)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-          <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 18, padding: 22, width: "100%", maxWidth: 440, maxHeight: "80vh", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,.6)" }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: C.surface, borderRadius: 18, padding: 22, width: "100%", maxWidth: 440, maxHeight: "calc(80vh * var(--zk))", display: "flex", flexDirection: "column", boxShadow: "0 24px 80px rgba(0,0,0,.6)" }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 17, fontWeight: 700, flex: 1 }}>Choisir la banque</span>
               <button onClick={() => setPicking(false)} aria-label="Fermer" style={{ background: "none", border: "none", color: C.muted, fontSize: 16, cursor: "pointer", width: 36, height: 36 }}>✕</button>

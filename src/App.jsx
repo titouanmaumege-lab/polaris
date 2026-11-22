@@ -1320,7 +1320,7 @@ function WeeklyCalendar() {
       {listSheet && (
         <div onClick={() => setListSheet(null)} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
           <div onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label={listSheet.title} className="pop-in theme-light" style={{
-            width:"100%", maxWidth:420, maxHeight:"80vh", overflowY:"auto", boxSizing:"border-box",
+            width:"100%", maxWidth:420, maxHeight:"calc(80vh * var(--zk))", overflowY:"auto", boxSizing:"border-box",
             background:"var(--c-surface-2)", borderRadius:22, border:"1px solid var(--c-border-mid)",
             padding:"14px 16px 16px",
           }}>
@@ -1968,7 +1968,7 @@ function ObjectifEditModal({ obj, levelId, allGoals, onUpdate, onDelete, onClose
   const save = () => { onUpdate({...obj,titre:titre.trim(),statut,spaces,parentId:parentId||undefined,krs,...(ptype?{periode,dateCloture:dateCloture||undefined}:{})}); onClose(); };
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
-      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"calc(90vh * var(--zk))",overflowY:"auto"}}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
           <div style={{fontSize:10,color:level?.c,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.1em"}}>{level?.icon} {level?.label}</div>
           <button onClick={onClose} style={{width:30,height:30,borderRadius:"50%",border:`1px solid ${C.border}`,background:C.surface2,color:C.muted,cursor:"pointer",fontSize:13,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,padding:0}}>✕</button>
@@ -2183,7 +2183,7 @@ function ClotureModal({ obj, levelId, onArchive, onClose }) {
   };
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(5,4,15,0.72)", backdropFilter: "blur(6px)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} className="slide-up" style={{ width: "100%", maxWidth: 480, background: C.surface, borderRadius: 22, border: `1px solid ${C.amber}55`, padding: 22, maxHeight: "90vh", overflowY: "auto", boxShadow: `0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${C.amber}22` }}>
+      <div onClick={e => e.stopPropagation()} className="slide-up" style={{ width: "100%", maxWidth: 480, background: C.surface, borderRadius: 22, border: `1px solid ${C.amber}55`, padding: 22, maxHeight: "calc(90vh * var(--zk))", overflowY: "auto", boxShadow: `0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${C.amber}22` }}>
         <div style={{ fontSize: 10, color: C.amber, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em", marginBottom: 4 }}>🔒 Clôture · {lv?.icon} {lv?.label}</div>
         <div style={{ fontSize: 17, fontWeight: 700, color: C.text, marginBottom: 16 }}>{obj.titre}</div>
 
@@ -2609,7 +2609,7 @@ function ObjectifsModule({ initialTab = "lt" }) {
     setToast(null);
   };
   return (
-    <div className="theme-light" style={{minHeight:"100dvh"}}>
+    <div className="theme-light" style={{minHeight:"calc(100dvh * var(--zk))"}}>
       <CFHeader eyebrow="Vision &amp; cap" title="Objectifs" />
       <div style={{padding:"4px 16px 100px"}}>
         <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:20,paddingBottom:4}}>
@@ -3055,7 +3055,7 @@ function DayCreateModal({ date, initialType = null, onCreate, onClose }) {
     }}>
       <div onClick={e => e.stopPropagation()} className="slide-up" style={{
         position:"relative", background:C.surface, border:`1px solid ${C.accent}55`, borderRadius:22,
-        width:"100%", maxWidth:440, maxHeight:"88vh", overflowY:"auto",
+        width:"100%", maxWidth:440, maxHeight:"calc(88vh * var(--zk))", overflowY:"auto",
         boxShadow:`0 24px 60px rgba(0,0,0,0.55), 0 0 40px ${C.accent}22`,
       }}>
         <div style={{ padding:22 }}>
@@ -3322,7 +3322,7 @@ function ClarifyModal({item, onSave, onClose}) {
   };
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
-      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"90vh",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:480,background:C.surface,borderRadius:24,border:`1px solid ${C.border}`,padding:20,maxHeight:"calc(90vh * var(--zk))",overflowY:"auto"}}>
         <div style={{fontSize:16,fontWeight:700,color:C.text,marginBottom:12}}>Classifier cette tâche</div>
         <div style={{marginBottom:14}}>
           <Input value={form.name} onChange={v=>set({name:v})} placeholder="Nom de la tâche..."/>
@@ -3364,7 +3364,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.65)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
-      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"85vh",overflowY:"auto"}}>
+      <div onClick={e=>e.stopPropagation()} className="slide-up" style={{width:"100%",maxWidth:520,background:C.surface,borderRadius:20,border:`1px solid ${C.border}`,padding:20,maxHeight:"calc(85vh * var(--zk))",overflowY:"auto"}}>
         <input autoFocus value={form.name} onChange={e=>set({name:e.target.value})}
           style={{width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${C.borderMid}`,color:C.text,fontSize:17,fontWeight:600,fontFamily:"inherit",outline:"none",padding:"4px 0",boxSizing:"border-box",marginBottom:16}}/>
 
@@ -3672,7 +3672,7 @@ function TodoModule() {
   ];
 
   return (
-    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+    <div className="theme-light" style={{minHeight:"calc(100dvh * var(--zk))",fontFamily:"var(--font-body)",color:C.text}}>
       <CFHeader eyebrow="Get Things Done" title="Todo" />
 
 
@@ -4271,7 +4271,7 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
       <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
-        width:"100%", maxWidth:560, maxHeight:"88vh", overflowY:"auto", overflowX:"hidden", boxSizing:"border-box",
+        width:"100%", maxWidth:560, maxHeight:"calc(88vh * var(--zk))", overflowY:"auto", overflowX:"hidden", boxSizing:"border-box",
         background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.borderMid}`, borderBottom:"none",
         boxShadow:"0 -16px 60px rgba(0,0,0,0.6)", padding:"16px 18px calc(22px + env(safe-area-inset-bottom))",
       }}>
@@ -4440,7 +4440,7 @@ function HabitudesModule() {
   const dayPct = habits.length ? Math.round(done/habits.length*100) : 0;
   const RING=44, RSW=4, RR=(RING-RSW)/2, RC=2*Math.PI*RR;
   return (
-    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+    <div className="theme-light" style={{minHeight:"calc(100dvh * var(--zk))",fontFamily:"var(--font-body)",color:C.text}}>
       <CFHeader eyebrow="Discipline" title="Habitudes"
         action={
           <div style={{position:"relative",width:RING,height:RING,flexShrink:0}}>
@@ -5118,7 +5118,7 @@ function WorkPerfModule({ activeSession, onSessionStart, onSessionStop }) {
   const deepToday=todaySessions.filter(s=>s.type==="DEEP").reduce((a,s)=>a+s.temps,0);
   const weekTotal=weekSessions.reduce((a,s)=>a+s.temps,0);
   return (
-    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+    <div className="theme-light" style={{minHeight:"calc(100dvh * var(--zk))",fontFamily:"var(--font-body)",color:C.text}}>
       <CFHeader eyebrow="Deep Work" title="WorkPerf" action={<button onClick={()=>setShowChoice(true)} style={{background:GRAD,color:"#fff",border:"none",padding:"10px 20px",borderRadius:12,fontSize:13,fontWeight:700,cursor:"pointer",boxShadow:GLOW_SM,fontFamily:"inherit",minHeight:44}}>+ Session</button>}/>
       {showChoice && <SessionChoiceModal onClose={()=>setShowChoice(false)} onLive={()=>{setShowChoice(false);setShowLive(true);}} onLog={()=>{setShowChoice(false);setShowForm(true);}} />}
       {showLive && <LiveStartForm onClose={()=>setShowLive(false)} onLaunch={(name,cat)=>{onSessionStart({name,category:cat,startTime:Date.now()});}} />}
@@ -5417,7 +5417,7 @@ function ItemAddModal({ globalItems, onClose, onAdd, onCreateAndAdd }) {
   return (
     <div style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}>
       <div onClick={onClose} style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.7)',backdropFilter:'blur(4px)'}} />
-      <div className="slide-up" style={{position:'relative',width:'min(480px,100%)',background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px 20px',maxHeight:'85vh',display:'flex',flexDirection:'column'}}>
+      <div className="slide-up" style={{position:'relative',width:'min(480px,100%)',background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,padding:'24px 20px',maxHeight:'calc(85vh * var(--zk))',display:'flex',flexDirection:'column'}}>
         <div style={{fontSize:14,fontWeight:700,color:C.text,textAlign:'center',marginBottom:16,textTransform:'uppercase',letterSpacing:'0.08em'}}>Ajouter un bloc</div>
         <div style={{fontSize:11,color:C.muted,textAlign:'center',marginTop:-8,marginBottom:14}}>Il revient chaque jour jusqu'à ce que tu le supprimes.</div>
         <div style={{display:'flex',gap:4,marginBottom:20}}>
@@ -5702,7 +5702,7 @@ function DailyPaperModule({ onNav }) {
   const editingItem = customGlobalItems.find(g=>g.id===editingItemId);
 
   return (
-    <div className="theme-light" style={{minHeight:"100dvh",fontFamily:"var(--font-body)",color:C.text}}>
+    <div className="theme-light" style={{minHeight:"calc(100dvh * var(--zk))",fontFamily:"var(--font-body)",color:C.text}}>
       <CFHeader eyebrow="Journal" title="Daily Paper" />
       <div style={{padding:"4px 16px 100px"}}>
         {/* Date nav + progression du rituel */}
@@ -6262,7 +6262,7 @@ function MonthlyReviewModal({ monthKey: mk, onClose, onSaved }) {
     <div style={{ position: "fixed", inset: 0, zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.82)", backdropFilter: "blur(6px)" }} />
       <div role="dialog" aria-modal="true" aria-label={`Review de ${monthLabel(mk)}`} className="theme-light pop-in"
-        style={{ position: "relative", width: "min(760px, 100%)", maxHeight: "92dvh", display: "flex", flexDirection: "column", background: C.surface, borderRadius: 22, border: `1px solid ${C.borderMid}`, boxShadow: "0 24px 80px rgba(0,0,0,0.8)", fontFamily: "var(--font-body)", color: C.text }}>
+        style={{ position: "relative", width: "min(760px, 100%)", maxHeight: "calc(92dvh * var(--zk))", display: "flex", flexDirection: "column", background: C.surface, borderRadius: 22, border: `1px solid ${C.borderMid}`, boxShadow: "0 24px 80px rgba(0,0,0,0.8)", fontFamily: "var(--font-body)", color: C.text }}>
         <header style={{ padding: "18px 20px 12px", display: "flex", alignItems: "flex-start", gap: 12, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 10, color: C.accent, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 700, marginBottom: 4 }}>Review mensuelle</div>
@@ -6524,7 +6524,7 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
   return (
     <div style={{position:"fixed",inset:0,zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:"16px"}}>
       <div onClick={onClose} style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.82)",backdropFilter:"blur(6px)"}} />
-      <div className="theme-light" style={{position:"relative",width:"min(1280px,98vw)",maxHeight:"94vh",display:"flex",flexDirection:"column",background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,boxShadow:"0 0 60px rgba(168,85,247,0.35), 0 24px 80px rgba(0,0,0,0.8)",animation:"slide-up 0.22s ease",fontFamily:"var(--font-body)"}}>
+      <div className="theme-light" style={{position:"relative",width:"min(1280px,98vw)",maxHeight:"calc(94vh * var(--zk))",display:"flex",flexDirection:"column",background:C.surface,borderRadius:24,border:`1px solid ${C.borderMid}`,boxShadow:"0 0 60px rgba(168,85,247,0.35), 0 24px 80px rgba(0,0,0,0.8)",animation:"slide-up 0.22s ease",fontFamily:"var(--font-body)"}}>
 
         {/* Header */}
         <div className="wr-head" style={{padding:"22px 28px 16px",display:"flex",alignItems:"center",gap:14,flexShrink:0}}>
@@ -7624,7 +7624,7 @@ function PersonalisationModal({ onClose, onSave }) {
 
   return (
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:500,display:"flex",alignItems:"center",justifyContent:"center",padding:16,backdropFilter:"blur(4px)"}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:480,maxHeight:"85vh",display:"flex",flexDirection:"column",border:`1px solid ${C.border}`,boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:C.surface,borderRadius:20,width:"100%",maxWidth:480,maxHeight:"calc(85vh * var(--zk))",display:"flex",flexDirection:"column",border:`1px solid ${C.border}`,boxShadow:"0 24px 64px rgba(0,0,0,0.5)"}}>
         {/* Header */}
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 20px 0"}}>
           <div style={{fontSize:17,fontWeight:700,color:C.text}}>⚙️ Personnalisation</div>
@@ -7817,7 +7817,7 @@ export default function App({ session, signOut }) {
 
   const inner = (
     <div
-      style={{ minHeight:"100vh", background:C.bg, color:C.text, fontFamily:"var(--font-body)", position:"relative", overflowX:"hidden" }}
+      style={{ minHeight:"calc(100vh * var(--zk))", background:C.bg, color:C.text, fontFamily:"var(--font-body)", position:"relative", overflowX:"hidden" }}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
     >
@@ -7903,8 +7903,8 @@ export default function App({ session, signOut }) {
 
   if (mobile) {
     return (
-      <div style={{ minHeight:"100vh", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
-        <div style={{ width:390, minHeight:"100vh", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
+      <div style={{ minHeight:"calc(100vh * var(--zk))", background:"#06060f", display:"flex", justifyContent:"center", alignItems:"flex-start" }}>
+        <div style={{ width:390, minHeight:"calc(100vh * var(--zk))", overflowX:"hidden", boxShadow:"0 0 0 1px rgba(139,92,246,0.2), 0 24px 80px rgba(0,0,0,0.8)" }}>
           {inner}
         </div>
       </div>

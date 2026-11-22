@@ -417,7 +417,8 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     let col = cols.find(c => { const r = c.getBoundingClientRect(); return x >= r.left && x < r.right; });
     if (!col) col = x < cols[0].getBoundingClientRect().left ? cols[0] : cols[cols.length - 1];
     const r = col.getBoundingClientRect();
-    const raw = ((y - r.top) / PX) * 60 + START_H * 60;
+    const z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1; // l'app est affichée à 75 % : les pixels de la souris sont « zoomés »
+    const raw = ((y - r.top) / z / PX) * 60 + START_H * 60;
     return { ds: col.dataset.col, min: Math.max(START_H * 60, Math.min(END_H * 60, raw)) };
   };
   const beginDrag = (e, kind, item) => {

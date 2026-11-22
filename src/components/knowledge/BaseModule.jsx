@@ -1270,7 +1270,7 @@ function TabsModal({ candidates, onClose, onSave }) {
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
       <div onClick={onClose} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} />
-      <div style={{ position: "relative", width: "min(440px,100%)", maxHeight: "85dvh", overflowY: "auto", background: C.surface, borderRadius: 24, border: `1px solid ${C.borderMid}`, padding: 24, boxSizing: "border-box" }}>
+      <div style={{ position: "relative", width: "min(440px,100%)", maxHeight: "calc(85dvh * var(--zk))", overflowY: "auto", background: C.surface, borderRadius: 24, border: `1px solid ${C.borderMid}`, padding: 24, boxSizing: "border-box" }}>
         <div style={{ fontSize: 14, fontWeight: 700, color: C.text, textAlign: "center", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em" }}>Onglets</div>
         <div style={{ fontSize: 12, color: C.muted, textAlign: "center", marginBottom: 16 }}>Afficher une base en onglet sur l'accueil</div>
         {candidates.length === 0
@@ -1721,7 +1721,7 @@ export default function BaseModule({ userId }) {
   );
 
   return (
-    <div className="theme-light" style={{ minHeight: "100dvh", color: C.text, fontFamily: "var(--font-body)" }}>
+    <div className="theme-light" style={{ minHeight: "calc(100dvh * var(--zk))", color: C.text, fontFamily: "var(--font-body)" }}>
       {view === "home" && (
         <BaseHome
           userId={userId}

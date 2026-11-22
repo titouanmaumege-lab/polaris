@@ -236,13 +236,13 @@ export default function AuthGate({ children }) {
   };
 
   if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg, color: C.muted, fontSize: 14 }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "calc(100vh * var(--zk))", background: C.bg, color: C.muted, fontSize: 14 }}>
       {migrating ? "Migration des données en cours…" : "Chargement…"}
     </div>
   );
 
   if (recovery) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "calc(100vh * var(--zk))", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><PolarisLogo size={72} /></div>
         <h2 style={{ color: C.text, fontSize: 24, fontWeight: 800, letterSpacing: "0.04em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>
@@ -263,7 +263,7 @@ export default function AuthGate({ children }) {
   // Chargement échoué : on garde la session ouverte mais on n'entre pas dans
   // l'app — sinon la synchro débouncée réécrirait un état local vide.
   if (loadError) return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: C.bg }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "calc(100vh * var(--zk))", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}`, textAlign: "center" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><PolarisLogo size={72} /></div>
         <h2 style={{ color: C.text, fontSize: 20, fontWeight: 800, letterSpacing: "0.04em", marginBottom: 10 }}>Connexion impossible</h2>
@@ -278,7 +278,7 @@ export default function AuthGate({ children }) {
   );
 
   if (!session) return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: C.bg }}>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "calc(100vh * var(--zk))", background: C.bg }}>
       <div style={{ width: 360, padding: 32, background: C.surface, borderRadius: 16, border: `1px solid ${C.borderMid}` }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 14 }}><PolarisLogo size={88} /></div>
         <h2 style={{ color: C.text, fontSize: 26, fontWeight: 800, letterSpacing: "0.05em", marginBottom: 8, textAlign: "center" }}>POLARIS</h2>

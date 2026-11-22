@@ -114,8 +114,8 @@ html, body {
 
 #root {
   overflow-x: hidden;
-  min-height: 100vh;
-  min-height: 100dvh;
+  min-height: calc(100vh * var(--zk));
+  min-height: calc(100dvh * var(--zk));
 }
 
 * {
@@ -198,7 +198,7 @@ button:active {
 /* Home — tient dans une page, sans défilement.
    Le root prend la hauteur de la fenêtre, le calendrier absorbe le reste. */
 .dash-page {
-  height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
+  height: calc(100dvh * var(--zk)); display: flex; flex-direction: column; overflow: hidden;
 }
 
 /* Cartouche d'identité — un seul bandeau aligné, pas de bloc empilé. */
@@ -233,7 +233,7 @@ button:active {
 
 
 /* Zoom 100 % sur un 1080p : le viewport CSS tombe vers 940 px. Sans ça Home,
-   qui est en height:100dvh + overflow:hidden, se faisait rogner par le bas. */
+   qui est en height:calc(100dvh * var(--zk)) + overflow:hidden, se faisait rogner par le bas. */
 @media (max-height: 1000px) {
   .dash-header { padding: 12px 32px 8px; }
   .dash-logo   { width: 42px; height: 42px; }
@@ -629,7 +629,7 @@ button:active {
    PC : cap + étapes à gauche, colonne Aujourd'hui (320 px) à droite.
    Téléphone : une colonne qui défile (cap condensé, étapes, aujourd'hui).
    ───────────────────────────────────────────────────────────────────────── */
-.hm-page { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); }
+.hm-page { height: calc(100dvh * var(--zk)); display: flex; flex-direction: column; overflow: hidden; color: var(--c-text); }
 .hm-head {
   height: 60px; flex-shrink: 0; box-sizing: border-box;
   display: flex; align-items: center; gap: 14px; padding: 0 20px 0 32px;
@@ -826,7 +826,7 @@ button:active {
 
 /* Téléphone : une colonne qui défile ; l'arbre devient la branche choisie + pastilles. */
 @media (max-width: 760px) {
-  .hm-page { height: auto; min-height: 100dvh; overflow: visible; }
+  .hm-page { height: auto; min-height: calc(100dvh * var(--zk)); overflow: visible; }
   .hm-head { padding: 0 12px 0 16px; }
   .hm-ameliorer { display: none; }
   .hm-grid { display: block; padding-bottom: 76px; }
@@ -899,7 +899,7 @@ button:active {
 
 
 /* Todo > Semaine : le calendrier occupe toute la hauteur de l'écran, check tasks à gauche. */
-.todo-week { height: calc(100dvh - 205px); min-height: 520px; }
+.todo-week { height: calc(calc(100dvh * var(--zk)) - 205px); min-height: 520px; }
 .todo-week .check-panel { display: flex; flex-direction: column; }
 .todo-week .check-panel-list { flex: 1; min-height: 0; overflow-y: auto; }
 .cal-ribbon .cal-drag-handle { opacity: 0 !important; transition: opacity .15s; }
@@ -1003,3 +1003,18 @@ button:active {
 .hm-steps-head { position: relative; }
 .hm-steps-head > .hm-dot { position: absolute; left: 2px; top: 13px; }
 .hm-steps-head > .hm-steps-goal { position: absolute; left: 18px; top: 8px; max-width: calc(50% - 190px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Home → Calendrier : la colonne de gauche défile, le calendrier prend presque tout l'écran */
+@media (min-width: 761px) {
+  .hm-left { overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(176, 102, 255, .35) transparent; }
+  .hm-left::-webkit-scrollbar { display: block; width: 8px; }
+  .hm-left::-webkit-scrollbar-thumb { background: rgba(176, 102, 255, .35); border-radius: 8px; }
+  .hm-steps-wrap { flex: none; grid-template-rows: none; }
+  .hm-steps { min-height: auto; }
+  .hm-view.is-week { height: max(640px, calc(calc(100dvh * var(--zk)) - 215px)); }
+}
+
+/* Échelle par défaut : l'ancien 75 % devient le 100 % de l'app (ordinateur seulement) */
+:root { --zk: 1; }
+@media (min-width: 900px) { :root { zoom: 0.75; --zk: 1.3333; } }
+
