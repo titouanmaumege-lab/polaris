@@ -4361,7 +4361,116 @@ function HabitLinks({ habit, habits, today, onOpenHabit }) {
   );
 }
 
-// ── Fiche habitude (bottom-sheet) — ce que l'habitude a déjà accumulé.
+// Calendrier d'une habitude : vue Mois / Trimestre / Année, avec navigation.
+const HP_MONTHS = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+function HabitMonthGrid({ y, m, map, today, cell, showNum, habit }) {
+  const C = CF;
+  const first = new Date(y, m, 1);
+  const offset = (first.getDay() + 6) % 7;
+  const n = new Date(y, m + 1, 0).getDate();
+  const GAP = cell >= 24 ? 4 : 3;
+  const items = Array.from({ length: offset }, () => null).concat(Array.from({ length: n }, (_, i) => i + 1));
+  const pad2 = v => String(v).padStart(2, "0");
+  return (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: showNum ? 13 : 11, fontWeight: 700, color: C.muted, marginBottom: 6, textTransform: "capitalize" }}>{HP_MONTHS[m]} {y}</div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(7, ${cell}px)`, gap: GAP }}>
+        {items.map((d, i) => {
+          if (d == null) return <div key={i} />;
+          const date = `${y}-${pad2(m + 1)}-${pad2(d)}`;
+          let st = map[date] || "before";
+          if (date > today) st = "future";
+          if (date === today) st = habitValidated(habit, date) ? "done" : "today";
+          const done = st === "done";
+          return (
+            <div key={i} title={date} style={{
+              width: cell, height: cell, borderRadius: cell > 20 ? 7 : 3, boxSizing: "border-box",
+              background: done ? C.accent : st === "missed" ? C.surface3 : "transparent",
+              border: date === today ? `1px solid ${C.accent}` : (st === "before" || st === "future") ? `1px solid ${C.border}` : "1px solid transparent",
+              opacity: st === "before" || st === "future" ? 0.45 : 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 11, color: done ? "#fff" : C.faint, fontWeight: 600,
+            }}>{showNum ? d : ""}</div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function HabitPeriodView({ habit, today }) {
+  const C = CF;
+  const [mode, setMode] = useState("mois");
+  const ty = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7)) - 1;
+  const [anchor, setAnchor] = useState({ y: ty, m: tm });
+  const [ref, W] = useBoxWidth();
+  const map = (() => {
+    const o = {};
+    heatmapData(habit, today, 160).forEach(c => { o[c.date] = c.state; });
+    return o;
+  })();
+  const shift = dir => setAnchor(a => {
+    const step = mode === "mois" ? 1 : mode === "trimestre" ? 3 : 12;
+    const idx = a.y * 12 + a.m + dir * step;
+    return { y: Math.floor(idx / 12), m: ((idx % 12) + 12) % 12 };
+  });
+  // Mois à afficher + libellé
+  let months, label;
+  if (mode === "mois") { months = [{ y: anchor.y, m: anchor.m }]; label = `${HP_MONTHS[anchor.m]} ${anchor.y}`; }
+  else if (mode === "trimestre") {
+    const q = Math.floor(anchor.m / 3);
+    months = [0, 1, 2].map(k => ({ y: anchor.y, m: q * 3 + k }));
+    label = `T${q + 1} ${anchor.y}`;
+  } else { months = Array.from({ length: 12 }, (_, k) => ({ y: anchor.y, m: k })); label = String(anchor.y); }
+
+  // Chiffres de la période
+  let done = 0, tracked = 0;
+  months.forEach(({ y, m }) => {
+    const n = new Date(y, m + 1, 0).getDate();
+    for (let d = 1; d <= n; d++) {
+      const date = `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (date > today) continue;
+      const st = date === today ? (habitValidated(habit, date) ? "done" : "today") : (map[date] || "before");
+      if (st === "done") { done++; tracked++; } else if (st === "missed") tracked++;
+    }
+  });
+  const pct = tracked ? Math.round(done / tracked * 100) : null;
+
+  const cols = mode === "mois" ? 1 : mode === "trimestre" ? 3 : 4;
+  const GAPC = 18;
+  const avail = Math.max(0, W - GAPC * (cols - 1));
+  const per = cols ? avail / cols : 0;
+  const cell = W <= 0 ? 0 : Math.max(10, Math.min(mode === "mois" ? 46 : mode === "trimestre" ? 30 : 22, Math.floor((per - 6 * 4) / 7)));
+  const tabBtn = (k, l) => (
+    <button key={k} onClick={() => { setMode(k); setAnchor({ y: ty, m: tm }); }}
+      style={{ flex: 1, minHeight: 36, borderRadius: 10, border: `1px solid ${mode === k ? C.accent : C.border}`, background: mode === k ? C.accent : "transparent", color: mode === k ? "#fff" : C.muted, fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+  );
+  const nav = (dir, l) => (
+    <button onClick={() => shift(dir)} aria-label={l} style={{ width: 36, height: 36, borderRadius: 10, border: `1px solid ${C.border}`, background: "transparent", color: C.text, fontSize: 15, cursor: "pointer" }}>{dir < 0 ? "‹" : "›"}</button>
+  );
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>{tabBtn("mois", "Mois")}{tabBtn("trimestre", "Trimestre")}{tabBtn("annee", "Année")}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        {nav(-1, "Précédent")}
+        <div style={{ flex: 1, textAlign: "center", fontWeight: 800, fontSize: 15, color: C.text, textTransform: "capitalize" }}>{label}</div>
+        {nav(1, "Suivant")}
+      </div>
+      <div ref={ref} style={{ width: "100%" }}>
+        {cell > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, ${cols === 1 ? "auto" : "1fr"})`, gap: `${GAPC}px`, justifyContent: "center" }}>
+            {months.map(({ y, m }) => <HabitMonthGrid key={`${y}-${m}`} y={y} m={m} map={map} today={today} habit={habit} cell={cell} showNum={mode !== "annee"} />)}
+          </div>
+        )}
+      </div>
+      <div style={{ marginTop: 12, fontSize: 12.5, color: C.muted, textAlign: "center" }}>
+        {pct == null ? "Rien de suivi sur cette période." : <><b style={{ color: C.text }}>{done}</b> jours validés sur {tracked} suivis · <b style={{ color: C.accent }}>{pct} %</b></>}
+      </div>
+    </div>
+  );
+}
+
+// ── Fiche habitude (popup centré) — ce que l'habitude a déjà accumulé.
 function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onOpenHabit }) {
   const C = CF, FONT_D = CF_FONT;
   const t = todayStr();
@@ -4390,13 +4499,12 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
   );
 
   return (
-    <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+    <div onClick={onClose} style={{ position:"fixed", inset:0, zIndex:2000, background:"rgba(5,4,15,0.72)", backdropFilter:"blur(6px)", display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}>
       <div onClick={e => e.stopPropagation()} className="slide-up theme-light" style={{
-        width:"100%", maxWidth:560, maxHeight:"calc(88vh * var(--zk))", overflowY:"auto", overflowX:"hidden", boxSizing:"border-box",
-        background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.borderMid}`, borderBottom:"none",
-        boxShadow:"0 -16px 60px rgba(0,0,0,0.6)", padding:"16px 18px calc(22px + env(safe-area-inset-bottom))",
+        width:"min(900px, 100%)", maxHeight:"calc(92vh * var(--zk))", overflowY:"auto", overflowX:"hidden", boxSizing:"border-box",
+        background:C.surface, borderRadius:24, border:`1px solid ${C.borderMid}`,
+        boxShadow:"0 24px 80px rgba(0,0,0,0.7)", padding:"24px 28px 26px",
       }}>
-        <div style={{ width:38, height:4, borderRadius:999, background:C.surface3, margin:"0 auto 16px" }} />
 
         {/* En-tête */}
         <div style={{ display:"flex", alignItems:"flex-start", gap:12 }}>
@@ -4418,9 +4526,7 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
         {/* Calendrier */}
         <div style={{ marginTop:SHEET_GAP }}>
           <SheetTitle>Calendrier</SheetTitle>
-          {start
-            ? <HabitHeatmap habit={habit} today={t} />
-            : <div style={{ fontSize:12.5, color:C.faint }}>Aucune validation pour l'instant.</div>}
+          <HabitPeriodView habit={habit} today={t} />
         </div>
 
         {/* Régularité glissante */}
