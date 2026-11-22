@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { EVENT_COLORS } from "./google";
 import { Ic } from "./icons";
+import { P } from "../../state/perso";
 
 const hm = m => `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 const toMin = s => { const [h, m] = (s || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
@@ -12,7 +13,7 @@ const REPEATS = [["", "Ne se répète pas"], ["DAILY", "Tous les jours"], ["WEEK
 export default function EventPanel({ ev, cals, editable, busy, err, onSave, onDelete, onDuplicate, onMeet, onReconnect, onClose }) {
   const [f, setF] = useState(() => ({
     title: ev.isNew ? "" : ev.title, ds: ev.ds, start: ev.start, end: ev.end, allDay: !!ev.allDay,
-    loc: ev.loc || "", desc: ev.desc || "", colorId: ev.colorId || null, link: ev.source || "",
+    loc: ev.loc || "", desc: ev.desc || "", colorId: ev.colorId || null, sphere: ev.sphere || "", link: ev.source || "",
     reminder: ev.reminder ?? "default", repeat: "", calId: ev.calId,
   }));
   const set = (k, v) => setF(s => ({ ...s, [k]: v }));
@@ -20,10 +21,10 @@ export default function EventPanel({ ev, cals, editable, busy, err, onSave, onDe
   useEffect(() => { if (ev.isNew && titleRef.current) titleRef.current.focus(); }, [ev.isNew]);
 
   const cal = cals.find(c => c.id === f.calId);
-  const accent = (EVENT_COLORS.find(c => c.id === f.colorId)?.hex) || cal?.color || "#b066ff";
+  const accent = P.spheres[f.sphere]?.c || (EVENT_COLORS.find(c => c.id === f.colorId)?.hex) || cal?.color || "#b066ff";
   const ro = !editable;
   const save = () => {
-    const p = { title: f.title.trim(), ds: f.ds, start: f.start, end: Math.max(f.end, f.start + 5), allDay: f.allDay, loc: f.loc, desc: f.desc, colorId: f.colorId, link: f.link.trim(), reminder: f.reminder };
+    const p = { title: f.title.trim(), ds: f.ds, start: f.start, end: Math.max(f.end, f.start + 5), allDay: f.allDay, loc: f.loc, desc: f.desc, colorId: f.colorId, sphere: f.sphere, link: f.link.trim(), reminder: f.reminder };
     if (ev.isNew && f.repeat) p.repeat = f.repeat;
     onSave(p, f.calId);
   };
@@ -80,6 +81,13 @@ export default function EventPanel({ ev, cals, editable, busy, err, onSave, onDe
           <span className="tb-ep-ic"><Ic n="cal" s={15} /></span>
           <select className="tb-ep-field" value={f.calId} disabled={ro || !ev.isNew} onChange={e => set("calId", e.target.value)}>
             {cals.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div className="tb-ep-row">
+          <span className="tb-ep-ic">🏷</span>
+          <select className="tb-ep-field" value={f.sphere} disabled={ro} onChange={e => set("sphere", e.target.value)}>
+            <option value="">Catégorie : aucune (couleur du calendrier)</option>
+            {Object.entries(P.spheres).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
         <div className="tb-ep-row tb-ep-flex">

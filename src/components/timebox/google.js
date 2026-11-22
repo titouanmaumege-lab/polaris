@@ -183,7 +183,7 @@ export async function fetchRange(fromDS, toDS, cals) {
       if (e.status === "cancelled") continue;
       const base = {
         id: e.id, calId: cal.id, writable: cal.writable, title: e.summary || "(sans titre)",
-        colorId: e.colorId || null, color: eventColor(e.colorId) || cal.color,
+        colorId: e.colorId || null, color: eventColor(e.colorId) || cal.color, sphere: e.extendedProperties?.private?.polSphere || null,
         link: linkOf(e), loc: e.location || "", desc: stripHtml(e.description), source: e.source?.url || "",
         recurring: !!e.recurringEventId, htmlLink: e.htmlLink,
         reminder: e.reminders?.useDefault === false ? (e.reminders.overrides?.[0]?.minutes ?? -1) : "default",
@@ -220,6 +220,7 @@ function bodyOf(p, isNew) {
   if ("loc" in p) b.location = p.loc || "";
   if ("desc" in p) b.description = p.desc || "";
   if ("colorId" in p) b.colorId = p.colorId || null;
+  if ("sphere" in p) b.extendedProperties = { private: { polSphere: p.sphere || "" } };
   if ("link" in p) b.source = p.link ? { title: "Lien", url: p.link } : null;
   if ("ds" in p) {
     if (p.allDay) { b.start = { date: p.ds }; b.end = { date: plusDay(p.dsEnd && p.dsEnd > p.ds ? p.dsEnd : p.ds, 1) }; }

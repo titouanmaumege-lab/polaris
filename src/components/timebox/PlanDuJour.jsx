@@ -206,7 +206,8 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     cap.cols.forEach(c => { m[c.m.id] = { color: c.color, label: c.m.titre }; });
     return m;
   }, [cap]);
-  // Couleur d’une tâche = sa catégorie (sphère : sport, business…), plus celle de l’objectif du mois.
+  // Tâche To-do = couleur de son objectif du mois (grise sans objectif).
+  // Événement Google = couleur de sa catégorie (sphère : sport, business…), choisie à la création.
   const [, bumpCat] = useState(0);
   const setSphereColor = (k, hex) => {
     if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
@@ -215,9 +216,9 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     setLS("lp_personalization", { ...getLS("lp_personalization", {}), spheres: P.spheres });
     bumpCat(n => n + 1);
   };
-  const info = t => ({ color: P.spheres[t.sphere]?.c || GREY, label: (colorOf[todoGoalId(t)] || { label: "Sans objectif du mois" }).label });
+  const info = t => ({ color: (colorOf[todoGoalId(t)] || {}).color || GREY, label: (colorOf[todoGoalId(t)] || { label: "Sans objectif du mois" }).label });
   const calCol = useMemo(() => { const m = {}; cals.forEach(c => { m[c.id] = calColors[c.id] || c.color; }); return m; }, [cals, calColors]);
-  const evColor = e => eventColor(e.colorId) || calCol[e.calId] || e.color;
+  const evColor = e => P.spheres[e.sphere]?.c || eventColor(e.colorId) || calCol[e.calId] || e.color;
   const writable = useMemo(() => cals.filter(c => c.writable).map(c => ({ ...c, color: calCol[c.id] || c.color })), [cals, calCol]);
 
   // ── Chargement Google
@@ -380,7 +381,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     const c = defaultCal();
     if (!c) { setMsg("Aucun calendrier modifiable trouvé."); return; }
     setPErr("");
-    setPanel({ isNew: true, ds, start: a, end: b, allDay, calId: c.id, writable: true, title: "", loc: "", desc: "", colorId: null, source: "", reminder: "default" });
+    setPanel({ isNew: true, ds, start: a, end: b, allDay, calId: c.id, writable: true, title: "", loc: "", desc: "", colorId: null, sphere: "", source: "", reminder: "default" });
   };
   const newNow = () => {
     const n = new Date(); const m = Math.ceil((n.getHours() * 60 + n.getMinutes()) / 15) * 15;
@@ -393,7 +394,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     try {
       if (panel.isNew) { const j = await createEvent(calId, p); setPrefs({ lastCalId: calId }); if (j?.id) setUndo({ gop: () => deleteEvent(calId, j.id) }); }
       else {
-        const pv = panel, back = { title: pv.title, ds: pv.ds, start: pv.start, end: pv.end, allDay: !!pv.allDay, loc: pv.loc || "", desc: pv.desc || "", colorId: pv.colorId || null, link: pv.source || "", reminder: pv.reminder ?? "default" };
+        const pv = panel, back = { title: pv.title, ds: pv.ds, start: pv.start, end: pv.end, allDay: !!pv.allDay, loc: pv.loc || "", desc: pv.desc || "", colorId: pv.colorId || null, sphere: pv.sphere || "", link: pv.source || "", reminder: pv.reminder ?? "default" };
         await patchEvent(panel.calId, panel.id, p);
         setUndo({ gop: () => patchEvent(pv.calId, pv.id, back) });
       }
@@ -407,7 +408,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     try {
       const pv = panel;
       await deleteEvent(panel.calId, panel.id);
-      setUndo({ gop: () => createEvent(pv.calId, { title: pv.title, ds: pv.ds, start: pv.start, end: pv.end, allDay: pv.allDay, loc: pv.loc, desc: pv.desc, colorId: pv.colorId, link: pv.source, reminder: pv.reminder }) });
+      setUndo({ gop: () => createEvent(pv.calId, { title: pv.title, ds: pv.ds, start: pv.start, end: pv.end, allDay: pv.allDay, loc: pv.loc, desc: pv.desc, colorId: pv.colorId, sphere: pv.sphere, link: pv.source, reminder: pv.reminder }) });
       setPanel(null); await loadEvents(); }
     catch (e) { setPErr(e.message); }
     setPBusy(false);
@@ -415,7 +416,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
   const dupPanel = async () => {
     setPBusy(true); setPErr("");
     try {
-      await createEvent(panel.calId, { title: panel.title, ds: panel.ds, start: panel.start, end: panel.end, allDay: panel.allDay, loc: panel.loc, desc: panel.desc, colorId: panel.colorId, link: panel.source, reminder: panel.reminder });
+      await createEvent(panel.calId, { title: panel.title, ds: panel.ds, start: panel.start, end: panel.end, allDay: panel.allDay, loc: panel.loc, desc: panel.desc, colorId: panel.colorId, sphere: panel.sphere, link: panel.source, reminder: panel.reminder });
       setPanel(null); await loadEvents();
     } catch (e) { setPErr(e.message); }
     setPBusy(false);
@@ -581,11 +582,14 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     const done = !isG && it.t.done;
     const sel = !isG && blockSel === it.t.id;
     const draggable = isG ? editable(it.e) : !it.t.done;
-    // Tâche Polaris = fond plein ; événement Google = fond léger, bord en pointillés.
+    // Événement Google avec catégorie = fond plein de sa couleur + symbole de la catégorie.
+    // Tâche To-do = fond teinté, bord en pointillés, étoile ★ (symbole Polaris).
+    const sph = isG ? P.spheres[it.e.sphere] : null;
     const style = {
       top: topOf(a) + 1, height: h, left: `calc(${it.lane * 100 / it.lanes}% + 2px)`, width: `calc(${100 / it.lanes}% - 4px)`,
-      background: isG ? col + "14" : col + "55", borderColor: isG ? col + "66" : col + "aa", borderLeftColor: col, borderStyle: isG ? "dashed" : "solid", "--c": col,
+      background: isG ? col + (sph ? "cc" : "33") : col + "30", borderColor: isG ? col + "aa" : col + "cc", borderLeftColor: col, borderStyle: isG ? "solid" : "dashed", "--c": col,
     };
+    const wm = isG ? (sph ? sph.label.split(" ")[0] : "") : "★";
     const item = { ...it, ds, noDrag: !draggable };
     const small = h < 40;
     const t = it.kind === "g" ? it.e.title : it.t.name;
@@ -593,6 +597,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     return (
       <div key={it.key} data-item className={"tb-card" + (isG ? " is-g" : " is-t") + (past ? " is-past" : "") + (done ? " is-done" : "") + (sel ? " is-sel" : "") + (draggable ? " is-drag" : "") + (ghost && ghost.key === it.key && ghost.kind !== "create" ? " is-lifted" : "")} style={style}
         onMouseDown={e => beginDrag(e, "move", item)}>
+        {wm && <span className="tb-wm" aria-hidden style={!isG ? { color: col } : undefined}>{wm}</span>}
         <div className={"tb-card-in" + (small ? " is-small" : "")}>
           <div className="tb-card-t">
             {!isG && (
@@ -732,7 +737,7 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
                   onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} />
               </div>
             ))}
-            <p className="tb-note">Tâche = fond plein · événement Google = fond léger en pointillés.</p>
+            <p className="tb-note">Pour les événements Google (choisis la catégorie à la création). Tâche To-do = couleur de son objectif du mois, ★, grise sans objectif.</p>
           </div>
           <div className="tb-set-sec">
             <div className="tb-gl">Mes calendriers</div>
