@@ -85,12 +85,12 @@ export default function EventPanel({ ev, cals, editable, busy, err, onSave, onDe
         </div>
         <div className="tb-ep-row">
           <span className="tb-ep-ic">🏷</span>
-          <select className="tb-ep-field" value={f.sphere} disabled={ro} onChange={e => set("sphere", e.target.value)}>
+          <select className="tb-ep-field" value={f.sphere} disabled={ro} onChange={e => setF(s => ({ ...s, sphere: e.target.value, colorId: e.target.value ? null : s.colorId }))}>
             <option value="">Catégorie : aucune (couleur du calendrier)</option>
             {Object.entries(P.spheres).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
-        <div className="tb-ep-row tb-ep-flex">
+        {!f.sphere && <div className="tb-ep-row tb-ep-flex">
           <span className="tb-ep-ic tb-ep-wheel" aria-hidden />
           <div className="tb-ep-sw">
             <button className={"tb-ep-swb" + (!f.colorId ? " is-on" : "")} style={{ background: cal?.color || "#7d7896", color: "#0b0916" }} disabled={ro} onClick={() => set("colorId", null)} title="Couleur du calendrier" aria-label="Couleur du calendrier">{!f.colorId ? "✓" : ""}</button>
@@ -98,7 +98,7 @@ export default function EventPanel({ ev, cals, editable, busy, err, onSave, onDe
               <button key={c.id} className={"tb-ep-swb" + (f.colorId === c.id ? " is-on" : "")} style={{ background: c.hex, color: "#0b0916" }} disabled={ro} onClick={() => set("colorId", c.id)} title={c.name} aria-label={c.name}>{f.colorId === c.id ? "✓" : ""}</button>
             ))}
           </div>
-        </div>
+        </div>}
         <div className="tb-ep-row">
           {ev.isNew
             ? <select className="tb-ep-field" value={f.repeat} disabled={ro} onChange={e => set("repeat", e.target.value)}>{REPEATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
