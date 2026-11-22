@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase, loadUserData, hydrateLocalStorage, syncToSupabase, trackHydration } from "./supabase";
+import { hasPendingSync } from "./utils/storage";
 import PolarisLogo from "./PolarisLogo";
 import { LegalFooter } from "./components/legal/LegalPages";
 import { loadConsents, storePendingConsents, clearPendingConsents } from "./state/consent";
@@ -83,7 +84,7 @@ export default function AuthGate({ children }) {
 
     // Re-sync silencieux depuis Supabase au retour d'onglet (sans reload, on reste en place).
     const onVisible = () => {
-      if (document.visibilityState === "visible" && sessionRef.current) {
+      if (document.visibilityState === "visible" && sessionRef.current && !hasPendingSync()) {
         trackHydration(loadUserData(sessionRef.current.user.id).then(data => {
           if (data) hydrateLocalStorage(data);
         })).catch(() => {});

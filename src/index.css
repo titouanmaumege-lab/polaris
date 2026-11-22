@@ -1018,3 +1018,20 @@ button:active {
 :root { --zk: 1; }
 @media (min-width: 900px) { :root { zoom: 0.75; --zk: 1.3333; } }
 
+
+/* Vue Plan : détail du temps de chaque tâche */
+.hm-row-rich { align-items: flex-start; padding-top: 12px; padding-bottom: 12px; }
+.hm-row-rich .hm-dot { margin-top: 7px; }
+.hm-row-rich .hm-box { margin-top: 2px; }
+.hm-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.hm-row-rich .hm-row-name { text-align: left; white-space: normal; }
+.hm-slots { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.hm-slot-sum { font-size: 12px; color: #9a93bd; margin-right: 4px; }
+.hm-slot-sum b { color: #d6d0f0; }
+.hm-slot-sum em { font-style: normal; color: #2ee59d; }
+.hm-slot { font-size: 11.5px; padding: 3px 9px; border-radius: 999px; background: rgba(176,102,255,.14); border: 1px solid rgba(176,102,255,.35); color: #d9c6ff; white-space: nowrap; text-transform: capitalize; }
+.hm-slot.is-done { background: rgba(46,229,157,.12); border-color: rgba(46,229,157,.4); color: #7ff0c4; }
+.hm-slot.is-late { background: rgba(255,92,92,.12); border-color: rgba(255,92,92,.45); color: #ff9a9a; }
+.hm-slot.is-none, .hm-slot.is-more { background: transparent; border-style: dashed; border-color: rgba(255,255,255,.18); color: #8a82b0; text-transform: none; }
+.hm-slot-bar { height: 3px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; max-width: 260px; }
+.hm-slot-bar i { display: block; height: 100%; background: #2ee59d; border-radius: 3px; }

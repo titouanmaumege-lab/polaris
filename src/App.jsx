@@ -1583,6 +1583,18 @@ function HomeMonthWeek({ today, week }) {
   );
 }
 
+// Détail du temps d’une tâche : créneaux prévus et déjà faits (pour un projet : ses blocs).
+const fmtSlotMin = m => m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? " " + String(m % 60).padStart(2, "0") : ""}` : `${m} min`;
+const fmtSlotHour = m => `${Math.floor(m / 60)}h${m % 60 ? String(m % 60).padStart(2, "0") : ""}`;
+const fmtSlotDay = ds => new Date(ds + "T12:00:00").toLocaleDateString("fr-FR", { weekday: "short", day: "numeric" });
+function slotDetail(t, todos, today) {
+  const blocks = t.gtd === "projet" ? todos.filter(b => b.blockOf === t.id && b.slotDate && b.slotMin) : (t.slotDate && t.slotMin ? [t] : []);
+  const byTime = (a, b) => (a.slotDate + String(a.slotStart).padStart(4, "0")).localeCompare(b.slotDate + String(b.slotStart).padStart(4, "0"));
+  const todo = blocks.filter(b => !b.done).sort(byTime);
+  const done = blocks.filter(b => b.done).sort(byTime);
+  const sum = a => a.reduce((n, b) => n + b.slotMin, 0);
+  return { todo, done, mTodo: sum(todo), mDone: sum(done), n: blocks.length };
+}
 function HomeSteps({ today, col, todos, results, week, cal, onDone, onOpen, onAdd }) {
   const [all, setAll] = useState(false);
   const [view, setView] = useState(() => { try { return localStorage.getItem(HM_VIEW_KEY) || "steps"; } catch { return "steps"; } });
@@ -1633,10 +1645,26 @@ function HomeSteps({ today, col, todos, results, week, cal, onDone, onOpen, onAd
             )}
             {shown.map(t => {
               const w = whenOf(t);
+              const d = slotDetail(t, todos, today);
+              const chips = [...d.done.map(b => ({ b, st: "done" })), ...d.todo.map(b => ({ b, st: b.slotDate < today ? "late" : "todo" }))];
               return (
-                <div key={t.id} className="hm-row">
+                <div key={t.id} className="hm-row hm-row-rich">
                   <span className="hm-dot" style={{ background: color }} />
-                  <button onClick={() => onOpen(t.id)} className="hm-row-name">{t.name}</button>
+                  <div className="hm-row-main">
+                    <button onClick={() => onOpen(t.id)} className="hm-row-name">{t.name}</button>
+                    <div className="hm-slots">
+                      {d.n === 0 ? <span className="hm-slot is-none">Pas encore planifiée</span> : <>
+                        <span className="hm-slot-sum"><b>{d.todo.length}</b> créneau{d.todo.length > 1 ? "x" : ""} prévu{d.todo.length > 1 ? "s" : ""} · {fmtSlotMin(d.mTodo)}{d.done.length ? <> · <em>{fmtSlotMin(d.mDone)} fait{d.mDone > 0 ? "es" : ""}</em></> : null}</span>
+                        {chips.slice(0, 5).map(({ b, st }) => (
+                          <span key={b.id} className={"hm-slot is-" + st} title={st === "done" ? "Fait" : st === "late" ? "Créneau passé, pas fait" : "Prévu"}>
+                            {st === "done" ? "✓ " : st === "late" ? "⚠ " : ""}{fmtSlotDay(b.slotDate)} · {fmtSlotHour(b.slotStart)}–{fmtSlotHour(b.slotStart + b.slotMin)}
+                          </span>
+                        ))}
+                        {chips.length > 5 && <span className="hm-slot is-more">+{chips.length - 5}</span>}
+                      </>}
+                    </div>
+                    {d.n > 0 && d.mDone > 0 && <div className="hm-slot-bar" aria-hidden="true"><i style={{ width: Math.round(d.mDone / (d.mDone + d.mTodo) * 100) + "%" }} /></div>}
+                  </div>
                   {w && <span className={`hm-when${w === "À reprendre" ? " is-late" : ""}`}>{w}</span>}
                   <button onClick={() => onDone(t.id)} className="hm-box" aria-label={`Marquer fait : ${t.name}`} />
                 </div>
@@ -2865,7 +2893,7 @@ const taskReady = (f, needGoal) => !!f.gtd && f.name.trim() &&
 
 const taskFromForm = (f, sousTaches = []) => {
   const u = { name:f.name.trim(), gtd:f.gtd, sphere:f.sphere || undefined };
-  if (f.gtd === "projet") Object.assign(u, { matrice:f.matrice || undefined, dateDebut:f.dateDebut || undefined, dateFin:f.dateFin, dateFinType:f.dateFinType || "duedate", statut:f.statut || "a_planifier", sousTaches, objectifId:f.objectifId || undefined, objectifMensuelId:undefined });
+  if (f.gtd === "projet") Object.assign(u, { matrice:f.matrice || undefined, dateDebut:undefined, dateFin:f.dateFin, dateFinType:"deadline", statut:f.statut || "a_planifier", sousTaches, objectifId:f.objectifId || undefined, objectifMensuelId:undefined });
   else if (f.gtd === "memo")    u.dateAssignee = f.dateAssignee;
   else if (f.gtd === "check")   u.dateAssignee = f.dateAssignee || undefined;
   else if (f.gtd === "waiting") Object.assign(u, { waitingFor:f.waitingFor.trim(), waitingNote:f.waitingNote || undefined, dateAssignee:f.dateAssignee || undefined });
@@ -2963,12 +2991,7 @@ function TaskTriageFields({ form, set }) {
 
   return (<>
     {g === "memo" && dateField("dateAssignee", "Quel jour ? *")}
-    {g === "projet" && (
-      <div style={{ marginBottom:14 }}>
-        <div style={lbl}>Dates *</div>
-        <DateRangePicker start={form.dateDebut} end={form.dateFin} onChange={(a, b) => set({ dateDebut:a, dateFin:b })} />
-      </div>
-    )}
+    {g === "projet" && dateField("dateFin", "🔴 Deadline *")}
     {g === "projet" && <ObjectifLinkPicker value={form.objectifId} onChange={v => set({ objectifId:v })} required />}
     {g === "waiting" && (
       <div style={{ marginBottom:14 }}>
@@ -2978,7 +3001,7 @@ function TaskTriageFields({ form, set }) {
     )}
 
     <button onClick={() => setMore(m => !m)} style={{ display:"inline-flex", alignItems:"center", gap:6, marginBottom:more ? 12 : 4, background:"transparent", border:"none", color:C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer", padding:0 }}>
-      {more ? "▾" : "▸"} Plus <span style={{ color:C.faint }}>(sphère{g === "projet" ? ", matrice, dates" : ""}{g !== "someday" ? ", récurrence" : ""})</span>
+      {more ? "▾" : "▸"} Plus <span style={{ color:C.faint }}>(sphère{g === "projet" ? ", matrice" : ""}{g !== "someday" ? ", récurrence" : ""})</span>
     </button>
 
     {more && (<>
@@ -2998,11 +3021,6 @@ function TaskTriageFields({ form, set }) {
               <button key={k} onClick={() => set({ matrice:form.matrice === k ? null : k })} style={{ padding:"10px", borderRadius:12, border:`1px solid ${form.matrice === k ? C.accent : C.border}`, background:form.matrice === k ? C.accentBg : C.surface2, color:form.matrice === k ? C.accent : C.muted, fontSize:11, fontFamily:"inherit", cursor:"pointer", textAlign:"center" }}>{v.label}</button>
             ))}
           </div>
-        </div>
-        <div style={{ display:"flex", gap:8, marginBottom:14 }}>
-          {[["deadline", "🔴 Deadline"], ["duedate", "🔵 Due Date"]].map(([k, l]) => (
-            <button key={k} onClick={() => set({ dateFinType:k })} style={{ flex:1, padding:9, borderRadius:10, border:`1px solid ${form.dateFinType === k ? C.accent : C.border}`, background:form.dateFinType === k ? C.accentBg : "transparent", color:form.dateFinType === k ? C.accent : C.muted, fontSize:12, fontFamily:"inherit", cursor:"pointer" }}>{l}</button>
-          ))}
         </div>
       </>)}
       {(g === "check" || g === "waiting") && (
@@ -3350,7 +3368,7 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
 
   const handleSave = () => {
     const u={name:form.name,gtd:form.gtd,sphere:form.sphere||undefined};
-    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:form.dateDebut||undefined,dateFin:form.dateFin||form.dateDebut||undefined,dateFinType:form.dateFinType,statut:form.statut,sousTaches:form.sousTaches,objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
+    if(form.gtd==="projet") Object.assign(u,{matrice:form.matrice,dateDebut:undefined,dateFin:form.dateFin||undefined,dateFinType:"deadline",statut:form.statut,sousTaches:form.sousTaches,objectifId:form.objectifId||undefined,objectifMensuelId:undefined});
     else if(form.gtd==="memo"||form.gtd==="check") u.dateAssignee=form.dateAssignee||undefined;
     else if(form.gtd==="waiting") Object.assign(u,{waitingFor:form.waitingFor,waitingNote:form.waitingNote||undefined});
     onSave(u); onClose();
@@ -3395,14 +3413,9 @@ function EditModal({item, onSave, onDelete, onToggleDone, onClose}) {
               ))}
             </div>
           </div>
-          <div style={{marginBottom:12}}>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>Dates</div>
-            <DateRangePicker start={form.dateDebut} end={form.dateFin} onChange={(a,b)=>set({dateDebut:a,dateFin:b})}/>
-          </div>
-          <div style={{display:"flex",gap:8,marginBottom:12}}>
-            {[["deadline","🔴 Deadline"],["duedate","🔵 Due Date"]].map(([k,l])=>(
-              <button key={k} onClick={()=>set({dateFinType:k})} style={{flex:1,padding:9,borderRadius:10,border:`1px solid ${form.dateFinType===k?C.accent:C.border}`,background:form.dateFinType===k?C.accentBg:"transparent",color:form.dateFinType===k?C.accent:C.muted,fontSize:12,fontFamily:"inherit",cursor:"pointer"}}>{l}</button>
-            ))}
+          <div style={{marginBottom:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8}}>🔴 Deadline</div>
+            <input type="date" value={form.dateFin} onChange={e=>set({dateFin:e.target.value,dateDebut:""})} style={{width:"100%",background:C.surface2,border:`1px solid ${C.border}`,color:C.text,padding:9,borderRadius:10,fontSize:13,fontFamily:"inherit",outline:"none",boxSizing:"border-box"}}/>
           </div>
           <ObjectifLinkPicker value={form.objectifId} onChange={v=>set({objectifId:v})}/>
           <div style={{marginBottom:14}}>
@@ -3596,7 +3609,7 @@ function TaskCaptureModal({ initialName = "", onCreate, onClose }) {
 function TodoModule() {
   const C = CF, GRAD = CF_GRAD, GLOW = CF_GLOW, GLOW_SM = CF_GLOW_SM, FONT_D = CF_FONT;
   const {todos,addTodo,updateTodo,deleteTodo,toggleDone,restoreTodo,classifyInbox,getDoneItems,getByGTD} = useTodos();
-  const [tab, setTab]               = useState("semaine");
+  const [tab, setTab]               = useState("tout");
   const [showCapture, setShowCapture]= useState(false);
   const [clarifyId, setClarifyId]   = useState(null);
   const [editId, setEditId]         = useState(null);
@@ -3654,13 +3667,12 @@ function TodoModule() {
     return fmtDate(ds);
   };
 
-  const allItems = todos.filter(t=>!t.done&&!t.recurrence?.enabled).sort((a,b)=>((b.updatedAt||b.createdAt||'')).localeCompare(a.updatedAt||a.createdAt||''));
+  const allItems = todos.filter(t=>!t.done&&!t.blockOf&&!t.recurrence?.enabled).sort((a,b)=>((b.updatedAt||b.createdAt||'')).localeCompare(a.updatedAt||a.createdAt||''));
   const BADGE_COLORS = {inbox:C.accent,projet:'#6366f1',waiting:'#f97316',memo:'#64748b',someday:'#374151'};
   const TOUT_FILTERS = [["all","Tous"],["projet","Projets"],["waiting","Waiting"],["memo","Mémos"],["someday","Someday"]];
   const toutItems = toutFilter==="all" ? allItems : allItems.filter(t=>t.gtd===toutFilter);
 
   const TABS=[
-    {id:"semaine",   label:"Semaine",    cnt:null},
     {id:"tout",      label:"TOUT",       cnt:allItems.length},
     {id:"inbox",     label:"Inbox",      cnt:inboxItems.length},
     {id:"projets",   label:"Projets",    cnt:projets.length},
@@ -3692,9 +3704,6 @@ function TodoModule() {
       </div>
 
       <div style={{padding:"16px 16px 120px"}}>
-
-        {/* ── SEMAINE (calendrier sorti de Home) ── */}
-        {tab==="semaine"&&<div className="dash-cal todo-week"><WeeklyCalendar /></div>}
 
         {/* ── TOUT ── */}
         {tab==="tout"&&(
