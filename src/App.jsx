@@ -4492,6 +4492,7 @@ function HabitudesModule() {
   const [newGoalId, setNewGoalId] = useState("");
   const goals = getLS("lp_goals", {});
   const ltGoals = (goals.lt || []).filter(o => !o.archived && !isObjClosed(o.statut));
+  const triGoals = (goals.trimestriel || []).filter(o => !o.archived && isGoalRunning(o, todayStr()));
 
   const save = d => { setHabits(d); setLS("lp_habits", d); };
   const add  = () => {
@@ -4853,6 +4854,24 @@ function HabitudesModule() {
                 </div>
                 {isEditing && (
                   <div style={{background:C.surface3,borderRadius:"0 0 16px 16px",border:`1px solid ${C.border}`,borderTop:"none",padding:"12px 16px"}}>
+                    {/* ── La Cible : une habitude sert un objectif trimestriel, avec une fréquence cible ── */}
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Objectif trimestriel servi {!h.okrId && <span style={{color:C.amber}}>· à choisir</span>}</div>
+                      <select value={h.okrId||""} onChange={e=>update(h.id,{okrId:e.target.value||undefined})}
+                        style={{width:"100%",minHeight:40,background:C.surface2,border:`1px solid ${h.okrId?C.border:C.amber}`,color:h.okrId?C.text:C.muted,padding:"9px 12px",borderRadius:10,fontSize:12.5,fontFamily:"inherit",outline:"none",cursor:"pointer"}}>
+                        <option value="">Aucun</option>
+                        {triGoals.map(g=><option key={g.id} value={g.id}>{g.titre}</option>)}
+                      </select>
+                    </div>
+                    <div style={{marginBottom:10}}>
+                      <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Fréquence cible (jours par semaine)</div>
+                      <div style={{display:"flex",gap:6}}>
+                        {[1,2,3,4,5,6,7].map(n=>(
+                          <button key={n} onClick={()=>update(h.id,{freq:h.freq===n?undefined:n})}
+                            style={{flex:1,minHeight:36,borderRadius:8,border:`1px solid ${h.freq===n?C.accent:C.border}`,background:h.freq===n?C.accent:"transparent",color:h.freq===n?"#fff":C.muted,fontWeight:700,fontSize:12.5,cursor:"pointer"}}>{n}</button>
+                        ))}
+                      </div>
+                    </div>
                     {/* ── Effet cumulé : objectif, pourquoi, type, unité ── */}
                     {ltGoals.length>0 && (
                       <div style={{marginBottom:10}}>
@@ -6778,6 +6797,8 @@ function WeeklyReviewModal({ onClose, wkStart, onSaved }) {
                         <tr key={h.id} style={{borderTop:`1px solid ${C.border}`}}>
                           <td style={{padding:"8px 10px",color:C.text,fontWeight:500}}>
                             <span style={{marginRight:6}}>{h.emoji||"•"}</span>{h.name}
+                            {!h.okrId && <span title="Pas reliée à un objectif trimestriel" style={{marginLeft:6,fontSize:9.5,color:C.amber,border:`1px solid ${C.amber}`,borderRadius:999,padding:"1px 6px"}}>sans objectif</span>}
+                            {h.freq ? <span style={{marginLeft:6,fontSize:10,color:total>=h.freq?C.green:C.faint}}>{total}/{h.freq} j</span> : null}
                           </td>
                           {weekDays.map(d=>{
                             const st=(h.dailyStatus||{})[d]??null;
