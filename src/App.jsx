@@ -1640,6 +1640,24 @@ function HomeSteps({ today, col, todos, results, week, cal, onDone, onOpen, onAd
           {isWeek ? (
             <div className="hm-week-full"><PlanDuJour embedded today={today} todos={todos} {...cal} /></div>
           ) : (<>
+            {col && (col.m.krs || []).length > 0 && (
+              <div className="hm-krs">
+                <div className="hm-sec">🎯 Key results</div>
+                {col.m.krs.map(k => {
+                  const p = Math.max(0, Math.min(100, Math.round(krPct(k))));
+                  const fmtN = n => (n == null || n === "" ? "" : String(Math.round(Number(n) * 100) / 100));
+                  return (
+                    <div key={k.id} className="hm-kr">
+                      <span className="hm-kr-name">{k.nom}</span>
+                      <span className="hm-kr-val">{fmtN(k.actuelle ?? k.depart)} / {fmtN(k.cible)}</span>
+                      <div className="hm-kr-bar" aria-hidden="true"><i style={{ width: p + "%", background: color }} /></div>
+                      <span className="hm-kr-pct">{p}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {col && list.length > 0 && <div className="hm-sec">🗓️ Tâches &amp; créneaux</div>}
             {list.length === 0 && (
               <p className="hm-empty">{col ? "Aucune étape pour cet objectif. Écris la prochaine action." : "Rien d'autre aujourd'hui."}</p>
             )}
