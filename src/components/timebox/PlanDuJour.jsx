@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { todoGoalId } from "../../utils/goalLinks";
 import { fmtMin } from "../../utils/date";
+import { P } from "../../state/perso";
+import { getLS, setLS } from "../../utils/storage";
 import {
   isLinked, hasToken, ensureToken, canEdit, requestToken, disconnect, getPrefs, setPrefs, localDS, eventColor, EVENT_COLORS,
   listCalendars, fetchRange, createEvent, patchEvent, deleteEvent, addMeet, pushBlocks,
@@ -204,7 +206,16 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     cap.cols.forEach(c => { m[c.m.id] = { color: c.color, label: c.m.titre }; });
     return m;
   }, [cap]);
-  const info = t => colorOf[todoGoalId(t)] || { color: GREY, label: "Sans objectif du mois" };
+  // Couleur d’une tâche = sa catégorie (sphère : sport, business…), plus celle de l’objectif du mois.
+  const [, bumpCat] = useState(0);
+  const setSphereColor = (k, hex) => {
+    if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+    const sp = P.spheres[k]; if (!sp) return;
+    sp.c = hex.toLowerCase();
+    setLS("lp_personalization", { ...getLS("lp_personalization", {}), spheres: P.spheres });
+    bumpCat(n => n + 1);
+  };
+  const info = t => ({ color: P.spheres[t.sphere]?.c || GREY, label: (colorOf[todoGoalId(t)] || { label: "Sans objectif du mois" }).label });
   const calCol = useMemo(() => { const m = {}; cals.forEach(c => { m[c.id] = calColors[c.id] || c.color; }); return m; }, [cals, calColors]);
   const evColor = e => eventColor(e.colorId) || calCol[e.calId] || e.color;
   const writable = useMemo(() => cals.filter(c => c.writable).map(c => ({ ...c, color: calCol[c.id] || c.color })), [cals, calCol]);
@@ -570,9 +581,10 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
     const done = !isG && it.t.done;
     const sel = !isG && blockSel === it.t.id;
     const draggable = isG ? editable(it.e) : !it.t.done;
+    // Tâche Polaris = fond plein ; événement Google = fond léger, bord en pointillés.
     const style = {
       top: topOf(a) + 1, height: h, left: `calc(${it.lane * 100 / it.lanes}% + 2px)`, width: `calc(${100 / it.lanes}% - 4px)`,
-      background: col + "26", borderColor: col + "55", borderLeftColor: col, "--c": col,
+      background: isG ? col + "14" : col + "55", borderColor: isG ? col + "66" : col + "aa", borderLeftColor: col, borderStyle: isG ? "dashed" : "solid", "--c": col,
     };
     const item = { ...it, ds, noDrag: !draggable };
     const small = h < 40;
@@ -709,6 +721,19 @@ export function PlanDuJour({ today, todos, updateTodo, addTodo, batchTodos, togg
           <label className="tb-set-r"><span>Durée par défaut</span><select value={ui.dur} onChange={e => patchUi({ dur: Number(e.target.value) })}>{[15, 25, 30, 45, 60, 90].map(m => <option key={m} value={m}>{fmtMin(m)}</option>)}</select></label>
           <label className="tb-set-r"><span>Mode compact</span><input type="checkbox" checked={ui.compact} onChange={e => patchUi({ compact: e.target.checked })} /></label>
           <label className="tb-set-r"><span>Griser les événements passés</span><input type="checkbox" checked={ui.gray} onChange={e => patchUi({ gray: e.target.checked })} /></label>
+          <div className="tb-set-sec">
+            <div className="tb-gl">Couleurs des catégories</div>
+            {Object.entries(P.spheres).map(([k, v]) => (
+              <div key={k} className="tb-catc">
+                <input type="color" value={v.c} onChange={e => setSphereColor(k, e.target.value)} aria-label={"Couleur " + v.label} />
+                <span>{v.label}</span>
+                <input className="tb-catc-hex" defaultValue={v.c} key={v.c} maxLength={7} spellCheck={false}
+                  onBlur={e => { const x = e.target.value.trim(); setSphereColor(k, x.startsWith("#") ? x : "#" + x); }}
+                  onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+              </div>
+            ))}
+            <p className="tb-note">Tâche = fond plein · événement Google = fond léger en pointillés.</p>
+          </div>
           <div className="tb-set-sec">
             <div className="tb-gl">Mes calendriers</div>
             {gState === "off" && <p className="tb-note">Connecte Google Agenda pour voir tes calendriers.</p>}

@@ -316,3 +316,8 @@
 .tb-check .tb-ck:active { background: #2ee59d; color: #0b0916; }
 .tb-set { max-height: calc(100vh * var(--zk) - 90px); overflow-y: auto; }
 .tb-set-sec { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+
+.tb-catc { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12.5px; }
+.tb-catc input[type=color] { width: 26px; height: 26px; padding: 0; border: 1px solid rgba(255,255,255,.2); border-radius: 6px; background: none; cursor: pointer; }
+.tb-catc span { flex: 1; }
+.tb-catc-hex { width: 78px; font: inherit; font-size: 12px; text-transform: lowercase; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); color: inherit; border-radius: 6px; padding: 3px 6px; }
