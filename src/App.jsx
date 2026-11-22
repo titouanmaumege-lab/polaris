@@ -4453,11 +4453,6 @@ function HabitSheet({ habit, habits, goals, onClose, onEdit, onSavePourquoi, onO
           )}
         </div>
 
-        {/* Liens */}
-        <div style={{ marginTop:SHEET_GAP }}>
-          <HabitLinks habit={habit} habits={habits} today={t} onOpenHabit={onOpenHabit} />
-        </div>
-
         {onEdit && (
           <button onClick={onEdit} style={{
             width:"100%", minHeight:46, marginTop:SHEET_GAP, borderRadius:12, background:"transparent", border:`1px solid ${C.borderMid}`,
