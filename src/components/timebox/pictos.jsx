@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 
-// Banque de pictogrammes (traits, viewBox 48). Chaque entrée : [nom, éléments].
-// Élément = chaîne (tracé) | { c: [cx, cy, r] } cercle | { r: [x, y, w, h, rx] } rectangle.
+// Banque de base (traits, viewBox 48) : [nom, éléments].
 const B = {
   dumbbell: ["Haltère", ["M6 19v10M11 15v18M37 15v18M42 19v10M11 24h26"]],
   chart: ["Courbe de croissance", ["M8 40V28M18 40V20M28 40V24M38 40V10M30 10h8v8"]],
@@ -31,12 +31,38 @@ const B = {
 };
 
 export const PICTO_KEYS = Object.keys(B).filter(k => k !== "star");
-export const pictoName = k => B[k]?.[0] || "";
-// Pictogramme par défaut des catégories d’origine.
 const DEFAULT = { business: "chart", master: "book", sport: "dumbbell", perso: "eye", pro: "laptop" };
-export const pictoOf = (key, sphere) => (sphere && B[sphere.i] ? sphere.i : DEFAULT[key] || null);
+
+// ── Grande bibliothèque (Lucide, ~2100 icônes), chargée à la demande.
+let LIB = null, libP = null;
+const subs = new Set();
+const loadLib = () => {
+  if (LIB) return Promise.resolve(LIB);
+  if (!libP) libP = import("./pictos-data.json").then(m => { LIB = m.default || m; subs.forEach(f => f()); return LIB; });
+  return libP;
+};
+function useLib() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const f = () => force(n => n + 1);
+    subs.add(f);
+    loadLib();
+    return () => subs.delete(f);
+  }, []);
+  return LIB;
+}
+const isL = k => typeof k === "string" && k.startsWith("l:");
+
+export const pictoName = k => (isL(k) ? k.slice(2) : B[k]?.[0] || "");
+export const pictoOf = (key, sphere) => (sphere && sphere.i && (B[sphere.i] || isL(sphere.i)) ? sphere.i : DEFAULT[key] || null);
 
 export function Picto({ k, size = 24, fill = false, style }) {
+  const lib = isL(k) ? useLib() : null; // eslint-disable-line react-hooks/rules-of-hooks
+  if (isL(k)) {
+    const inner = lib?.[k.slice(2)]?.[0];
+    if (!inner) return <span style={{ display: "inline-block", width: size, height: size, ...style }} />;
+    return <svg viewBox="0 0 24 24" width={size} height={size} fill={fill ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={style} dangerouslySetInnerHTML={{ __html: inner }} />;
+  }
   const items = B[k]?.[1];
   if (!items) return null;
   return (
@@ -46,26 +72,103 @@ export function Picto({ k, size = 24, fill = false, style }) {
   );
 }
 
-// Sélecteur : un bouton qui ouvre la grille de la banque.
+// Mots français → anglais (la bibliothèque est en anglais).
+const FR = {
+  sport: "sport dumbbell fitness gym run", muscu: "dumbbell weight gym", course: "run footprints timer", courir: "run footprints",
+  velo: "bike bicycle", vélo: "bike bicycle", nager: "waves swim", natation: "waves swim", marche: "footprints walk", rando: "mountain footprints",
+  montagne: "mountain", plage: "umbrella waves sun", soleil: "sun", lune: "moon", nuit: "moon", dormir: "bed moon", sommeil: "bed moon", lit: "bed",
+  repas: "utensils soup", manger: "utensils apple", cuisine: "chef-hat utensils", nourriture: "apple pizza utensils", boire: "cup-soda coffee glass-water", eau: "droplet glass-water",
+  cafe: "coffee", café: "coffee", the: "coffee", thé: "coffee", biere: "beer", bière: "beer", vin: "wine",
+  travail: "briefcase laptop", bureau: "briefcase building", ordinateur: "laptop monitor", code: "code terminal", email: "mail", mail: "mail", message: "message-circle mail",
+  appel: "phone", telephone: "phone smartphone", téléphone: "phone smartphone", reunion: "users presentation", réunion: "users presentation",
+  argent: "coin wallet banknote euro", euro: "euro", business: "briefcase chart trending-up", vente: "shopping-cart tag", client: "users handshake", clients: "users handshake",
+  etude: "graduation-cap book", étude: "graduation-cap book", etudes: "graduation-cap book", études: "graduation-cap book", cours: "book-open graduation-cap", livre: "book", lire: "book-open", lecture: "book-open", ecrire: "pen pencil", écrire: "pen pencil",
+  maison: "house", menage: "brush-cleaning spray-can", ménage: "brush-cleaning spray-can", courses: "shopping-cart shopping-basket", voiture: "car", route: "route car", voyage: "plane luggage", avion: "plane", train: "train",
+  famille: "users baby heart", amis: "users party-popper", ami: "users", copine: "heart", amour: "heart", fete: "party-popper", fête: "party-popper", soiree: "party-popper wine", soirée: "party-popper wine",
+  sante: "heart-pulse stethoscope", santé: "heart-pulse stethoscope", medecin: "stethoscope", médecin: "stethoscope", kine: "hand-heart bandage", kiné: "hand-heart bandage", recuperation: "bed heart-pulse", récupération: "bed heart-pulse",
+  idee: "lightbulb", idée: "lightbulb", cible: "target", objectif: "target flag", but: "target flag", trophee: "trophy medal", trophée: "trophy medal", victoire: "trophy medal", competition: "trophy medal", compétition: "trophy medal",
+  temps: "clock timer hourglass", heure: "clock", calendrier: "calendar", rappel: "bell", alarme: "alarm-clock", reveil: "alarm-clock", réveil: "alarm-clock",
+  musique: "music headphones", film: "film clapperboard", video: "video camera", vidéo: "video camera", photo: "camera image", jeu: "gamepad-2 dices", jeux: "gamepad-2 dices", animal: "paw-print dog cat", chien: "dog", chat: "cat",
+  meteo: "cloud-sun", météo: "cloud-sun", pluie: "cloud-rain", neige: "snowflake", feu: "flame", energie: "zap battery", énergie: "zap battery", eclair: "zap", éclair: "zap",
+  meditation: "brain flower", méditation: "brain flower", cerveau: "brain", esprit: "brain eye", vision: "eye telescope", reflexion: "brain lightbulb", réflexion: "brain lightbulb", priere: "hand-heart", prière: "hand-heart",
+  rugby: "trophy dumbbell footprints", foot: "trophy footprints", tennis: "trophy", boxe: "swords dumbbell", yoga: "flower person-standing", etirement: "person-standing", étirement: "person-standing",
+  idees: "lightbulb", idées: "lightbulb", note: "notebook-pen sticky-note", notes: "notebook-pen sticky-note", liste: "list-checks", tache: "square-check list-checks", tâche: "square-check list-checks",
+  rendez: "calendar users", rdv: "calendar users", trajet: "car route", telephone2: "phone",
+};
+const norm = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const FRN = Object.fromEntries(Object.entries(FR).map(([k, v]) => [norm(k), v]));
+
+const STEP = 120;
+
+function PictoModal({ value, onChange, onClose, color }) {
+  const lib = useLib();
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(STEP);
+
+  useEffect(() => {
+    const kd = e => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); onClose(); } };
+    window.addEventListener("keydown", kd, true);
+    return () => window.removeEventListener("keydown", kd, true);
+  }, [onClose]);
+  useEffect(() => setShown(STEP), [q]);
+
+  const base = useMemo(() => PICTO_KEYS.map(k => ({ k, name: B[k][0], hay: norm(B[k][0] + " " + k) })), []);
+  const all = useMemo(() => (lib ? Object.keys(lib).map(n => ({ k: "l:" + n, name: n, hay: n + " " + lib[n][1] })) : []), [lib]);
+
+  const results = useMemo(() => {
+    const terms = norm(q).split(/\s+/).filter(Boolean);
+    if (!terms.length) return [...base, ...all];
+    const exp = terms.map(t => t + " " + (FRN[t] || ""));
+    const ok = it => exp.every(e => e.split(" ").some(w => w && it.hay.includes(w)) || it.hay.includes(e.trim()));
+    return [...base, ...all].filter(ok);
+  }, [q, base, all]);
+
+  const pick = k => { onChange(k); onClose(); };
+
+  return createPortal(
+    <div onClick={e => { e.stopPropagation(); onClose(); }} onMouseDown={e => e.stopPropagation()}
+      style={{ position: "fixed", inset: 0, zIndex: 100000, background: "rgba(5,3,15,0.7)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} role="dialog" aria-label="Choisir un pictogramme"
+        style={{ width: "min(640px, 100%)", maxHeight: "min(640px, 88vh)", display: "flex", flexDirection: "column", borderRadius: 16, background: "#15112b", border: "1px solid rgba(255,255,255,0.18)", boxShadow: "0 24px 64px rgba(0,0,0,0.6)", color: "#e8e4ff" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "14px 14px 10px" }}>
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Rechercher (sport, café, argent, voiture, cerveau…)"
+            style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color: "inherit", fontSize: 14, outline: "none" }} />
+          <button type="button" onClick={onClose} aria-label="Fermer" style={{ background: "none", border: "none", color: "#9a95b8", fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ padding: "0 14px 8px", fontSize: 11, color: "#9a95b8", display: "flex", justifyContent: "space-between" }}>
+          <span>{lib ? `${results.length} pictogramme${results.length > 1 ? "s" : ""}` : "Chargement de la bibliothèque…"}</span>
+          <button type="button" onClick={() => pick("")} style={{ background: "none", border: "none", color: "#b9b3e0", cursor: "pointer", fontSize: 11, textDecoration: "underline" }}>Pictogramme par défaut</button>
+        </div>
+        <div style={{ overflowY: "auto", padding: "0 14px 14px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(52px, 1fr))", gap: 6, alignContent: "start" }}>
+          {results.slice(0, shown).map(it => (
+            <button type="button" key={it.k} title={it.name} aria-label={it.name} onClick={() => pick(it.k)}
+              style={{ aspectRatio: "1", borderRadius: 10, border: value === it.k ? `1.5px solid ${color}` : "1px solid rgba(255,255,255,0.06)", background: value === it.k ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.03)", color: value === it.k ? color : "#d8d4f0", cursor: "pointer", padding: 10 }}>
+              <Picto k={it.k} size={28} style={{ width: "100%", height: "100%" }} />
+            </button>
+          ))}
+          {!results.length && lib && <div style={{ gridColumn: "1 / -1", textAlign: "center", color: "#9a95b8", fontSize: 13, padding: 24 }}>Rien trouvé. Essaie un mot plus simple (ou en anglais).</div>}
+          {results.length > shown && (
+            <button type="button" onClick={() => setShown(s => s + STEP * 3)} style={{ gridColumn: "1 / -1", padding: 10, borderRadius: 10, border: "1px solid rgba(255,255,255,0.18)", background: "none", color: "#d8d4f0", cursor: "pointer", fontSize: 13 }}>
+              Afficher plus ({results.length - shown} restants)
+            </button>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// Bouton qui ouvre la fenêtre centrée de choix.
 export function PictoPicker({ value, onChange, color = "#b066ff", size = 30 }) {
   const [open, setOpen] = useState(false);
   return (
-    <span style={{ position: "relative", display: "inline-flex", flexShrink: 0 }}>
-      <button type="button" onClick={e => { e.stopPropagation(); setOpen(o => !o); }} title="Choisir un pictogramme" aria-label="Choisir un pictogramme"
+    <span style={{ display: "inline-flex", flexShrink: 0 }}>
+      <button type="button" onClick={e => { e.stopPropagation(); setOpen(true); }} title="Choisir un pictogramme" aria-label="Choisir un pictogramme"
         style={{ width: size, height: size, borderRadius: 8, border: "1px solid rgba(255,255,255,0.18)", background: "rgba(255,255,255,0.06)", color, cursor: "pointer", padding: 3, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
         {value ? <Picto k={value} size={size - 8} /> : <span style={{ fontSize: 11, opacity: 0.6 }}>+</span>}
       </button>
-      {open && (
-        <div onClick={e => e.stopPropagation()} style={{ position: "absolute", zIndex: 60, top: size + 4, left: 0, width: 232, padding: 8, borderRadius: 10, background: "#15112b", border: "1px solid rgba(255,255,255,0.18)", boxShadow: "0 12px 32px rgba(0,0,0,0.5)", display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 4 }}>
-          {PICTO_KEYS.map(k => (
-            <button type="button" key={k} title={pictoName(k)} aria-label={pictoName(k)} onClick={() => { onChange(k); setOpen(false); }}
-              style={{ aspectRatio: "1", borderRadius: 6, border: value === k ? `1.5px solid ${color}` : "1px solid transparent", background: value === k ? "rgba(255,255,255,0.1)" : "transparent", color: value === k ? color : "#d8d4f0", cursor: "pointer", padding: 4 }}>
-              <Picto k={k} size={22} />
-            </button>
-          ))}
-          <button type="button" onClick={() => { onChange(""); setOpen(false); }} style={{ gridColumn: "1 / -1", marginTop: 2, fontSize: 11, color: "#9a95b8", background: "none", border: "none", cursor: "pointer" }}>Pictogramme par défaut</button>
-        </div>
-      )}
+      {open && <PictoModal value={value} onChange={onChange} onClose={() => setOpen(false)} color={color} />}
     </span>
   );
 }
